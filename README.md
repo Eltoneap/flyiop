@@ -13,9 +13,15 @@ pip install -r requirements.txt
 cp .env.example .env   # preencha com seus tokens
 ```
 
-Edite `config.yaml` com suas rotas e metas reais.
+## App web (configurar rotas e ver histórico)
 
-Rodar manualmente:
+```bash
+python src/app.py
+```
+
+Abre em [http://localhost:5050](http://localhost:5050). Dashboard mostra o histórico e status de cada rota; em Configurações dá pra adicionar/editar/remover rotas e ajustar metas, tendência, modo de notificação e custo do milheiro — tudo grava direto no `config.yaml`.
+
+## Rodar a busca manualmente
 
 ```bash
 export $(cat .env | xargs)
