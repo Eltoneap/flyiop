@@ -1,19 +1,14 @@
-# Configuração do FlyIop — edite com suas rotas e metas reais
-
 routes:
-  - id: gru-lis
-    origin: GRU
-    destination: LIS
-    currency: BRL
-    target_price: 3500        # alerta se preço <= este valor
-    target_percent_below_avg: 15   # e/ou alerta se X% abaixo da média histórica da rota
-
+- id: gru-lis
+  origin: GRU
+  destination: LIS
+  currency: BRL
+  target_price: 3500
+  target_percent_below_avg: 15
 trend:
-  window_3d_pct: 10   # alerta se subir mais de 10% em 3 dias
-  window_7d_pct: 15   # alerta se subir mais de 15% em 7 dias
-
+  window_3d_pct: 10
+  window_7d_pct: 15
 notification:
-  mode: alert_only   # "alert_only" ou "daily_summary"
-
+  mode: alert_only
 miles:
-  cost_per_thousand_brl: 25.0   # quanto você paga pelo milheiro (R$ por 1000 milhas)
+  cost_per_thousand_brl: 25

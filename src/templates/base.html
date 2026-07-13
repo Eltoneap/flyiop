@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <title>FlyIop</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <nav>
+    <span class="brand">✈️ FlyIop</span>
+    <a href="{{ url_for('dashboard') }}" class="{{ 'active' if active == 'dashboard' else '' }}">Dashboard</a>
+    <a href="{{ url_for('config_page') }}" class="{{ 'active' if active == 'config' else '' }}">Configurações</a>
+  </nav>
+  <main>
+    {% if request.args.get('saved') %}
+      <div class="flash">Salvo com sucesso.</div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
