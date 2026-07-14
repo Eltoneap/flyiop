@@ -13,10 +13,18 @@ DEFAULT_SETTINGS = {
 }
 
 
+def entry_price(entry: dict) -> float:
+    # month-matrix (v2) devolve o preço em "value"; prices/cheap (v1) em "price"
+    value = entry.get("value", entry.get("price"))
+    if value is None:
+        raise KeyError(f"entrada sem preço reconhecível: {entry}")
+    return float(value)
+
+
 def cheapest_entry(month_matrix: list[dict]) -> dict | None:
     if not month_matrix:
         return None
-    return min(month_matrix, key=lambda entry: entry["price"])
+    return min(month_matrix, key=entry_price)
 
 
 def process_route(route: dict, settings: dict) -> None:
@@ -29,7 +37,7 @@ def process_route(route: dict, settings: dict) -> None:
         print(f"[{route_label}] sem dados retornados")
         return
 
-    price = cheapest["price"]
+    price = entry_price(cheapest)
     flight_date = cheapest.get("depart_date", "")
 
     insert_price(route["id"], flight_date, price, currency)
