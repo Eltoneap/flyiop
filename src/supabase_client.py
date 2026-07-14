@@ -38,10 +38,14 @@ def insert_price(route_id: str, flight_date: str, price: float, currency: str) -
 
 
 def get_price_history(route_id: str, days: int | None = None) -> list[dict]:
-    path = f"price_history?route_id=eq.{route_id}&select=checked_at,price&order=checked_at.asc"
+    params = {
+        "route_id": f"eq.{route_id}",
+        "select": "checked_at,price",
+        "order": "checked_at.asc",
+    }
     if days is not None:
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        path += f"&checked_at=gte.{since}"
-    resp = requests.get(_url(path), headers=_headers(), timeout=30)
+        params["checked_at"] = f"gte.{since}"
+    resp = requests.get(_url("price_history"), headers=_headers(), params=params, timeout=30)
     resp.raise_for_status()
     return resp.json()

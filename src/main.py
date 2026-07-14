@@ -13,6 +13,10 @@ DEFAULT_SETTINGS = {
 }
 
 
+def _to_float(value) -> float | None:
+    return float(value) if value is not None else None
+
+
 def entry_price(entry: dict) -> float:
     # month-matrix (v2) devolve o preço em "value"; prices/cheap (v1) em "price"
     value = entry.get("value", entry.get("price"))
@@ -45,15 +49,19 @@ def process_route(route: dict, settings: dict) -> None:
     history_30d = get_price_history(route["id"], days=30)
     history_prices = [float(h["price"]) for h in history_30d]
 
-    good, good_reason = is_good_price(
-        price, history_prices, route.get("target_price"), route.get("target_percent_below_avg")
-    )
+    target_price = _to_float(route.get("target_price"))
+    target_percent = _to_float(route.get("target_percent_below_avg"))
+    good, good_reason = is_good_price(price, history_prices, target_price, target_percent)
 
     history_7d = get_price_history(route["id"], days=7)
     recent = [(h["checked_at"], float(h["price"])) for h in history_7d]
-    trending_up, trend_reason = detect_trend(recent, settings["window_3d_pct"], settings["window_7d_pct"])
+    trending_up, trend_reason = detect_trend(
+        recent, float(settings["window_3d_pct"]), float(settings["window_7d_pct"])
+    )
 
-    miles_note = compare_cash_vs_miles(price, cheapest.get("miles_required"), settings["cost_per_thousand_brl"])
+    miles_note = compare_cash_vs_miles(
+        price, cheapest.get("miles_required"), float(settings["cost_per_thousand_brl"])
+    )
     print(f"[{route_label}] R$ {price:.2f} em {flight_date} — {miles_note}")
 
     should_alert = good or trending_up
