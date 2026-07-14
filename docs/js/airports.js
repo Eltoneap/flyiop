@@ -71,6 +71,10 @@ export function searchAirports(airports, query, limit = 8) {
   return [...starts, ...contains].slice(0, limit);
 }
 
+export function findByIata(airports, iata) {
+  return airports.find((a) => a.iata === iata);
+}
+
 export function attachAirportPicker({ searchInput, hiddenInput, listEl, airports, onSelect }) {
   function render(matches) {
     listEl.innerHTML = '';

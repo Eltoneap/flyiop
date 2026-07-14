@@ -35,7 +35,8 @@ def process_route(route: dict, settings: dict) -> None:
     origin, destination, currency = route["origin"], route["destination"], route["currency"]
     route_label = f"{origin} → {destination}"
 
-    matrix = get_month_matrix(origin, destination, currency)
+    trip_duration_weeks = int(route.get("trip_duration_weeks") or 1)
+    matrix = get_month_matrix(origin, destination, currency, trip_duration_weeks)
     cheapest = cheapest_entry(matrix)
     if cheapest is None:
         print(f"[{route_label}] sem dados retornados")

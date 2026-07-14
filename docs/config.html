@@ -21,13 +21,20 @@
 
     <section>
       <h2>Rotas monitoradas</h2>
+      <div class="tabs">
+        <button type="button" class="tab active" id="tab-active">Ativas</button>
+        <button type="button" class="tab" id="tab-archived">Arquivadas</button>
+      </div>
       <table>
         <thead>
-          <tr><th>Origem</th><th>Destino</th><th>Moeda</th><th>Meta (R$)</th><th>% abaixo da média</th><th></th></tr>
+          <tr>
+            <th>Origem</th><th>Destino</th><th>Moeda</th><th>Meta (R$)</th>
+            <th>% abaixo da média</th><th>Estadia (semanas)</th><th></th>
+          </tr>
         </thead>
         <tbody id="routes-body"></tbody>
       </table>
-      <p class="price-meta" id="routes-empty" style="display:none;">Nenhuma rota cadastrada ainda.</p>
+      <p class="price-meta" id="routes-empty" style="display:none;">Nenhuma rota ativa cadastrada ainda.</p>
     </section>
 
     <section>
@@ -57,6 +64,10 @@
           <div>
             <label>% abaixo da média</label>
             <input type="number" step="0.1" name="target_percent_below_avg" placeholder="15">
+          </div>
+          <div>
+            <label>Duração da estadia (semanas)</label>
+            <input type="number" step="1" min="1" name="trip_duration_weeks" value="1" required>
           </div>
         </div>
         <button type="submit">Adicionar rota</button>

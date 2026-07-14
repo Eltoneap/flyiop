@@ -19,7 +19,7 @@ def _url(path: str) -> str:
 
 
 def get_routes() -> list[dict]:
-    resp = requests.get(_url("routes?select=*"), headers=_headers(), timeout=30)
+    resp = requests.get(_url("routes?select=*&archived=eq.false"), headers=_headers(), timeout=30)
     resp.raise_for_status()
     return resp.json()
 

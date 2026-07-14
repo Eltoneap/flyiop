@@ -1,5 +1,7 @@
 import { supabase } from './supabase-client.js';
 import { requireAuth, wireLogout } from './auth-guard.js';
+import { loadAirports, findByIata } from './airports.js';
+import { buyingWindowAdvice } from './buying-window.js';
 
 const DEFAULT_SETTINGS = {
   window_3d_pct: 10,
@@ -30,7 +32,7 @@ function isTrendingUp(history, window3dPct, window7dPct) {
   return false;
 }
 
-function renderCard(route, history, settings) {
+function renderCard(route, history, settings, isDomestic) {
   const card = document.createElement('div');
   card.className = 'card';
 
@@ -45,15 +47,17 @@ function renderCard(route, history, settings) {
 
   const badgeClass = good ? 'good' : trending ? 'warn' : 'neutral';
   const badgeText = good ? 'Bom preço' : trending ? 'Alta de preço' : 'Normal';
+  const advice = buyingWindowAdvice(history, isDomestic);
 
   card.innerHTML = `
     <h3>${route.origin} → ${route.destination}</h3>
     ${latest != null ? `
       <span class="badge ${badgeClass}">${badgeText}</span>
       <div class="price">${route.currency} ${latest.toFixed(2)}</div>
-      <div class="price-meta">meta: ${route.target_price ?? '—'} · ${route.target_percent_below_avg ?? '—'}% abaixo da média</div>
+      <div class="price-meta">meta: ${route.target_price ?? '—'} · ${route.target_percent_below_avg ?? '—'}% abaixo da média · estadia ${route.trip_duration_weeks ?? 1} semana(s)</div>
       <canvas height="120"></canvas>
     ` : '<p class="price-meta">Ainda sem histórico. O robô roda diariamente via GitHub Actions.</p>'}
+    <div class="advisory ${advice.personalized ? 'personalized' : ''}">${advice.text}</div>
   `;
 
   if (latest != null) {
@@ -85,12 +89,11 @@ const session = await requireAuth();
 if (session) {
   wireLogout('logout');
 
-  const { data: routes } = await supabase.from('routes').select('*').order('created_at');
-  const { data: settingsRows } = await supabase
-    .from('settings')
-    .select('*')
-    .eq('user_id', session.user.id)
-    .limit(1);
+  const [{ data: routes }, { data: settingsRows }, airports] = await Promise.all([
+    supabase.from('routes').select('*').eq('archived', false).order('created_at'),
+    supabase.from('settings').select('*').eq('user_id', session.user.id).limit(1),
+    loadAirports(),
+  ]);
   const settings = settingsRows && settingsRows[0] ? settingsRows[0] : DEFAULT_SETTINGS;
 
   document.getElementById('notification-mode').textContent = settings.notification_mode;
@@ -104,11 +107,15 @@ if (session) {
     for (const route of routes) {
       const { data: history } = await supabase
         .from('price_history')
-        .select('checked_at, price')
+        .select('checked_at, flight_date, price')
         .eq('route_id', route.id)
         .order('checked_at', { ascending: true });
 
-      grid.appendChild(renderCard(route, history || [], settings));
+      const originAirport = findByIata(airports, route.origin);
+      const destinationAirport = findByIata(airports, route.destination);
+      const isDomestic = originAirport?.country === 'Brazil' && destinationAirport?.country === 'Brazil';
+
+      grid.appendChild(renderCard(route, history || [], settings, isDomestic));
     }
   }
 }

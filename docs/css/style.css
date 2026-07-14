@@ -271,3 +271,46 @@ ul.suggestions li {
 ul.suggestions li:hover {
   background: var(--neutral-bg);
 }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tabs .tab {
+  background: none;
+  color: var(--muted);
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 8px 4px;
+  margin-right: 20px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tabs .tab:hover {
+  background: none;
+  color: var(--text);
+}
+
+.tabs .tab.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+}
+
+.advisory {
+  background: var(--neutral-bg);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 10px;
+}
+
+.advisory.personalized {
+  background: #eff6ff;
+  color: var(--primary-dark);
+}
