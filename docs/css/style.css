@@ -37,16 +37,22 @@ nav .brand {
   color: var(--primary);
 }
 
-nav a {
+nav a, nav button.link {
   color: var(--muted);
   text-decoration: none;
   font-size: 14px;
   font-weight: 500;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
 }
 
-nav a.active, nav a:hover {
+nav a.active, nav a:hover, nav button.link:hover {
   color: var(--text);
 }
+
+nav .spacer { flex: 1; }
 
 main {
   max-width: 960px;
@@ -144,10 +150,6 @@ th, td {
 
 th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; }
 
-form.inline-row {
-  display: contents;
-}
-
 input, select {
   width: 100%;
   padding: 7px 9px;
@@ -184,11 +186,9 @@ button {
 }
 
 button:hover { background: var(--primary-dark); }
-
 button.danger { background: var(--warn); }
 button.danger:hover { background: #b91c1c; }
-
-button.small { padding: 5px 10px; font-size: 12px; }
+button.small { padding: 5px 10px; font-size: 12px; margin-right: 4px; }
 
 .flash {
   background: var(--good-bg);
@@ -197,6 +197,44 @@ button.small { padding: 5px 10px; font-size: 12px; }
   border-radius: 8px;
   font-size: 14px;
   margin-bottom: 20px;
+  display: none;
 }
 
 canvas { max-width: 100%; }
+
+.auth-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.auth-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 32px;
+  width: 100%;
+  max-width: 340px;
+}
+
+.auth-card h1 {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.auth-card label {
+  margin-top: 12px;
+}
+
+.auth-card button {
+  width: 100%;
+  margin-top: 20px;
+}
+
+.auth-error {
+  color: var(--warn);
+  font-size: 13px;
+  margin-top: 12px;
+  display: none;
+}

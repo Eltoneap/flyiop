@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FlyIop — Login</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <h1>✈️ FlyIop</h1>
+      <form id="login-form">
+        <label>E-mail</label>
+        <input type="email" name="email" required autocomplete="username">
+        <label>Senha</label>
+        <input type="password" name="password" required autocomplete="current-password">
+        <button type="submit">Entrar</button>
+        <p class="auth-error" id="login-error"></p>
+      </form>
+    </div>
+  </div>
+  <script type="module" src="js/login.js"></script>
+</body>
+</html>

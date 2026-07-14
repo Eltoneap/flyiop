@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FlyIop — Dashboard</title>
+  <link rel="stylesheet" href="css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <nav>
+    <span class="brand">✈️ FlyIop</span>
+    <a href="index.html" class="active">Dashboard</a>
+    <a href="config.html">Configurações</a>
+    <span class="spacer"></span>
+    <button type="button" class="link" id="logout">Sair</button>
+  </nav>
+  <main>
+    <div class="flash" id="flash">Salvo com sucesso.</div>
+    <h1>Dashboard</h1>
+    <p class="subtitle">Modo de notificação: <strong id="notification-mode">—</strong></p>
+
+    <div class="grid" id="routes-grid"></div>
+    <div class="empty-state" id="empty-state" style="display:none;">
+      Nenhuma rota configurada ainda. Vá em <a href="config.html">Configurações</a> para adicionar a primeira.
+    </div>
+  </main>
+  <script type="module" src="js/dashboard.js"></script>
+</body>
+</html>

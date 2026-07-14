@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FlyIop — Configurações</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">✈️ FlyIop</span>
+    <a href="index.html">Dashboard</a>
+    <a href="config.html" class="active">Configurações</a>
+    <span class="spacer"></span>
+    <button type="button" class="link" id="logout">Sair</button>
+  </nav>
+  <main>
+    <div class="flash" id="flash">Salvo com sucesso.</div>
+    <h1>Configurações</h1>
+    <p class="subtitle">Tudo aqui grava direto no banco (Supabase) — o robô diário já usa na próxima execução.</p>
+
+    <section>
+      <h2>Rotas monitoradas</h2>
+      <table>
+        <thead>
+          <tr><th>Origem</th><th>Destino</th><th>Moeda</th><th>Meta (R$)</th><th>% abaixo da média</th><th></th></tr>
+        </thead>
+        <tbody id="routes-body"></tbody>
+      </table>
+      <p class="price-meta" id="routes-empty" style="display:none;">Nenhuma rota cadastrada ainda.</p>
+    </section>
+
+    <section>
+      <h2>Adicionar rota</h2>
+      <form id="add-route-form">
+        <div class="form-grid">
+          <div>
+            <label>Origem (IATA)</label>
+            <input name="origin" placeholder="GRU" maxlength="3" required>
+          </div>
+          <div>
+            <label>Destino (IATA)</label>
+            <input name="destination" placeholder="LIS" maxlength="3" required>
+          </div>
+          <div>
+            <label>Moeda</label>
+            <input name="currency" value="BRL" required>
+          </div>
+          <div>
+            <label>Meta fixa (R$)</label>
+            <input type="number" step="0.01" name="target_price" placeholder="3500">
+          </div>
+          <div>
+            <label>% abaixo da média</label>
+            <input type="number" step="0.1" name="target_percent_below_avg" placeholder="15">
+          </div>
+        </div>
+        <button type="submit">Adicionar rota</button>
+      </form>
+    </section>
+
+    <section>
+      <h2>Tendência e preferências</h2>
+      <form id="settings-form">
+        <div class="form-grid">
+          <div>
+            <label>Alerta se subir mais de X% em 3 dias</label>
+            <input type="number" step="0.1" name="window_3d_pct">
+          </div>
+          <div>
+            <label>Alerta se subir mais de X% em 7 dias</label>
+            <input type="number" step="0.1" name="window_7d_pct">
+          </div>
+          <div>
+            <label>Modo de notificação</label>
+            <select name="notification_mode">
+              <option value="alert_only">Só alerta</option>
+              <option value="daily_summary">Resumo diário</option>
+            </select>
+          </div>
+          <div>
+            <label>Custo do seu milheiro (R$ / 1000 milhas)</label>
+            <input type="number" step="0.01" name="cost_per_thousand_brl">
+          </div>
+        </div>
+        <button type="submit">Salvar preferências</button>
+      </form>
+    </section>
+  </main>
+  <script type="module" src="js/config.js"></script>
+</body>
+</html>
