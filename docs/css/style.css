@@ -238,3 +238,36 @@ canvas { max-width: 100%; }
   margin-top: 12px;
   display: none;
 }
+
+.autocomplete {
+  position: relative;
+}
+
+ul.suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin: 4px 0 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 20;
+  display: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+ul.suggestions li {
+  padding: 7px 9px;
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+ul.suggestions li:hover {
+  background: var(--neutral-bg);
+}

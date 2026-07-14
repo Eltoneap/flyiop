@@ -1,5 +1,6 @@
 import { supabase } from './supabase-client.js';
 import { requireAuth, wireLogout } from './auth-guard.js';
+import { loadAirports, attachAirportPicker } from './airports.js';
 
 const DEFAULT_SETTINGS = {
   window_3d_pct: 10,
@@ -88,12 +89,34 @@ if (session) {
   await loadRoutes();
   await loadSettings(session.user.id);
 
-  document.getElementById('add-route-form').addEventListener('submit', async (e) => {
+  const airports = await loadAirports();
+  const addRouteForm = document.getElementById('add-route-form');
+
+  attachAirportPicker({
+    searchInput: document.getElementById('origin-search'),
+    hiddenInput: document.getElementById('origin-code'),
+    listEl: document.getElementById('origin-suggestions'),
+    airports,
+  });
+  attachAirportPicker({
+    searchInput: document.getElementById('destination-search'),
+    hiddenInput: document.getElementById('destination-code'),
+    listEl: document.getElementById('destination-suggestions'),
+    airports,
+  });
+
+  addRouteForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const form = e.target;
+
+    if (!form.origin.value || !form.destination.value) {
+      alert('Selecione a origem e o destino a partir da lista de sugestões (não digite o código livremente).');
+      return;
+    }
+
     const { error } = await supabase.from('routes').insert({
-      origin: form.origin.value.trim().toUpperCase(),
-      destination: form.destination.value.trim().toUpperCase(),
+      origin: form.origin.value,
+      destination: form.destination.value,
       currency: (form.currency.value.trim() || 'BRL').toUpperCase(),
       target_price: form.target_price.value ? Number(form.target_price.value) : null,
       target_percent_below_avg: form.target_percent_below_avg.value

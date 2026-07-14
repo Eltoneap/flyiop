@@ -34,13 +34,17 @@
       <h2>Adicionar rota</h2>
       <form id="add-route-form">
         <div class="form-grid">
-          <div>
-            <label>Origem (IATA)</label>
-            <input name="origin" placeholder="GRU" maxlength="3" required>
+          <div class="autocomplete">
+            <label>Origem</label>
+            <input type="text" id="origin-search" placeholder="Cidade, aeroporto ou código" autocomplete="off" required>
+            <input type="hidden" name="origin" id="origin-code">
+            <ul class="suggestions" id="origin-suggestions"></ul>
           </div>
-          <div>
-            <label>Destino (IATA)</label>
-            <input name="destination" placeholder="LIS" maxlength="3" required>
+          <div class="autocomplete">
+            <label>Destino</label>
+            <input type="text" id="destination-search" placeholder="Cidade, aeroporto ou código" autocomplete="off" required>
+            <input type="hidden" name="destination" id="destination-code">
+            <ul class="suggestions" id="destination-suggestions"></ul>
           </div>
           <div>
             <label>Moeda</label>
