@@ -5,26 +5,29 @@ BASE_URL = "https://api.travelpayouts.com"
 
 
 def get_month_matrix(
-    origin: str, destination: str, currency: str = "BRL", trip_duration_weeks: int = 1
+    origin: str,
+    destination: str,
+    currency: str = "BRL",
+    trip_duration_weeks: int | None = 1,
+    one_way: bool = False,
 ) -> list[dict]:
-    """Preço de ida e volta por dia do mês (endpoint month-matrix).
+    """Preço por dia do mês (endpoint month-matrix).
 
     one_way=false pede preço de ida+volta; trip_duration define a duração
-    da estadia em semanas. Sem isso a API devolve preço só de ida (default).
+    da estadia em semanas (opcional). one_way=true (default da API) devolve só ida.
     """
     token = os.environ["TRAVELPAYOUTS_TOKEN"]
-    resp = requests.get(
-        f"{BASE_URL}/v2/prices/month-matrix",
-        params={
-            "origin": origin,
-            "destination": destination,
-            "currency": currency,
-            "token": token,
-            "one_way": "false",
-            "trip_duration": trip_duration_weeks,
-        },
-        timeout=30,
-    )
+    params = {
+        "origin": origin,
+        "destination": destination,
+        "currency": currency,
+        "token": token,
+        "one_way": "true" if one_way else "false",
+    }
+    if trip_duration_weeks is not None:
+        params["trip_duration"] = trip_duration_weeks
+
+    resp = requests.get(f"{BASE_URL}/v2/prices/month-matrix", params=params, timeout=30)
     resp.raise_for_status()
     return resp.json().get("data", [])
 

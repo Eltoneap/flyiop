@@ -29,7 +29,21 @@ def process_route(route: dict, settings: dict) -> None:
     route_label = f"{origin} → {destination}"
 
     trip_duration_weeks = int(route.get("trip_duration_weeks") or 1)
-    matrix = get_month_matrix(origin, destination, currency, trip_duration_weeks)
+
+    # DEBUG temporário: comparar cobertura de dados entre variantes do endpoint
+    # (remover depois de identificar qual combinação retorna dados pra essas rotas)
+    matrix_one_way = get_month_matrix(origin, destination, currency, trip_duration_weeks=None, one_way=True)
+    matrix_round_trip = get_month_matrix(origin, destination, currency, trip_duration_weeks, one_way=False)
+    matrix_round_trip_no_duration = get_month_matrix(
+        origin, destination, currency, trip_duration_weeks=None, one_way=False
+    )
+    print(
+        f"[debug {route_label}] one_way={len(matrix_one_way)} "
+        f"ida_e_volta+duracao={len(matrix_round_trip)} "
+        f"ida_e_volta_sem_duracao={len(matrix_round_trip_no_duration)}"
+    )
+
+    matrix = matrix_round_trip or matrix_round_trip_no_duration or matrix_one_way
     cheapest = cheapest_entry(matrix)
     if cheapest is None:
         print(f"[{route_label}] sem dados retornados")
