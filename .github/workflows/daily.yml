@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: "0 11 * * *"   # 08:00 BRT
   workflow_dispatch:
+  push:
+    paths:
+      - "src/**"
+      - "requirements.txt"
+      - ".github/workflows/daily.yml"
 
 jobs:
   run:

@@ -1,7 +1,31 @@
 import os
+import time
+
 import requests
 
 BASE_URL = "https://api.travelpayouts.com"
+MAX_ATTEMPTS = 3
+BACKOFF_SECONDS = (1.5, 3.0)  # espera antes da 2a e da 3a tentativa
+
+
+def _get_with_retry(url: str, params: dict) -> requests.Response:
+    """GET com retry/backoff em 429 (rate limit) e 5xx (instabilidade do servidor)."""
+    last_error: Exception | None = None
+    for attempt in range(MAX_ATTEMPTS):
+        try:
+            resp = requests.get(url, params=params, timeout=30)
+            if resp.status_code == 429 or resp.status_code >= 500:
+                raise requests.HTTPError(f"HTTP {resp.status_code}", response=resp)
+            resp.raise_for_status()
+            return resp
+        except (requests.HTTPError, requests.ConnectionError, requests.Timeout) as error:
+            status = getattr(getattr(error, "response", None), "status_code", None)
+            retryable = status is None or status == 429 or status >= 500
+            if not retryable or attempt == MAX_ATTEMPTS - 1:
+                raise
+            last_error = error
+            time.sleep(BACKOFF_SECONDS[attempt])
+    raise last_error  # inalcançável, mas satisfaz o type checker
 
 
 def get_month_matrix(
@@ -33,23 +57,5 @@ def get_month_matrix(
     if trip_duration_weeks is not None:
         params["trip_duration"] = trip_duration_weeks
 
-    resp = requests.get(f"{BASE_URL}/v2/prices/month-matrix", params=params, timeout=30)
-    resp.raise_for_status()
+    resp = _get_with_retry(f"{BASE_URL}/v2/prices/month-matrix", params)
     return resp.json().get("data", [])
-
-
-def get_cheapest_prices(origin: str, destination: str, currency: str = "BRL") -> dict:
-    """Preços mais baratos encontrados recentemente (endpoint prices/cheap)."""
-    token = os.environ["TRAVELPAYOUTS_TOKEN"]
-    resp = requests.get(
-        f"{BASE_URL}/v1/prices/cheap",
-        params={
-            "origin": origin,
-            "destination": destination,
-            "currency": currency,
-            "token": token,
-        },
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json().get("data", {})

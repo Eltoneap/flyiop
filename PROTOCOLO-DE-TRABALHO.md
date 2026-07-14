@@ -2,7 +2,7 @@
 
 ## Status Atual
 
-_Verificado em 14/07/2026 direto no código e na infraestrutura real — não no que o `escopo-projeto-passagens.md` previa._
+_Verificado em 14/07/2026 direto no código e na infraestrutura real — não no que o `escopo-projeto-passagens.md` previa. Atualizado após a rodada "produto completo" (alerta rico, run_log, robustez)._
 
 ### Arquitetura em produção
 
@@ -21,13 +21,14 @@ _Verificado em 14/07/2026 direto no código e na infraestrutura real — não no
 - Detecção de tendência de alta **e** queda (mesmo limiar configurado, nas duas direções)
 - Aviso de janela de compra: regra geral (pesquisa de mercado) até haver histórico suficiente; depois disso, cálculo dinâmico com o histórico real da própria rota
 
+### Alerta e /status ricos (14/07/2026)
+
+A notificação agora traz: datas de ida **e volta**, escalas, dias de antecedência, frescor do preço (`found_at` do cache Aviasales, com aviso "confirme no site"), meta + média 30d, posição na janela de compra recomendada, e dois links reais verificados no navegador — deep-link Aviasales (`aviasales.com/search/BSB3107GIG07081`) e Google Flights com ida e volta. Histórico grava `return_date`, `found_at`, `stops`, `days_ahead`. Tabela `run_log` registra o resultado por rota a cada execução ('ok'/'no_data'/'error'); dashboard mostra "última verificação do robô", distingue "sem cobertura na fonte" de "aguardando primeira execução", tem export CSV client-side e link Aviasales por rota. Robô: try/except por rota (uma falha não derruba as outras), retry com backoff em 429/5xx, resumo diário consolidado em 1 mensagem, sugestão de arquivar rota após 7 dias seguidos sem cobertura. Workflow `daily.yml` também roda em push de `src/**` (testes reais a cada mudança; conclusão acompanhável pela API pública do GitHub, repo é público).
+
 ### Limitações e funcionalidades "mortas" conhecidas
 
-- **Comparador de milhas (`miles.py`)**: código correto, mas nunca recebe dado real — a Travelpayouts não retorna campo de milhas nesse endpoint. Sempre cai no caminho "sem opção em milhas para comparar".
-- **Exportação CSV**: não implementada (estava no escopo original).
-- **Link de compra**: usa busca genérica do Google Flights (rota + data); não codifica número de passageiros nem garante abrir como ida-e-volta.
-- **Cobertura de dados por rota é desigual**: RIA→BSB e GIG→BSB não retornam nenhum preço (nem ida e volta, nem só ida) — limitação de cache da Travelpayouts pra essas rotas específicas, não é bug.
-- Pasta `data/` (SQLite/CSV do design antigo) ainda existe no repo, vazia, sem uso — não removida na migração para Supabase.
+- **Comparador de milhas (`miles.py`)**: não existe fonte gratuita de preços em milhas por API. O módulo fica no repo aguardando fonte futura; a linha morta "sem opção em milhas" foi removida das mensagens e logs.
+- **Cobertura de dados por rota é desigual**: RIA→BSB segue sem nenhum preço (nem ida e volta, nem só ida) — limitação de cache da Travelpayouts, não é bug. O produto agora expõe isso no dashboard e sugere arquivamento após 7 dias.
 
 ### Divergências do escopo original
 

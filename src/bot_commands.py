@@ -1,15 +1,17 @@
 import os
+from datetime import date
 
 from rules import detect_trend, is_good_price
 from supabase_client import (
     DEFAULT_SETTINGS,
     get_last_update_id,
+    get_latest_price_full,
     get_price_history,
     get_routes,
     get_settings,
     set_last_update_id,
 )
-from telegram_notifier import get_updates, send_message
+from telegram_notifier import build_route_block, build_summary_message, get_updates, send_message
 
 COMMANDS = {"/status", "/precos", "/rotas"}
 
@@ -18,27 +20,38 @@ def _to_float(value) -> float | None:
     return float(value) if value is not None else None
 
 
+def _days_ahead_today(flight_date: str | None) -> int | None:
+    if not flight_date:
+        return None
+    try:
+        return (date.fromisoformat(flight_date) - date.today()).days
+    except ValueError:
+        return None
+
+
 def build_status_message() -> str:
     routes = get_routes()
     if not routes:
         return "Nenhuma rota ativa cadastrada no momento."
 
     settings_cache: dict[str, dict] = {}
-    lines = ["📊 <b>Rotas ativas</b>"]
+    blocks = []
 
     for route in routes:
         route_label = f"{route['origin']} → {route['destination']}"
-        history = get_price_history(route["id"], days=30)
+        latest = get_latest_price_full(route["id"])
 
-        if not history:
-            lines.append(f"{route_label}: ainda sem histórico")
+        if latest is None:
+            blocks.append(f"✈️ <b>{route_label}</b> — ainda sem histórico")
             continue
 
+        history = get_price_history(route["id"], days=30)
         prices = [float(h["price"]) for h in history]
-        latest = prices[-1]
+        price = float(latest["price"])
+        avg_30d = sum(prices) / len(prices) if prices else None
 
         good, good_reason = is_good_price(
-            latest, prices, _to_float(route.get("target_price")), _to_float(route.get("target_percent_below_avg"))
+            price, prices, _to_float(route.get("target_price")), _to_float(route.get("target_percent_below_avg"))
         )
 
         user_id = route["user_id"]
@@ -52,10 +65,22 @@ def build_status_message() -> str:
             recent, float(settings["window_3d_pct"]), float(settings["window_7d_pct"])
         )
 
-        status = good_reason if good else (trend_reason if trending else "sem alerta no momento")
-        lines.append(f"{route_label}: {route['currency']} {latest:.2f} — {status}")
+        blocks.append(build_route_block({
+            "origin": route["origin"],
+            "destination": route["destination"],
+            "currency": latest.get("currency") or route["currency"],
+            "price": price,
+            "depart_date": latest.get("flight_date"),
+            "return_date": latest.get("return_date"),
+            "stops": latest.get("stops"),
+            "found_at": latest.get("found_at"),
+            "days_ahead": _days_ahead_today(latest.get("flight_date")),
+            "target_price": _to_float(route.get("target_price")),
+            "avg_30d": avg_30d,
+            "reason": good_reason if good else (trend_reason if trending else None),
+        }))
 
-    return "\n".join(lines)
+    return build_summary_message(blocks)
 
 
 def main() -> None:

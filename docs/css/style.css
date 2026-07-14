@@ -39,6 +39,19 @@ nav .brand {
   color: var(--primary);
 }
 
+main button.link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--primary);
+  font-size: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+main button.link:hover { color: var(--primary-dark); background: none; }
+
 nav a, nav button.link {
   color: var(--muted);
   text-decoration: none;

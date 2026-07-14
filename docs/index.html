@@ -18,7 +18,11 @@
   <main>
     <div class="flash" id="flash">Salvo com sucesso.</div>
     <h1>Dashboard</h1>
-    <p class="subtitle">Modo de notificação: <strong id="notification-mode">—</strong></p>
+    <p class="subtitle">
+      Modo de notificação: <strong id="notification-mode">—</strong>
+      · <span id="last-run">robô ainda não executou</span>
+      · <button type="button" class="link" id="export-csv">Exportar CSV</button>
+    </p>
 
     <div class="grid" id="routes-grid"></div>
     <div class="empty-state" id="empty-state" style="display:none;">

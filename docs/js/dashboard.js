@@ -34,12 +34,32 @@ function detectTrend(history, window3dPct, window7dPct) {
   return null;
 }
 
-function renderCard(route, history, settings, isDomestic) {
+function formatDateBr(iso) {
+  if (!iso) return '?';
+  return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+}
+
+function stopsLabel(stops) {
+  if (stops == null) return null;
+  if (stops === 0) return 'voo direto';
+  if (stops === 1) return '1 escala';
+  return `${stops} escalas`;
+}
+
+function aviasalesLink(origin, destination, departDate, returnDate) {
+  const ddmm = (iso) => `${iso.slice(8, 10)}${iso.slice(5, 7)}`;
+  let leg = `${origin}${ddmm(departDate)}${destination}`;
+  if (returnDate) leg += ddmm(returnDate);
+  return `https://www.aviasales.com/search/${leg}1`;
+}
+
+function renderCard(route, history, settings, isDomestic, lastOutcome) {
   const card = document.createElement('div');
   card.className = 'card';
 
   const prices = history.map((h) => Number(h.price));
-  const latest = prices.length ? prices[prices.length - 1] : null;
+  const latestRow = history.length ? history[history.length - 1] : null;
+  const latest = latestRow ? Number(latestRow.price) : null;
   const good = latest != null && isGoodPrice(latest, prices, route.target_price, route.target_percent_below_avg);
   const trend = detectTrend(
     history.map((h) => ({ ...h, price: Number(h.price) })),
@@ -51,14 +71,30 @@ function renderCard(route, history, settings, isDomestic) {
   const badgeText = good ? 'Bom preço' : trend === 'up' ? 'Alta de preço' : trend === 'down' ? 'Queda de preço' : 'Normal';
   const advice = buyingWindowAdvice(history, isDomestic);
 
+  let emptyMessage = 'Aguardando a primeira execução do robô (roda diariamente às 08:00).';
+  if (latest == null && lastOutcome === 'no_data') {
+    emptyMessage = 'Sem cobertura de dados de ida e volta na fonte (Aviasales) para esta rota até agora — o robô continua tentando diariamente.';
+  }
+
+  let flightLine = '';
+  if (latestRow && latestRow.flight_date) {
+    let text = `Ida ${formatDateBr(latestRow.flight_date)}`;
+    if (latestRow.return_date) text += ` → Volta ${formatDateBr(latestRow.return_date)}`;
+    const stops = stopsLabel(latestRow.stops);
+    if (stops) text += ` · ${stops}`;
+    const link = aviasalesLink(route.origin, route.destination, latestRow.flight_date, latestRow.return_date);
+    flightLine = `<div class="price-meta">${text} · <a href="${link}" target="_blank" rel="noopener">ver na Aviasales</a></div>`;
+  }
+
   card.innerHTML = `
     <h3>${route.origin} → ${route.destination}</h3>
     ${latest != null ? `
       <span class="badge ${badgeClass}">${badgeText}</span>
       <div class="price">${route.currency} ${latest.toFixed(2)}</div>
+      ${flightLine}
       <div class="price-meta">meta: ${route.target_price ?? '—'} · ${route.target_percent_below_avg ?? '—'}% abaixo da média · estadia: ${route.trip_duration_weeks ? route.trip_duration_weeks + ' semana(s)' : 'sem restrição'}</div>
       <canvas height="120"></canvas>
-    ` : '<p class="price-meta">Ainda sem histórico. O robô roda diariamente via GitHub Actions.</p>'}
+    ` : `<p class="price-meta">${emptyMessage}</p>`}
     <div class="advisory ${advice.personalized ? 'personalized' : ''}">${advice.text}</div>
   `;
 
@@ -87,18 +123,53 @@ function renderCard(route, history, settings, isDomestic) {
   return card;
 }
 
+async function exportCsv(routes) {
+  const routeById = Object.fromEntries(routes.map((r) => [r.id, r]));
+  const { data: rows, error } = await supabase
+    .from('price_history')
+    .select('route_id, checked_at, flight_date, return_date, stops, days_ahead, price, currency')
+    .order('checked_at', { ascending: true });
+  if (error) {
+    alert('Erro ao exportar: ' + error.message);
+    return;
+  }
+
+  const header = 'rota,consultado_em,data_ida,data_volta,escalas,dias_antecedencia,preco,moeda';
+  const lines = (rows || []).map((r) => {
+    const route = routeById[r.route_id];
+    const label = route ? `${route.origin}-${route.destination}` : r.route_id;
+    return [label, r.checked_at, r.flight_date ?? '', r.return_date ?? '', r.stops ?? '', r.days_ahead ?? '', r.price, r.currency].join(',');
+  });
+
+  const blob = new Blob([[header, ...lines].join('\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `flyiop-historico-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 const session = await requireAuth();
 if (session) {
   wireLogout('logout');
 
-  const [{ data: routes }, { data: settingsRows }, airports] = await Promise.all([
+  const [{ data: routes }, { data: settingsRows }, airports, { data: lastRunRows }] = await Promise.all([
     supabase.from('routes').select('*').eq('archived', false).order('created_at'),
     supabase.from('settings').select('*').eq('user_id', session.user.id).limit(1),
     loadAirports(),
+    supabase.from('run_log').select('ran_at').order('ran_at', { ascending: false }).limit(1),
   ]);
   const settings = settingsRows && settingsRows[0] ? settingsRows[0] : DEFAULT_SETTINGS;
 
   document.getElementById('notification-mode').textContent = settings.notification_mode;
+  if (lastRunRows && lastRunRows[0]) {
+    const ranAt = new Date(lastRunRows[0].ran_at);
+    document.getElementById('last-run').textContent =
+      `última verificação do robô: ${ranAt.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}`;
+  }
+
+  document.getElementById('export-csv').addEventListener('click', () => exportCsv(routes || []));
 
   const grid = document.getElementById('routes-grid');
   const empty = document.getElementById('empty-state');
@@ -107,17 +178,26 @@ if (session) {
     empty.style.display = 'block';
   } else {
     for (const route of routes) {
-      const { data: history } = await supabase
-        .from('price_history')
-        .select('checked_at, flight_date, price')
-        .eq('route_id', route.id)
-        .order('checked_at', { ascending: true });
+      const [{ data: history }, { data: lastOutcomeRows }] = await Promise.all([
+        supabase
+          .from('price_history')
+          .select('checked_at, flight_date, return_date, stops, price')
+          .eq('route_id', route.id)
+          .order('checked_at', { ascending: true }),
+        supabase
+          .from('run_log')
+          .select('outcome')
+          .eq('route_id', route.id)
+          .order('ran_at', { ascending: false })
+          .limit(1),
+      ]);
 
       const originAirport = findByIata(airports, route.origin);
       const destinationAirport = findByIata(airports, route.destination);
       const isDomestic = originAirport?.country === 'Brazil' && destinationAirport?.country === 'Brazil';
+      const lastOutcome = lastOutcomeRows && lastOutcomeRows[0] ? lastOutcomeRows[0].outcome : null;
 
-      grid.appendChild(renderCard(route, history || [], settings, isDomestic));
+      grid.appendChild(renderCard(route, history || [], settings, isDomestic, lastOutcome));
     }
   }
 }
