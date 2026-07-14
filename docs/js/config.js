@@ -49,7 +49,7 @@ async function loadRoutes() {
       <td>${route.currency}</td>
       <td><input type="number" step="0.01" value="${route.target_price ?? ''}" data-field="target_price"></td>
       <td><input type="number" step="0.1" value="${route.target_percent_below_avg ?? ''}" data-field="target_percent_below_avg"></td>
-      <td><input type="number" step="1" min="1" value="${route.trip_duration_weeks ?? 1}" data-field="trip_duration_weeks"></td>
+      <td><input type="number" step="1" min="1" value="${route.trip_duration_weeks ?? ''}" placeholder="sem restrição" data-field="trip_duration_weeks"></td>
       <td style="white-space:nowrap;">
         <button type="button" class="small save-btn">Salvar</button>
         <button type="button" class="small ${archiveClass} archive-btn">${archiveLabel}</button>
@@ -65,7 +65,7 @@ async function loadRoutes() {
         .update({
           target_price: targetPrice ? Number(targetPrice) : null,
           target_percent_below_avg: targetPercent ? Number(targetPercent) : null,
-          trip_duration_weeks: tripDuration ? Number(tripDuration) : 1,
+          trip_duration_weeks: tripDuration ? Number(tripDuration) : null,
         })
         .eq('id', route.id);
       if (updateError) {
@@ -164,7 +164,7 @@ if (session) {
       target_percent_below_avg: form.target_percent_below_avg.value
         ? Number(form.target_percent_below_avg.value)
         : null,
-      trip_duration_weeks: form.trip_duration_weeks.value ? Number(form.trip_duration_weeks.value) : 1,
+      trip_duration_weeks: form.trip_duration_weeks.value ? Number(form.trip_duration_weeks.value) : null,
     });
     if (error) {
       alert('Erro ao adicionar rota: ' + error.message);
@@ -172,7 +172,6 @@ if (session) {
     }
     form.reset();
     form.currency.value = 'BRL';
-    form.trip_duration_weeks.value = '1';
     if (currentTab === 'archived') {
       currentTab = 'active';
       document.getElementById('tab-active').classList.add('active');

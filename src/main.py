@@ -1,9 +1,26 @@
+from datetime import date
+
 from booking_link import google_flights_link
 from miles import compare_cash_vs_miles
 from rules import detect_trend, is_good_price
 from supabase_client import DEFAULT_SETTINGS, get_price_history, get_routes, get_settings, insert_price
 from telegram_notifier import build_alert_message, send_message
 from travelpayouts_client import get_month_matrix
+
+MONTHS_AHEAD = 6  # varre em cima da hora até ~6 meses à frente; o histórico aprende sozinho qual faixa é mais barata
+
+
+def _target_months(count: int = MONTHS_AHEAD) -> list[str]:
+    today = date.today()
+    months = []
+    year, month = today.year, today.month
+    for _ in range(count):
+        months.append(date(year, month, 1).isoformat())
+        month += 1
+        if month > 12:
+            month = 1
+            year += 1
+    return months
 
 
 def _to_float(value) -> float | None:
@@ -28,25 +45,24 @@ def process_route(route: dict, settings: dict) -> None:
     origin, destination, currency = route["origin"], route["destination"], route["currency"]
     route_label = f"{origin} → {destination}"
 
-    trip_duration_weeks = int(route.get("trip_duration_weeks") or 1)
+    # Duração da estadia é opcional: pedir uma duração exata reduz muito a cobertura
+    # de dados de ida-e-volta em cache (confirmado em teste real: com duração fixa
+    # vieram 0 resultados pra BSB-GIG, sem duração veio 1). Só restringe se o
+    # usuário configurou explicitamente.
+    trip_duration_raw = route.get("trip_duration_weeks")
+    trip_duration_weeks = int(trip_duration_raw) if trip_duration_raw is not None else None
 
-    # DEBUG temporário: comparar cobertura de dados entre variantes do endpoint
-    # (remover depois de identificar qual combinação retorna dados pra essas rotas)
-    matrix_one_way = get_month_matrix(origin, destination, currency, trip_duration_weeks=None, one_way=True)
-    matrix_round_trip = get_month_matrix(origin, destination, currency, trip_duration_weeks, one_way=False)
-    matrix_round_trip_no_duration = get_month_matrix(
-        origin, destination, currency, trip_duration_weeks=None, one_way=False
-    )
-    print(
-        f"[debug {route_label}] one_way={len(matrix_one_way)} "
-        f"ida_e_volta+duracao={len(matrix_round_trip)} "
-        f"ida_e_volta_sem_duracao={len(matrix_round_trip_no_duration)}"
-    )
+    matrix = []
+    for month in _target_months():
+        month_entries = get_month_matrix(
+            origin, destination, currency, month=month, trip_duration_weeks=trip_duration_weeks, one_way=False
+        )
+        print(f"[{route_label}] mês {month[:7]}: {len(month_entries)} entradas")
+        matrix.extend(month_entries)
 
-    matrix = matrix_round_trip or matrix_round_trip_no_duration or matrix_one_way
     cheapest = cheapest_entry(matrix)
     if cheapest is None:
-        print(f"[{route_label}] sem dados retornados")
+        print(f"[{route_label}] sem dados de ida e volta retornados em nenhum dos {MONTHS_AHEAD} meses varridos")
         return
 
     price = entry_price(cheapest)

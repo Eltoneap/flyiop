@@ -56,7 +56,7 @@ function renderCard(route, history, settings, isDomestic) {
     ${latest != null ? `
       <span class="badge ${badgeClass}">${badgeText}</span>
       <div class="price">${route.currency} ${latest.toFixed(2)}</div>
-      <div class="price-meta">meta: ${route.target_price ?? '—'} · ${route.target_percent_below_avg ?? '—'}% abaixo da média · estadia ${route.trip_duration_weeks ?? 1} semana(s)</div>
+      <div class="price-meta">meta: ${route.target_price ?? '—'} · ${route.target_percent_below_avg ?? '—'}% abaixo da média · estadia: ${route.trip_duration_weeks ? route.trip_duration_weeks + ' semana(s)' : 'sem restrição'}</div>
       <canvas height="120"></canvas>
     ` : '<p class="price-meta">Ainda sem histórico. O robô roda diariamente via GitHub Actions.</p>'}
     <div class="advisory ${advice.personalized ? 'personalized' : ''}">${advice.text}</div>
