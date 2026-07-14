@@ -13,6 +13,18 @@ def send_message(text: str) -> None:
     resp.raise_for_status()
 
 
+def get_updates(offset: int) -> list[dict]:
+    """Mensagens recebidas pelo bot desde `offset` (long polling, sem timeout de espera)."""
+    token = os.environ["TELEGRAM_BOT_TOKEN"]
+    resp = requests.get(
+        f"https://api.telegram.org/bot{token}/getUpdates",
+        params={"offset": offset, "timeout": 0},
+        timeout=15,
+    )
+    resp.raise_for_status()
+    return resp.json().get("result", [])
+
+
 def build_alert_message(route_label: str, price: float, currency: str, flight_date: str,
                          reason: str, booking_link: str) -> str:
     return (

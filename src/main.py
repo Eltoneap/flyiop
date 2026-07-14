@@ -1,16 +1,9 @@
 from booking_link import google_flights_link
 from miles import compare_cash_vs_miles
 from rules import detect_trend, is_good_price
-from supabase_client import get_price_history, get_routes, get_settings, insert_price
+from supabase_client import DEFAULT_SETTINGS, get_price_history, get_routes, get_settings, insert_price
 from telegram_notifier import build_alert_message, send_message
 from travelpayouts_client import get_month_matrix
-
-DEFAULT_SETTINGS = {
-    "window_3d_pct": 10,
-    "window_7d_pct": 15,
-    "notification_mode": "alert_only",
-    "cost_per_thousand_brl": 25,
-}
 
 
 def _to_float(value) -> float | None:
@@ -56,7 +49,7 @@ def process_route(route: dict, settings: dict) -> None:
 
     history_7d = get_price_history(route["id"], days=7)
     recent = [(h["checked_at"], float(h["price"])) for h in history_7d]
-    trending_up, trend_reason = detect_trend(
+    trending, trend_reason = detect_trend(
         recent, float(settings["window_3d_pct"]), float(settings["window_7d_pct"])
     )
 
@@ -65,7 +58,7 @@ def process_route(route: dict, settings: dict) -> None:
     )
     print(f"[{route_label}] R$ {price:.2f} em {flight_date} — {miles_note}")
 
-    should_alert = good or trending_up
+    should_alert = good or trending
     if should_alert or settings["notification_mode"] == "daily_summary":
         reason = good_reason if good else (trend_reason or "resumo diário")
         link = google_flights_link(origin, destination, flight_date)

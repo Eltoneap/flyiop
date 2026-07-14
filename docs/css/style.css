@@ -10,6 +10,8 @@
   --good-bg: #dcfce7;
   --warn: #dc2626;
   --warn-bg: #fee2e2;
+  --info: #2563eb;
+  --info-bg: #dbeafe;
   --neutral-bg: #f1f5f9;
 }
 
@@ -113,6 +115,7 @@ h1 {
 
 .badge.good { background: var(--good-bg); color: var(--good); }
 .badge.warn { background: var(--warn-bg); color: var(--warn); }
+.badge.info { background: var(--info-bg); color: var(--info); }
 .badge.neutral { background: var(--neutral-bg); color: var(--muted); }
 
 .empty-state {

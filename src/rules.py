@@ -20,7 +20,11 @@ def is_good_price(current_price: float, history_prices: list[float], target_pric
 
 
 def detect_trend(history: list[tuple[str, float]], window_3d_pct: float, window_7d_pct: float) -> tuple[bool, str]:
-    """Recebe histórico ordenado [(checked_at, price), ...] e detecta alta preocupante."""
+    """Recebe histórico ordenado [(checked_at, price), ...] e detecta alta OU queda preocupante.
+
+    Usa o mesmo limite percentual configurado para os dois sentidos: uma variação
+    de X% pra cima é "tendência de alta", de X% pra baixo é "tendência de queda".
+    """
     if len(history) < 2:
         return False, ""
 
@@ -35,7 +39,8 @@ def detect_trend(history: list[tuple[str, float]], window_3d_pct: float, window_
         if reference_price <= 0:
             continue
         change_pct = (current_price - reference_price) / reference_price * 100
-        if change_pct >= threshold_pct:
-            reasons.append(f"+{change_pct:.1f}% em {days} dias")
+        if abs(change_pct) >= threshold_pct:
+            direction = "alta" if change_pct > 0 else "queda"
+            reasons.append(f"{change_pct:+.1f}% em {days} dias (tendência de {direction})")
 
     return (len(reasons) > 0, "; ".join(reasons))

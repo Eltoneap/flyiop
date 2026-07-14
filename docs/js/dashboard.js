@@ -19,17 +19,19 @@ function isGoodPrice(price, historyPrices, targetPrice, targetPercent) {
   return false;
 }
 
-function isTrendingUp(history, window3dPct, window7dPct) {
-  if (history.length < 2) return false;
+function detectTrend(history, window3dPct, window7dPct) {
+  if (history.length < 2) return null;
   const current = history[history.length - 1].price;
   const past = history.slice(0, -1);
   for (const [days, pct] of [[3, window3dPct], [7, window7dPct]]) {
     if (!past.length) continue;
     const idx = Math.max(0, past.length - days);
     const ref = past[idx].price;
-    if (ref > 0 && ((current - ref) / ref) * 100 >= pct) return true;
+    if (ref <= 0) continue;
+    const changePct = ((current - ref) / ref) * 100;
+    if (Math.abs(changePct) >= pct) return changePct > 0 ? 'up' : 'down';
   }
-  return false;
+  return null;
 }
 
 function renderCard(route, history, settings, isDomestic) {
@@ -39,14 +41,14 @@ function renderCard(route, history, settings, isDomestic) {
   const prices = history.map((h) => Number(h.price));
   const latest = prices.length ? prices[prices.length - 1] : null;
   const good = latest != null && isGoodPrice(latest, prices, route.target_price, route.target_percent_below_avg);
-  const trending = isTrendingUp(
+  const trend = detectTrend(
     history.map((h) => ({ ...h, price: Number(h.price) })),
     settings.window_3d_pct,
     settings.window_7d_pct
   );
 
-  const badgeClass = good ? 'good' : trending ? 'warn' : 'neutral';
-  const badgeText = good ? 'Bom preço' : trending ? 'Alta de preço' : 'Normal';
+  const badgeClass = good ? 'good' : trend === 'up' ? 'warn' : trend === 'down' ? 'info' : 'neutral';
+  const badgeText = good ? 'Bom preço' : trend === 'up' ? 'Alta de preço' : trend === 'down' ? 'Queda de preço' : 'Normal';
   const advice = buyingWindowAdvice(history, isDomestic);
 
   card.innerHTML = `
