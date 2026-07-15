@@ -16,7 +16,7 @@ from supabase_client import (
 from telegram_notifier import build_alert_message, build_route_block, build_summary_message, send_message
 from travelpayouts_client import get_month_matrix
 
-MONTHS_AHEAD = 6  # varre em cima da hora até ~6 meses à frente; o histórico aprende sozinho qual faixa é mais barata
+MONTHS_AHEAD = 6  # varre de "em cima da hora" até ~6 meses à frente; o histórico aprende sozinho qual faixa é mais barata
 REQUEST_DELAY_SECONDS = 0.3  # precaução contra possível limite de requisições da Travelpayouts
 NO_COVERAGE_SUGGESTION_EVERY = 7  # sugere arquivar a cada N dias consecutivos sem cobertura
 
