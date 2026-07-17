@@ -14,7 +14,7 @@ from supabase_client import (
     insert_run_log,
 )
 from telegram_notifier import build_alert_message, build_route_block, build_summary_message, send_message
-from travelpayouts_client import get_month_matrix
+from travelpayouts_client import get_month_matrix, get_prices_for_dates
 
 MONTHS_AHEAD = 6  # varre de "em cima da hora" até ~6 meses à frente; o histórico aprende sozinho qual faixa é mais barata
 REQUEST_DELAY_SECONDS = 0.3  # precaução contra possível limite de requisições da Travelpayouts
@@ -72,6 +72,44 @@ def _no_coverage_streak(route_id: str) -> int:
     return streak
 
 
+def v3_comparison_detail(origin: str, destination: str, currency: str, v2_price: float | None) -> str:
+    """Comparação v2×v3 (Fase A, etapa 1): varre os mesmos meses no v3 (cache de
+    até 48h) e devolve um resumo textual para o run_log. Não grava histórico —
+    durante a comparação paralela o price_history segue recebendo só o v2."""
+    entries: list[dict] = []
+    months_with_data = 0
+    for i, month in enumerate(_target_months()):
+        if i > 0:
+            time.sleep(REQUEST_DELAY_SECONDS)
+        month_entries = get_prices_for_dates(origin, destination, currency, departure_at=month[:7], one_way=False)
+        if month_entries:
+            months_with_data += 1
+            entries.extend(month_entries)
+
+    if not entries:
+        v3_part = "v3: sem dados"
+    else:
+        cheapest = min(entries, key=lambda e: float(e["price"]))
+        found_at_note = "com found_at" if cheapest.get("found_at") else "sem found_at"
+        v3_part = (
+            f"v3: {float(cheapest['price']):.2f} "
+            f"({months_with_data}/{MONTHS_AHEAD} meses, ida {cheapest.get('departure_at', '?')[:10]}, {found_at_note})"
+        )
+
+    v2_part = f"v2: {v2_price:.2f}" if v2_price is not None else "v2: sem dados"
+    return f"{v3_part} | {v2_part}"
+
+
+def safe_v3_comparison(route_label: str, origin: str, destination: str, currency: str, v2_price: float | None) -> str:
+    """A comparação é observacional: se o v3 falhar, a rota não pode falhar junto."""
+    try:
+        detail = v3_comparison_detail(origin, destination, currency, v2_price)
+    except Exception as error:
+        detail = f"v3: erro na comparação ({type(error).__name__})"
+    print(f"[{route_label}] comparação {detail}")
+    return detail
+
+
 def process_route(route: dict, settings: dict) -> dict:
     """Busca, grava e avalia uma rota. Retorna um report para a camada de notificação."""
     origin, destination, currency = route["origin"], route["destination"], route["currency"]
@@ -97,7 +135,8 @@ def process_route(route: dict, settings: dict) -> dict:
     cheapest = cheapest_entry(matrix)
     if cheapest is None:
         print(f"[{route_label}] sem dados de ida e volta retornados em nenhum dos {MONTHS_AHEAD} meses varridos")
-        insert_run_log(route["id"], "no_data")
+        comparison = safe_v3_comparison(route_label, origin, destination, currency, v2_price=None)
+        insert_run_log(route["id"], "no_data", detail=comparison)
         return {"route": route, "status": "no_data", "streak": _no_coverage_streak(route["id"])}
 
     price = entry_price(cheapest)
@@ -111,7 +150,8 @@ def process_route(route: dict, settings: dict) -> dict:
         route["id"], depart_date or "", price, currency,
         return_date=return_date, found_at=found_at, stops=stops, days_ahead=days_ahead,
     )
-    insert_run_log(route["id"], "ok", price=price)
+    comparison = safe_v3_comparison(route_label, origin, destination, currency, v2_price=price)
+    insert_run_log(route["id"], "ok", price=price, detail=comparison)
 
     history_30d = get_price_history(route["id"], days=30)
     history_prices = [float(h["price"]) for h in history_30d]

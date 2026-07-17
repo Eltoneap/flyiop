@@ -59,3 +59,35 @@ def get_month_matrix(
 
     resp = _get_with_retry(f"{BASE_URL}/v2/prices/month-matrix", params)
     return resp.json().get("data", [])
+
+
+def get_prices_for_dates(
+    origin: str,
+    destination: str,
+    currency: str = "BRL",
+    departure_at: str | None = None,
+    one_way: bool = False,
+    limit: int = 30,
+) -> list[dict]:
+    """Preços mais baratos (endpoint v3 prices_for_dates, cache de até 48h).
+
+    `departure_at` aceita YYYY-MM (mês flexível) ou YYYY-MM-DD (data exata) —
+    o mesmo endpoint cobre a Fase 1 (sem data fixa) e a Fase 2 (data fixa).
+    Com sorting=price o primeiro resultado já é o mais barato. Campos por
+    entrada: price, departure_at, return_at, transfers, return_transfers, link.
+    """
+    token = os.environ["TRAVELPAYOUTS_TOKEN"]
+    params = {
+        "origin": origin,
+        "destination": destination,
+        "currency": currency,
+        "token": token,
+        "one_way": "true" if one_way else "false",
+        "sorting": "price",
+        "limit": limit,
+    }
+    if departure_at is not None:
+        params["departure_at"] = departure_at
+
+    resp = _get_with_retry(f"{BASE_URL}/aviasales/v3/prices_for_dates", params)
+    return resp.json().get("data", [])
