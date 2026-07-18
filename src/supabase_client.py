@@ -8,6 +8,8 @@ DEFAULT_SETTINGS = {
     "window_7d_pct": 15,
     "notification_mode": "alert_only",
     "cost_per_thousand_brl": 25,
+    "freshness_hours": 24,
+    "stale_alert_policy": "warn",  # 'warn' = alerta com aviso; 'suppress' = segura o alerta
 }
 
 

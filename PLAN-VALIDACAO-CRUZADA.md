@@ -47,7 +47,7 @@ _(preencher após execução)_
 |---|---|---|---|---|
 | 1 | local | 18/07/2026 | 2/3 | BSB→GIG R$ 638 (LATAM, 1,8s) e GIG→BSB R$ 757 (Gol, 1,6s), moeda BRL nativa. RIA→BSB: exceção no parser da lib (`TypeError` em `parse_js`) — padrão de "sem resultados no Google", não de bloqueio (as outras 2 rotas funcionaram do mesmo IP na mesma rodada). |
 | 2 | local | | | |
-| 3 | Actions | | | |
+| 3 | Actions | 18/07/2026 | 2/3 | BSB→GIG R$ 552 (0,5s) e GIG→BSB R$ 527 (0,5s) — runner do Actions NÃO bloqueado, e mais rápido que local. RIA→BSB: mesmo erro de parser das execuções locais (padrão "sem resultados", não bloqueio). |
 | 4 | Actions | | | |
 
 **Notas técnicas da implementação (18/07/2026):** versão validada é `fast-flights==3.0.2` — a API mudou em relação à 2.x citada como exemplo no plano: não existe mais `fetch_mode="fallback"`; usa-se `create_query(...)` + `get_flights(query)`. Duas vantagens da 3.0.2: `price` vem como `int` (sem parsing de string) e a query aceita `currency="BRL"` + `language="pt-BR"` nativamente — o que elimina a preocupação de moeda descrita na Etapa 8. O packaging da 3.0.2 não declara `typing_extensions` (import quebra sem ela); por isso o `requirements-dev.txt` a inclui explicitamente.

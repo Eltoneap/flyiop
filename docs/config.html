@@ -97,6 +97,17 @@
             <label>Custo do seu milheiro (R$ / 1000 milhas)</label>
             <input type="number" step="0.01" name="cost_per_thousand_brl">
           </div>
+          <div>
+            <label>Preço é "fresco" até (horas)</label>
+            <input type="number" step="1" min="1" name="freshness_hours">
+          </div>
+          <div>
+            <label>Se o preço do alerta estiver velho</label>
+            <select name="stale_alert_policy">
+              <option value="warn">Alertar mesmo assim, com aviso destacado</option>
+              <option value="suppress">Segurar o alerta (não enviar)</option>
+            </select>
+          </div>
         </div>
         <button type="submit">Salvar preferências</button>
       </form>

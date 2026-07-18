@@ -36,8 +36,8 @@ def format_date_br(iso_date: str | None) -> str:
     return f"{iso_date[8:10]}/{iso_date[5:7]}/{iso_date[0:4]}"
 
 
-def _freshness(found_at: str | None) -> str | None:
-    """Há quanto tempo o preço foi visto no cache da Aviasales."""
+def hours_since_found(found_at: str | None) -> float | None:
+    """Idade do preço em horas (found_at do cache Aviasales). None = desconhecida."""
     if not found_at:
         return None
     try:
@@ -46,7 +46,14 @@ def _freshness(found_at: str | None) -> str | None:
         return None
     if seen.tzinfo is None:
         seen = seen.replace(tzinfo=timezone.utc)
-    hours = (datetime.now(timezone.utc) - seen).total_seconds() / 3600
+    return (datetime.now(timezone.utc) - seen).total_seconds() / 3600
+
+
+def _freshness(found_at: str | None) -> str | None:
+    """Há quanto tempo o preço foi visto no cache da Aviasales."""
+    hours = hours_since_found(found_at)
+    if hours is None:
+        return None
     if hours < 1:
         return "há menos de 1h"
     if hours < 48:
@@ -118,7 +125,15 @@ def build_route_block(report: dict) -> str:
 
 
 def build_alert_message(report: dict) -> str:
-    return "🔔 <b>Alerta de preço</b>\n\n" + build_route_block(report)
+    header = "🔔 <b>Alerta de preço</b>"
+    if report.get("is_stale"):
+        age = report.get("age_hours")
+        age_label = f"visto há {age:.0f}h" if age is not None else "idade desconhecida"
+        header = (
+            f"⚠️ <b>Dado antigo ({age_label})</b> — o preço pode não existir mais; "
+            f"confirme no site antes de se animar.\n\n" + header
+        )
+    return header + "\n\n" + build_route_block(report)
 
 
 def build_summary_message(blocks: list[str], extra_notes: list[str] | None = None) -> str:

@@ -13,7 +13,13 @@ from supabase_client import (
     insert_price,
     insert_run_log,
 )
-from telegram_notifier import build_alert_message, build_route_block, build_summary_message, send_message
+from telegram_notifier import (
+    build_alert_message,
+    build_route_block,
+    build_summary_message,
+    hours_since_found,
+    send_message,
+)
 from travelpayouts_client import get_month_matrix, get_prices_for_dates
 
 MONTHS_AHEAD = 6  # varre de "em cima da hora" até ~6 meses à frente; o histórico aprende sozinho qual faixa é mais barata
@@ -70,6 +76,26 @@ def _no_coverage_streak(route_id: str) -> int:
             break
         streak += 1
     return streak
+
+
+def staleness(found_at: str | None, freshness_hours_limit: float) -> tuple[bool, float | None]:
+    """Portão de frescor (Etapa 2): (is_stale, idade_em_horas).
+
+    found_at ausente/ilegível = idade desconhecida → tratado como velho
+    (nunca como fresco): o objetivo é não mandar o usuário correr pro site
+    por um preço que talvez nem exista mais."""
+    age_hours = hours_since_found(found_at)
+    return (age_hours is None or age_hours > freshness_hours_limit), age_hours
+
+
+def should_suppress_alert(is_stale: bool, settings: dict) -> bool:
+    """Política 'suppress' segura o alerta de dado velho. Só vale no modo alerta —
+    o resumo diário nunca é suprimido (não é alerta repetido nem urgente)."""
+    return (
+        is_stale
+        and settings.get("stale_alert_policy") == "suppress"
+        and settings.get("notification_mode") != "daily_summary"
+    )
 
 
 def v3_comparison_detail(origin: str, destination: str, currency: str, v2_price: float | None) -> str:
@@ -150,8 +176,14 @@ def process_route(route: dict, settings: dict) -> dict:
         route["id"], depart_date or "", price, currency,
         return_date=return_date, found_at=found_at, stops=stops, days_ahead=days_ahead,
     )
+
+    freshness_limit = float(settings.get("freshness_hours") or DEFAULT_SETTINGS["freshness_hours"])
+    is_stale, age_hours = staleness(found_at, freshness_limit)
+    freshness_note = "frescor: desconhecido" if age_hours is None else f"frescor: {age_hours:.0f}h"
+    if is_stale:
+        freshness_note += " (velho)"
+
     comparison = safe_v3_comparison(route_label, origin, destination, currency, v2_price=price)
-    insert_run_log(route["id"], "ok", price=price, detail=comparison)
 
     history_30d = get_price_history(route["id"], days=30)
     history_prices = [float(h["price"]) for h in history_30d]
@@ -166,6 +198,14 @@ def process_route(route: dict, settings: dict) -> dict:
     trending, trend_reason = detect_trend(
         recent, float(settings["window_3d_pct"]), float(settings["window_7d_pct"])
     )
+
+    would_alert = good or trending
+    suppressed = would_alert and should_suppress_alert(is_stale, settings)
+    if suppressed:
+        freshness_note += " — alerta segurado"
+        print(f"[{route_label}] alerta segurado: dado velho e política 'suppress'")
+
+    insert_run_log(route["id"], "ok", price=price, detail=f"{comparison} | {freshness_note}")
 
     print(f"[{route_label}] R$ {price:.2f} ida {depart_date} volta {return_date} ({stops} escalas)")
 
@@ -183,7 +223,9 @@ def process_route(route: dict, settings: dict) -> dict:
         "days_ahead": days_ahead,
         "target_price": target_price,
         "avg_30d": avg_30d,
-        "should_alert": good or trending,
+        "is_stale": is_stale,
+        "age_hours": age_hours,
+        "should_alert": would_alert and not suppressed,
         "reason": good_reason if good else (trend_reason if trending else None),
     }
 

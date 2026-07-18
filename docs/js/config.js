@@ -7,6 +7,8 @@ const DEFAULT_SETTINGS = {
   window_7d_pct: 15,
   notification_mode: 'alert_only',
   cost_per_thousand_brl: 25,
+  freshness_hours: 24,
+  stale_alert_policy: 'warn',
 };
 
 function showFlash() {
@@ -122,6 +124,8 @@ async function loadSettings(userId) {
   form.window_7d_pct.value = settings.window_7d_pct;
   form.notification_mode.value = settings.notification_mode;
   form.cost_per_thousand_brl.value = settings.cost_per_thousand_brl;
+  form.freshness_hours.value = settings.freshness_hours ?? DEFAULT_SETTINGS.freshness_hours;
+  form.stale_alert_policy.value = settings.stale_alert_policy ?? DEFAULT_SETTINGS.stale_alert_policy;
 }
 
 const session = await requireAuth();
@@ -190,6 +194,8 @@ if (session) {
       window_7d_pct: Number(form.window_7d_pct.value),
       notification_mode: form.notification_mode.value,
       cost_per_thousand_brl: Number(form.cost_per_thousand_brl.value),
+      freshness_hours: Number(form.freshness_hours.value),
+      stale_alert_policy: form.stale_alert_policy.value,
       updated_at: new Date().toISOString(),
     });
     if (error) {
