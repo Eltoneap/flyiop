@@ -1,0 +1,21 @@
+name: Validação fast-flights (Etapa 0)
+
+# Disparo manual APENAS (Etapa 0 do PLAN-VALIDACAO-CRUZADA.md): sem cron e sem
+# trigger de push, para não poluir o fluxo diário. O objetivo é testar se o IP
+# do runner do GitHub Actions consegue consultar o Google Flights.
+on:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements-dev.txt
+
+      - run: python scripts/validate_fastflights.py
