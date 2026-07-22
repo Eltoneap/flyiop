@@ -9,6 +9,10 @@ def _ddmm(iso_date: str) -> str:
 def aviasales_link(origin: str, destination: str, depart_date: str, return_date: str | None = None,
                    passengers: int = 1) -> str:
     """Deep-link de busca da Aviasales com as datas exatas (fonte real dos preços do robô)."""
+    # Nota: testado no navegador em 21/07/2026 — aviasales.com não aceita moeda/
+    # idioma via query string (é cookie/preferência de conta) e o domínio nem
+    # oferece BRL como opção de moeda ou Brasil como país. Sem parâmetro de URL
+    # que resolva isso; o link fica em USD mesmo.
     leg = f"{origin}{_ddmm(depart_date)}{destination}"
     if return_date:
         leg += _ddmm(return_date)
@@ -21,4 +25,4 @@ def google_flights_link(origin: str, destination: str, depart_date: str,
     query = f"Flights from {origin} to {destination} on {depart_date}"
     if return_date:
         query += f" through {return_date}"
-    return f"https://www.google.com/travel/flights?q={quote(query)}"
+    return f"https://www.google.com/travel/flights?q={quote(query)}&hl=pt-BR&gl=BR"

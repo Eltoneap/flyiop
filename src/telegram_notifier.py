@@ -119,9 +119,9 @@ def build_route_block(report: dict) -> str:
         lines.append("ℹ️ Fonte com cache de até 48h — confirme no site antes de comprar")
 
     if report.get("depart_date"):
-        av = aviasales_link(origin, destination, report["depart_date"], report.get("return_date"))
         gf = google_flights_link(origin, destination, report["depart_date"], report.get("return_date"))
-        lines.append(f'🔗 <a href="{av}">Aviasales</a> · <a href="{gf}">Google Flights</a>')
+        av = aviasales_link(origin, destination, report["depart_date"], report.get("return_date"))
+        lines.append(f'🔗 <a href="{gf}">Google Flights</a> · <a href="{av}">conferência de preço (em USD)</a>')
 
     return "\n".join(lines)
 
