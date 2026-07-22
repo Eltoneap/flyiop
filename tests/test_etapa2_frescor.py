@@ -52,21 +52,27 @@ class StalenessTest(unittest.TestCase):
 
 
 class ShouldSuppressAlertTest(unittest.TestCase):
-    def test_stale_with_suppress_policy(self):
+    def test_stale_with_known_age_and_suppress_policy(self):
         settings = {"stale_alert_policy": "suppress", "notification_mode": "alert_only"}
-        self.assertTrue(main.should_suppress_alert(True, settings))
+        self.assertTrue(main.should_suppress_alert(True, 30.0, settings))
 
     def test_stale_with_warn_policy_sends(self):
         settings = {"stale_alert_policy": "warn", "notification_mode": "alert_only"}
-        self.assertFalse(main.should_suppress_alert(True, settings))
+        self.assertFalse(main.should_suppress_alert(True, 30.0, settings))
 
     def test_fresh_never_suppressed(self):
         settings = {"stale_alert_policy": "suppress", "notification_mode": "alert_only"}
-        self.assertFalse(main.should_suppress_alert(False, settings))
+        self.assertFalse(main.should_suppress_alert(False, 2.0, settings))
 
     def test_daily_summary_never_suppressed(self):
         settings = {"stale_alert_policy": "suppress", "notification_mode": "daily_summary"}
-        self.assertFalse(main.should_suppress_alert(True, settings))
+        self.assertFalse(main.should_suppress_alert(True, 30.0, settings))
+
+    def test_unknown_age_never_suppressed(self):
+        # Salvaguarda da Etapa 6: idade desconhecida (fonte v3) não suprime,
+        # mesmo com política suppress — senão seguraria 100% dos alertas.
+        settings = {"stale_alert_policy": "suppress", "notification_mode": "alert_only"}
+        self.assertFalse(main.should_suppress_alert(True, None, settings))
 
 
 class AlertMessageTest(unittest.TestCase):
@@ -119,21 +125,23 @@ class ProcessRouteIntegrationTest(unittest.TestCase):
     def run_process_route(self, found_at: str | None, settings_extra: dict) -> tuple[dict, list]:
         settings = {"window_3d_pct": 10, "window_7d_pct": 15, "notification_mode": "alert_only",
                     "freshness_hours": 24, **settings_extra}
-        v2_entry = {
-            "value": 520.0, "depart_date": "2026-11-27", "return_date": "2026-11-30",
-            "number_of_changes": 1, "found_at": found_at,
+        # Entrada no formato v3 (fonte oficial pós-corte da Etapa 6). Na prática o
+        # v3 não devolve found_at, mas o código o respeita se vier — daí passar aqui.
+        v3_entry = {
+            "price": 520.0, "departure_at": "2026-11-27T07:00:00Z",
+            "return_at": "2026-11-30T20:00:00Z", "transfers": 1, "found_at": found_at,
         }
         run_log_calls: list = []
-        with patch("main.get_month_matrix", side_effect=[[v2_entry], [], [], [], [], []]), \
+        with patch("main.get_prices_for_dates", side_effect=[[v3_entry], [], [], [], [], []]), \
              patch("main.insert_price"), \
              patch("main.insert_run_log", side_effect=lambda *a, **k: run_log_calls.append((a, k))), \
              patch("main.get_price_history", return_value=[]), \
-             patch("main.safe_v3_comparison", return_value="v3: 520.00 | v2: 520.00"), \
              patch("main.time.sleep", return_value=None):
             report = main.process_route(self.ROUTE, settings)
         return report, run_log_calls
 
     def test_stale_plus_suppress_holds_alert_and_logs_it(self):
+        # found_at presente e velho (30h) → idade conhecida → suppress se aplica.
         report, run_log_calls = self.run_process_route(
             iso_hours_ago(30), {"stale_alert_policy": "suppress"}
         )
@@ -159,11 +167,16 @@ class ProcessRouteIntegrationTest(unittest.TestCase):
         self.assertTrue(report["should_alert"])
         self.assertIn("frescor: 2h", run_log_calls[0][1]["detail"])
 
-    def test_missing_found_at_is_stale(self):
-        report, run_log_calls = self.run_process_route(None, {"stale_alert_policy": "warn"})
+    def test_missing_found_at_uses_cache_note_and_does_not_suppress(self):
+        # Caso real do v3: sem found_at. Idade desconhecida → cache_48h, não velho
+        # anômalo. Mesmo com suppress salvo, o alerta sai (salvaguarda da Etapa 6).
+        report, run_log_calls = self.run_process_route(None, {"stale_alert_policy": "suppress"})
         self.assertTrue(report["is_stale"])
+        self.assertTrue(report["cache_48h"])
         self.assertTrue(report["should_alert"])
-        self.assertIn("frescor: desconhecido (velho)", run_log_calls[0][1]["detail"])
+        detail = run_log_calls[0][1]["detail"]
+        self.assertIn("frescor: n/d (cache ≤48h)", detail)
+        self.assertIn("política suppress não aplicada", detail)
 
 
 if __name__ == "__main__":

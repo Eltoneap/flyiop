@@ -115,6 +115,8 @@ def build_route_block(report: dict) -> str:
     freshness = _freshness(report.get("found_at"))
     if freshness:
         lines.append(f"👁 Preço visto {freshness} (cache Aviasales — confirme no site antes de comprar)")
+    elif report.get("cache_48h"):
+        lines.append("ℹ️ Fonte com cache de até 48h — confirme no site antes de comprar")
 
     if report.get("depart_date"):
         av = aviasales_link(origin, destination, report["depart_date"], report.get("return_date"))
@@ -128,11 +130,16 @@ def build_alert_message(report: dict) -> str:
     header = "🔔 <b>Alerta de preço</b>"
     if report.get("is_stale"):
         age = report.get("age_hours")
-        age_label = f"visto há {age:.0f}h" if age is not None else "idade desconhecida"
-        header = (
-            f"⚠️ <b>Dado antigo ({age_label})</b> — o preço pode não existir mais; "
-            f"confirme no site antes de se animar.\n\n" + header
-        )
+        if age is None and report.get("cache_48h"):
+            # Fonte v3 (Etapa 6): ausência de found_at é esperada, não anômala —
+            # aviso informativo em vez do alarme de dado antigo.
+            header = "ℹ️ <b>Fonte com cache de até 48h</b> — confirme no site antes de comprar.\n\n" + header
+        else:
+            age_label = f"visto há {age:.0f}h" if age is not None else "idade desconhecida"
+            header = (
+                f"⚠️ <b>Dado antigo ({age_label})</b> — o preço pode não existir mais; "
+                f"confirme no site antes de se animar.\n\n" + header
+            )
     return header + "\n\n" + build_route_block(report)
 
 

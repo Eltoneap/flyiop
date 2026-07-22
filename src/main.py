@@ -20,7 +20,7 @@ from telegram_notifier import (
     hours_since_found,
     send_message,
 )
-from travelpayouts_client import get_month_matrix, get_prices_for_dates
+from travelpayouts_client import get_prices_for_dates
 
 MONTHS_AHEAD = 6  # varre de "em cima da hora" até ~6 meses à frente; o histórico aprende sozinho qual faixa é mais barata
 REQUEST_DELAY_SECONDS = 0.3  # precaução contra possível limite de requisições da Travelpayouts
@@ -82,93 +82,56 @@ def staleness(found_at: str | None, freshness_hours_limit: float) -> tuple[bool,
     """Portão de frescor (Etapa 2): (is_stale, idade_em_horas).
 
     found_at ausente/ilegível = idade desconhecida → tratado como velho
-    (nunca como fresco): o objetivo é não mandar o usuário correr pro site
-    por um preço que talvez nem exista mais."""
+    (nunca como fresco). Com a fonte v3 (que não devolve found_at, mas garante
+    cache ≤48h) a ausência é esperada — a mensagem vira informativa (cache_48h)
+    e a política 'suppress' não se aplica (ver should_suppress_alert)."""
     age_hours = hours_since_found(found_at)
     return (age_hours is None or age_hours > freshness_hours_limit), age_hours
 
 
-def should_suppress_alert(is_stale: bool, settings: dict) -> bool:
+def should_suppress_alert(is_stale: bool, age_hours: float | None, settings: dict) -> bool:
     """Política 'suppress' segura o alerta de dado velho. Só vale no modo alerta —
-    o resumo diário nunca é suprimido (não é alerta repetido nem urgente)."""
+    o resumo diário nunca é suprimido.
+
+    Salvaguarda (Etapa 6): idade DESCONHECIDA não suprime — a fonte v3 nunca
+    informa found_at, e suprimir nesse caso seguraria 100% dos alertas em
+    silêncio. Só suprime quando a idade foi medida e passou do limite."""
     return (
         is_stale
+        and age_hours is not None
         and settings.get("stale_alert_policy") == "suppress"
         and settings.get("notification_mode") != "daily_summary"
     )
 
 
-def v3_comparison_detail(origin: str, destination: str, currency: str, v2_price: float | None) -> str:
-    """Comparação v2×v3 (Fase A, etapa 1): varre os mesmos meses no v3 (cache de
-    até 48h) e devolve um resumo textual para o run_log. Não grava histórico —
-    durante a comparação paralela o price_history segue recebendo só o v2."""
-    entries: list[dict] = []
-    months_with_data = 0
-    for i, month in enumerate(_target_months()):
-        if i > 0:
-            time.sleep(REQUEST_DELAY_SECONDS)
-        month_entries = get_prices_for_dates(origin, destination, currency, departure_at=month[:7], one_way=False)
-        if month_entries:
-            months_with_data += 1
-            entries.extend(month_entries)
-
-    if not entries:
-        v3_part = "v3: sem dados"
-    else:
-        cheapest = min(entries, key=lambda e: float(e["price"]))
-        found_at_note = "com found_at" if cheapest.get("found_at") else "sem found_at"
-        v3_part = (
-            f"v3: {float(cheapest['price']):.2f} "
-            f"({months_with_data}/{MONTHS_AHEAD} meses, ida {cheapest.get('departure_at', '?')[:10]}, {found_at_note})"
-        )
-
-    v2_part = f"v2: {v2_price:.2f}" if v2_price is not None else "v2: sem dados"
-    return f"{v3_part} | {v2_part}"
-
-
-def safe_v3_comparison(route_label: str, origin: str, destination: str, currency: str, v2_price: float | None) -> str:
-    """A comparação é observacional: se o v3 falhar, a rota não pode falhar junto."""
-    try:
-        detail = v3_comparison_detail(origin, destination, currency, v2_price)
-    except Exception as error:
-        detail = f"v3: erro na comparação ({type(error).__name__})"
-    print(f"[{route_label}] comparação {detail}")
-    return detail
-
-
 def process_route(route: dict, settings: dict) -> dict:
-    """Busca, grava e avalia uma rota. Retorna um report para a camada de notificação."""
+    """Busca, grava e avalia uma rota. Retorna um report para a camada de notificação.
+
+    Fonte: v3 prices_for_dates (corte da Etapa 6, 21/07/2026 — 5 dias de
+    comparação paralela com 100% de paridade de preço com o v2).
+    Nota: o v3 não tem filtro de duração da estadia; trip_duration_weeks da
+    rota deixou de ter efeito na busca (a UI de Configurações avisa)."""
     origin, destination, currency = route["origin"], route["destination"], route["currency"]
     route_label = f"{origin} → {destination}"
-
-    # Duração da estadia é opcional: pedir uma duração exata reduz muito a cobertura
-    # de dados de ida-e-volta em cache (confirmado em teste real: com duração fixa
-    # vieram 0 resultados pra BSB-GIG, sem duração veio 1). Só restringe se o
-    # usuário configurou explicitamente.
-    trip_duration_raw = route.get("trip_duration_weeks")
-    trip_duration_weeks = int(trip_duration_raw) if trip_duration_raw is not None else None
 
     matrix = []
     for i, month in enumerate(_target_months()):
         if i > 0:
             time.sleep(REQUEST_DELAY_SECONDS)
-        month_entries = get_month_matrix(
-            origin, destination, currency, month=month, trip_duration_weeks=trip_duration_weeks, one_way=False
-        )
+        month_entries = get_prices_for_dates(origin, destination, currency, departure_at=month[:7], one_way=False)
         print(f"[{route_label}] mês {month[:7]}: {len(month_entries)} entradas")
         matrix.extend(month_entries)
 
     cheapest = cheapest_entry(matrix)
     if cheapest is None:
         print(f"[{route_label}] sem dados de ida e volta retornados em nenhum dos {MONTHS_AHEAD} meses varridos")
-        comparison = safe_v3_comparison(route_label, origin, destination, currency, v2_price=None)
-        insert_run_log(route["id"], "no_data", detail=comparison)
+        insert_run_log(route["id"], "no_data", detail="fonte: v3")
         return {"route": route, "status": "no_data", "streak": _no_coverage_streak(route["id"])}
 
     price = entry_price(cheapest)
-    depart_date = cheapest.get("depart_date") or None
-    return_date = cheapest.get("return_date") or None
-    stops = cheapest.get("number_of_changes")
+    depart_date = (cheapest.get("departure_at") or "")[:10] or None
+    return_date = (cheapest.get("return_at") or "")[:10] or None
+    stops = cheapest.get("transfers")
     found_at = cheapest.get("found_at") or None
     days_ahead = _days_ahead(depart_date)
 
@@ -179,11 +142,13 @@ def process_route(route: dict, settings: dict) -> dict:
 
     freshness_limit = float(settings.get("freshness_hours") or DEFAULT_SETTINGS["freshness_hours"])
     is_stale, age_hours = staleness(found_at, freshness_limit)
-    freshness_note = "frescor: desconhecido" if age_hours is None else f"frescor: {age_hours:.0f}h"
-    if is_stale:
-        freshness_note += " (velho)"
-
-    comparison = safe_v3_comparison(route_label, origin, destination, currency, v2_price=price)
+    cache_48h = is_stale and age_hours is None  # ausência esperada na fonte v3
+    if age_hours is None:
+        freshness_note = "frescor: n/d (cache ≤48h)"
+    else:
+        freshness_note = f"frescor: {age_hours:.0f}h"
+        if is_stale:
+            freshness_note += " (velho)"
 
     history_30d = get_price_history(route["id"], days=30)
     history_prices = [float(h["price"]) for h in history_30d]
@@ -200,12 +165,14 @@ def process_route(route: dict, settings: dict) -> dict:
     )
 
     would_alert = good or trending
-    suppressed = would_alert and should_suppress_alert(is_stale, settings)
+    suppressed = would_alert and should_suppress_alert(is_stale, age_hours, settings)
     if suppressed:
         freshness_note += " — alerta segurado"
         print(f"[{route_label}] alerta segurado: dado velho e política 'suppress'")
+    elif would_alert and cache_48h and settings.get("stale_alert_policy") == "suppress":
+        freshness_note += " — política suppress não aplicada (idade desconhecida, fonte v3)"
 
-    insert_run_log(route["id"], "ok", price=price, detail=f"{comparison} | {freshness_note}")
+    insert_run_log(route["id"], "ok", price=price, detail=f"fonte: v3 | {freshness_note}")
 
     print(f"[{route_label}] R$ {price:.2f} ida {depart_date} volta {return_date} ({stops} escalas)")
 
@@ -225,6 +192,7 @@ def process_route(route: dict, settings: dict) -> dict:
         "avg_30d": avg_30d,
         "is_stale": is_stale,
         "age_hours": age_hours,
+        "cache_48h": cache_48h,
         "should_alert": would_alert and not suppressed,
         "reason": good_reason if good else (trend_reason if trending else None),
     }

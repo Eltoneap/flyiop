@@ -72,6 +72,9 @@ Mudanças de banco: cada etapa que altera schema entrega um script SQL pronto pa
 
 ## Etapa 5 — A4: janela dupla de monitoramento por rota
 
+**⚠️ Reflexão obrigatória antes de implementar (pedido do usuário, 21/07/2026):**
+Os dados reais dos primeiros dias (17–21/07) mostraram que a "data mais barata" reportada pode pular de mês de um dia pro outro — caso concreto: BSB→GIG foi de ida **27/11 → 21/11 → 18/09** em poucos dias, enquanto GIG→BSB ficou travada em 01/10. Consequência: o `price_history` de uma rota mistura datas de viagem diferentes numa série temporal única, como se fosse o mesmo produto. Isso pode **distorcer a detecção de tendência** (uma "queda" pode ser só o algoritmo trocando novembro por setembro, não o mesmo voo ficando mais barato) **e o autocheck estatístico da Etapa 4** (a média 30d compara preços de datas de viagem diferentes). Ao desenhar a Etapa 5, avaliar se separar por janela (curta/longa) **basta**, ou se é preciso ir além e rastrear o histórico por **"mês de viagem" específico** (ex.: série própria por `target_month`), para média e tendência fazerem sentido. **Trazer o raciocínio ao usuário ANTES de codar a Etapa 5** — não implementar direto.
+
 **Objetivo (pedido explícito):** monitorar separadamente "viagem logo ali" e "viagem daqui a meses", com limiares próprios — dinâmicas de preço diferentes.
 
 Definição das janelas:
@@ -91,13 +94,18 @@ Mudanças:
 - Chamadas à API: curta = 3 meses, longa = 3 meses; rota com ambas = 6 chamadas (igual a hoje). Rota com uma janela só fica mais barata.
 - **Teste local (antes do push):** matriz de entradas simuladas com `days_ahead` variados → conferir separação por janela, mais barato por janela, avaliação de tendência com limiares distintos e rótulos das mensagens, sem API nem Supabase.
 
-## Etapa 6 — A1 (parte 2): corte para o v3
+## Etapa 6 — A1 (parte 2): corte para o v3 — ✅ EXECUTADA (21/07/2026)
 
 Pré-condição: comparação da etapa 1 mostrando cobertura v3 ≥ v2 nas rotas ativas (conferir `run_log` dos últimos 4–7 dias).
 
-- `src/main.py`: v3 vira a fonte que grava `price_history`; remover as chamadas v2 do fluxo diário. `get_month_matrix` fica no repositório por uma versão, como rollback rápido, e sai depois.
-- Se alguma rota tiver cobertura pior no v3: manter v2 **só para essa rota** como fallback documentado no run_log — decisão registrada no chat antes do corte.
-- **Teste local (antes do push):** rodar o fluxo completo de `process_route` com cliente v3 simulado e escrita no banco simulada → conferir que `price_history` receberia os campos certos vindos do v3, sem API nem Supabase.
+**Base da decisão (aprovada pelo usuário em 21/07):** 5 dias de comparação paralela (17–21/07). Nas duas rotas com cobertura (BSB→GIG, GIG→BSB) o v3 achou preço nos mesmos dias que o v2 com valor **idêntico em 100% das observações**, inclusive replicando a volatilidade intradiária (GIG→BSB em 18/07: dois preços diferentes no mesmo dia, os dois batidos). RIA→BSB seguiu sem cobertura nas duas fontes (paridade no vazio, não regressão). Resultado limpo o bastante para cortar no 5º dia sem esperar o teto de 7.
+
+- `src/main.py`: v3 (`get_prices_for_dates`) virou a fonte que grava `price_history`; o loop v2 saiu, junto do andaime de comparação (`v3_comparison_detail`/`safe_v3_comparison`). `get_month_matrix` **permanece** em `travelpayouts_client.py` como rollback rápido por uma versão.
+- **Mensagem de frescor:** decisão de 18/07 aplicada junto — `found_at` ausente na fonte v3 gera `ℹ️ Fonte com cache de até 48h` (campo `cache_48h` no report), não mais `⚠️ Dado antigo`. `found_at` presente e velho continua com o alarme normal.
+- **Salvaguarda anti-supressão total (ajuste do usuário):** `should_suppress_alert` só suprime com idade **conhecida e velha**; idade desconhecida (v3) nunca suprime. UI: opção `suppress` desabilitada com aviso; valor `suppress` já salvo é exibido como `warn` com nota de alerta.
+- **`trip_duration_weeks` sem efeito:** o v3 não tem filtro de duração. UI de Configurações marca o campo como desabilitado com nota explicativa (mesmo tratamento honesto dado ao comparador de milhas). Coluna preservada no banco.
+- **Teste local:** `tests/test_etapa6_corte.py` (mapeamento de campos v3, mensagem de cache, salvaguarda) + suíte das etapas 1 e 2 ajustada — **27 testes verdes**, sem API nem Supabase.
+- **Rollback:** `get_month_matrix` intacto no cliente; reverter = reverter 1 commit.
 
 ## Etapa 7 — A5 (parte 2): confirmação pontual no momento do alerta
 

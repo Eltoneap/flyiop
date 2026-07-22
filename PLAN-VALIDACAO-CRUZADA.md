@@ -54,6 +54,20 @@ _(preencher após execução)_
 
 **Decisão:** ( ) aprovado — seguir para Etapa 8 · ( ) reprovado — arquivar fast-flights, Etapa 7 cobre sozinha
 
+### Etapa 6 — nota sobre a mensagem de frescor pós-corte (decisão registrada em 18/07/2026)
+
+**Contexto:** a Etapa 1 confirmou empiricamente (17–18/07) que o `prices_for_dates` (v3) não devolve `found_at`. Sem ajuste, a lógica atual da Etapa 2 (`staleness()` em `src/main.py`) trata `found_at` ausente sempre como "idade desconhecida = velho", o que geraria o aviso `⚠️ Dado antigo` em 100% dos alertas depois do corte — enganoso, já que o v3 tem garantia estrutural de cache ≤48h (melhor que o v2, que podia chegar a 7 dias).
+
+**Decisão (18/07/2026, opção 1 do relatório de auditoria):** quando a Etapa 6 cortar a fonte gravada para o v3, a mensagem de frescor exibida quando `found_at` estiver ausente muda de `⚠️ Dado antigo (idade desconhecida)` para uma redação que reflete a garantia estrutural da fonte — algo como `ℹ️ Fonte com cache de até 48h — confirme no site antes de comprar` — em vez de soar como um alerta de dado velho.
+
+**Escopo da mudança (a implementar JUNTO com o corte da Etapa 6, não antes):**
+- É uma mudança de **rotulagem/mensagem**, não de lógica de supressão: `stale_alert_policy` (`warn`/`suppress`) continua funcionando exatamente como hoje — só a redação do aviso muda quando a ausência de `found_at` é esperada (fonte v3) em vez de anômala.
+- Preços com `found_at` presente e realmente antigos continuam mostrando a idade real e o aviso de dado antigo normalmente, na v3 como na v2.
+- O comportamento do v2 não muda: lá a ausência de `found_at` continua sendo tratada como anômala (velho), já que não é o padrão esperado dessa fonte.
+- Arquivos a tocar quando chegar a vez: `src/main.py` (`staleness()`) e `src/telegram_notifier.py` (`build_alert_message`).
+
+**Status:** ✅ **EXECUTADA em 21/07/2026, junto com o corte da Etapa 6.** A mudança de rotulagem entrou como descrito: `found_at` ausente na fonte v3 → `ℹ️ Fonte com cache de até 48h` (campo `cache_48h`), em vez de `⚠️ Dado antigo`. A lógica de supressão ganhou salvaguarda extra (idade desconhecida nunca suprime) e a UI passou a desabilitar a opção `suppress` — ver registro da Etapa 6 no PLAN-FASE-A.md.
+
 ### Etapa 7 — mantida exatamente como está no PLAN-FASE-A.md
 
 Nada muda. A confirmação na 2ª consulta Travelpayouts (data exata) continua sendo a primeira camada de validação e entra ANTES da Etapa 8, na ordem já planejada (após o corte v3 da etapa 6).
@@ -122,6 +136,12 @@ Objetivos, em ordem de valor:
 ### Fora de escopo permanente (reafirmado)
 
 Scraping em volume, evasão anti-bot ativa, qualquer fonte que exija infraestrutura 24/7 (Docker/VPS) — a arquitetura GitHub Actions + Supabase + Pages é um requisito do projeto, não um acidente.
+
+---
+
+## Pendências de documentação
+
+- **Consolidar os dois planos após o fechamento da Fase A** (decisão do usuário, 21/07/2026): hoje o `PLAN-FASE-A.md` (Etapas 1–7, plano técnico original) e o `PLAN-VALIDACAO-CRUZADA.md` (revisão da regra de scraping + Etapas 0 e 8 + roadmap B/C/D + notas dentro de etapas existentes, como a da Etapa 6) coexistem, com a regra "em conflito, o VALIDACAO-CRUZADA prevalece". Funciona, mas entender uma etapa às vezes exige ler os dois. Quando a Fase A fechar, unificar num documento único. **Não é urgente** — manter separado até lá.
 
 ---
 

@@ -1,4 +1,9 @@
-"""Teste local da Etapa 1 (PLAN-FASE-A.md): cliente v3 + comparação paralela v2×v3.
+"""Teste local do cliente v3 (get_prices_for_dates).
+
+Nota: as classes que testavam a comparação paralela v2×v3 (v3_comparison_detail
+e safe_v3_comparison) foram removidas no corte da Etapa 6 — essas funções
+deixaram de existir quando o v3 virou a fonte oficial. O cliente v3 em si
+continua em uso e coberto aqui.
 
 Roda 100% com mocks — nenhuma chamada à API da Travelpayouts nem ao Supabase.
 Uso: python -m unittest tests/test_etapa1_v3.py -v  (a partir da raiz do repo)
@@ -10,7 +15,6 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-import main  # noqa: E402
 import travelpayouts_client  # noqa: E402
 
 FAKE_TOKEN_ENV = {"TRAVELPAYOUTS_TOKEN": "fake-token-para-teste"}
@@ -70,63 +74,6 @@ class GetPricesForDatesTest(unittest.TestCase):
             result = travelpayouts_client.get_prices_for_dates("RIA", "BSB", "BRL", departure_at="2026-08")
 
         self.assertEqual(result, [])
-
-
-class V3ComparisonDetailTest(unittest.TestCase):
-    """Cobre a lógica de comparação em main.py — sem tocar a rede ou o Supabase."""
-
-    @patch("main.time.sleep", return_value=None)
-    @patch("main.get_prices_for_dates")
-    def test_cheapest_v3_entry_wins_and_reports_found_at(self, mock_v3, _mock_sleep):
-        cheap_entry = {**SAMPLE_V3_ENTRY, "price": 1180.0, "departure_at": "2026-08-15T07:00:00Z"}
-        pricier_entry = {**SAMPLE_V3_ENTRY, "price": 1400.0, "departure_at": "2026-09-01T07:00:00Z"}
-        # 6 meses varridos (MONTHS_AHEAD): só 2 têm dados, os demais vazios.
-        mock_v3.side_effect = [[cheap_entry], [pricier_entry], [], [], [], []]
-
-        detail = main.v3_comparison_detail("BSB", "GIG", "BRL", v2_price=1250.0)
-
-        self.assertIn("v3: 1180.00", detail)
-        self.assertIn("2/6 meses", detail)
-        self.assertIn("2026-08-15", detail)
-        self.assertIn("com found_at", detail)
-        self.assertIn("v2: 1250.00", detail)
-
-    @patch("main.time.sleep", return_value=None)
-    @patch("main.get_prices_for_dates")
-    def test_missing_found_at_is_reported_honestly(self, mock_v3, _mock_sleep):
-        entry_without_found_at = {k: v for k, v in SAMPLE_V3_ENTRY.items() if k != "found_at"}
-        mock_v3.side_effect = [[entry_without_found_at], [], [], [], [], []]
-
-        detail = main.v3_comparison_detail("BSB", "GIG", "BRL", v2_price=1250.0)
-
-        self.assertIn("sem found_at", detail)
-
-    @patch("main.time.sleep", return_value=None)
-    @patch("main.get_prices_for_dates")
-    def test_no_v3_data_and_no_v2_price(self, mock_v3, _mock_sleep):
-        mock_v3.side_effect = [[] for _ in range(6)]
-
-        detail = main.v3_comparison_detail("RIA", "BSB", "BRL", v2_price=None)
-
-        self.assertIn("v3: sem dados", detail)
-        self.assertIn("v2: sem dados", detail)
-
-
-class SafeV3ComparisonTest(unittest.TestCase):
-    """A comparação é observacional: uma falha no v3 nunca pode derrubar a rota."""
-
-    @patch("main.v3_comparison_detail", side_effect=RuntimeError("timeout simulado"))
-    def test_exception_is_caught_and_summarized(self, _mock_detail):
-        detail = main.safe_v3_comparison("BSB → GIG", "BSB", "GIG", "BRL", v2_price=1250.0)
-
-        self.assertIn("v3: erro na comparação", detail)
-        self.assertIn("RuntimeError", detail)
-
-    @patch("main.v3_comparison_detail", return_value="v3: 1180.00 (2/6 meses) | v2: 1250.00")
-    def test_success_passthrough(self, _mock_detail):
-        detail = main.safe_v3_comparison("BSB → GIG", "BSB", "GIG", "BRL", v2_price=1250.0)
-
-        self.assertEqual(detail, "v3: 1180.00 (2/6 meses) | v2: 1250.00")
 
 
 if __name__ == "__main__":

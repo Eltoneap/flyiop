@@ -125,7 +125,19 @@ async function loadSettings(userId) {
   form.notification_mode.value = settings.notification_mode;
   form.cost_per_thousand_brl.value = settings.cost_per_thousand_brl;
   form.freshness_hours.value = settings.freshness_hours ?? DEFAULT_SETTINGS.freshness_hours;
-  form.stale_alert_policy.value = settings.stale_alert_policy ?? DEFAULT_SETTINGS.stale_alert_policy;
+
+  // 'suppress' foi desativado no corte da Etapa 6 (a fonte v3 não informa a idade
+  // do preço, então suprimir seguraria 100% dos alertas). Se o valor salvo ainda
+  // for 'suppress', mostra o aviso e força a exibição para 'warn' — o robô já
+  // ignora suppress quando a idade é desconhecida, mas a UI não deve mentir.
+  const savedPolicy = settings.stale_alert_policy ?? DEFAULT_SETTINGS.stale_alert_policy;
+  const suppressNote = document.getElementById('suppress-note');
+  if (savedPolicy === 'suppress') {
+    if (suppressNote) suppressNote.style.display = 'block';
+    form.stale_alert_policy.value = 'warn';
+  } else {
+    form.stale_alert_policy.value = savedPolicy;
+  }
 }
 
 const session = await requireAuth();
