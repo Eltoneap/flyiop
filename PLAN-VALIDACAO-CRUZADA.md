@@ -2,6 +2,8 @@
 
 _Complemento ao PLAN-FASE-A.md, escrito em 18/07/2026 e ancorado no código real do repositório (commit atual de `main`). Este documento faz três coisas: (1) revisa formalmente a regra de proibição de scraping, (2) adiciona as etapas 0 e 8 ao plano da Fase A, e (3) consolida o roadmap das Fases B/C/D com datas-alvo, alinhado ao calendário real (aprendizado a partir de out/2026, compra a partir de fev/2027). Executar uma etapa por vez, com teste local antes de cada push, como no protocolo já vigente._
 
+> **Nota sobre autoridade deste documento (21/07/2026):** este arquivo trazia a orientação "em caso de conflito entre documentos, o PLAN-VALIDACAO-CRUZADA.md prevalece", recebida em 18/07/2026 — é a orientação histórica que abriu caminho pras Etapas 0 e 8 abaixo sem revisão prévia no chat de planejamento. **Essa regra está revogada a partir de hoje:** nenhum arquivo tem autoridade para reverter decisões de escopo sozinho — só o `ROADMAP-AUDITORIA.md` e o `CLAUDE.md`, e mesmo esses somente depois de aprovação explícita no chat de planejamento. O restante deste documento permanece válido; o que muda é só essa cláusula de precedência automática.
+
 ---
 
 ## Parte 1 — Revisão da regra de scraping (decisão registrada)
@@ -141,7 +143,7 @@ Scraping em volume, evasão anti-bot ativa, qualquer fonte que exija infraestrut
 
 ## Pendências de documentação
 
-- **Consolidar os dois planos após o fechamento da Fase A** (decisão do usuário, 21/07/2026): hoje o `PLAN-FASE-A.md` (Etapas 1–7, plano técnico original) e o `PLAN-VALIDACAO-CRUZADA.md` (revisão da regra de scraping + Etapas 0 e 8 + roadmap B/C/D + notas dentro de etapas existentes, como a da Etapa 6) coexistem, com a regra "em conflito, o VALIDACAO-CRUZADA prevalece". Funciona, mas entender uma etapa às vezes exige ler os dois. Quando a Fase A fechar, unificar num documento único. **Não é urgente** — manter separado até lá.
+- **Consolidar os dois planos após o fechamento da Fase A** (decisão do usuário, 21/07/2026): hoje o `PLAN-FASE-A.md` (Etapas 1–7, plano técnico original) e o `PLAN-VALIDACAO-CRUZADA.md` (revisão da regra de scraping + Etapas 0 e 8 + roadmap B/C/D + notas dentro de etapas existentes, como a da Etapa 6) coexistem. A regra de precedência automática entre os dois ("em conflito, o VALIDACAO-CRUZADA prevalece") foi revogada em 21/07/2026 — ver nota no topo deste arquivo; decisões de escopo agora exigem aprovação explícita no chat, não delegação a um arquivo específico. Ler os dois documentos ainda é necessário pra entender algumas etapas. Quando a Fase A fechar, unificar num documento único. **Não é urgente** — manter separado até lá.
 
 ---
 
