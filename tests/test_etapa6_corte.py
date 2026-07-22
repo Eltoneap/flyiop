@@ -49,6 +49,7 @@ def run_process_route(v3_months, settings=None):
          patch("main.insert_price", side_effect=lambda *a, **k: calls["insert_price"].append((a, k))), \
          patch("main.insert_run_log", side_effect=lambda *a, **k: calls["insert_run_log"].append((a, k))), \
          patch("main.get_price_history", return_value=[]), \
+         patch("main.get_last_alert", return_value=None), \
          patch("main.time.sleep", return_value=None):
         report = main.process_route(ROUTE, settings or SETTINGS)
     return report, calls

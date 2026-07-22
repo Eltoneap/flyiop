@@ -19,6 +19,20 @@ def is_good_price(current_price: float, history_prices: list[float], target_pric
     return (len(reasons) > 0, "; ".join(reasons))
 
 
+def is_suspicious_price(current_price: float, history_prices: list[float], threshold_pct: float) -> bool:
+    """Autocheck anti-preço-fantasma (Etapa 4): preço absurdamente abaixo da
+    média provavelmente é erro de dado, não achado real. Precisa de histórico
+    mínimo (5 registros) pra ter uma média confiável — sem isso, não classifica
+    (evita marcar as primeiras buscas de uma rota nova como suspeitas)."""
+    if len(history_prices) < 5:
+        return False
+    avg = mean(history_prices)
+    if avg <= 0:
+        return False
+    pct_below = (1 - current_price / avg) * 100
+    return pct_below > threshold_pct
+
+
 def detect_trend(history: list[tuple[str, float]], window_3d_pct: float, window_7d_pct: float) -> tuple[bool, str]:
     """Recebe histórico ordenado [(checked_at, price), ...] e detecta alta OU queda preocupante.
 

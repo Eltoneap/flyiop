@@ -136,6 +136,7 @@ class ProcessRouteIntegrationTest(unittest.TestCase):
              patch("main.insert_price"), \
              patch("main.insert_run_log", side_effect=lambda *a, **k: run_log_calls.append((a, k))), \
              patch("main.get_price_history", return_value=[]), \
+             patch("main.get_last_alert", return_value=None), \
              patch("main.time.sleep", return_value=None):
             report = main.process_route(self.ROUTE, settings)
         return report, run_log_calls

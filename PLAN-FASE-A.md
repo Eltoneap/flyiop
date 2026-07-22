@@ -48,7 +48,7 @@ Mudanças de banco: cada etapa que altera schema entrega um script SQL pronto pa
 - `docs/js/config.js` + `docs/config.html`: dois campos novos no formulário de preferências (horas de frescor; o que fazer com dado velho). Atualizar `DEFAULT_SETTINGS` nos dois lugares (`supabase_client.py` e `config.js`).
 - **Teste local (antes do push):** reports simulados com `found_at` fresco, velho e ausente → conferir decisão (envia/segura) e o texto do aviso nas duas políticas, sem API nem Supabase.
 
-## Etapa 3 — A3: deduplicação/cooldown de alertas
+## Etapa 3 — A3: deduplicação/cooldown de alertas — ✅ EXECUTADA (22/07/2026)
 
 **Objetivo:** não repetir o mesmo "bom preço" todo dia.
 
@@ -60,7 +60,7 @@ Mudanças de banco: cada etapa que altera schema entrega um script SQL pronto pa
 - `docs/js/config.js`: os dois campos novos no formulário de preferências.
 - **Teste local (antes do push):** simular últimos alertas (ontem, há 4 dias, preço 6% menor, preço igual) → conferir que a regra reenvia/segura nos casos certos, sem API nem Supabase.
 
-## Etapa 4 — A5 (parte 1): autocheck estatístico anti-preço-fantasma
+## Etapa 4 — A5 (parte 1): autocheck estatístico anti-preço-fantasma — ✅ EXECUTADA (22/07/2026)
 
 **Objetivo:** preço absurdamente baixo não vira alerta direto — provavelmente é erro de dado.
 

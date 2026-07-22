@@ -9,6 +9,9 @@ const DEFAULT_SETTINGS = {
   cost_per_thousand_brl: 25,
   freshness_hours: 24,
   stale_alert_policy: 'warn',
+  realert_drop_pct: 5,
+  realert_days: 3,
+  suspicious_below_avg_pct: 50,
 };
 
 function showFlash() {
@@ -125,6 +128,9 @@ async function loadSettings(userId) {
   form.notification_mode.value = settings.notification_mode;
   form.cost_per_thousand_brl.value = settings.cost_per_thousand_brl;
   form.freshness_hours.value = settings.freshness_hours ?? DEFAULT_SETTINGS.freshness_hours;
+  form.realert_drop_pct.value = settings.realert_drop_pct ?? DEFAULT_SETTINGS.realert_drop_pct;
+  form.realert_days.value = settings.realert_days ?? DEFAULT_SETTINGS.realert_days;
+  form.suspicious_below_avg_pct.value = settings.suspicious_below_avg_pct ?? DEFAULT_SETTINGS.suspicious_below_avg_pct;
 
   // 'suppress' foi desativado no corte da Etapa 6 (a fonte v3 não informa a idade
   // do preço, então suprimir seguraria 100% dos alertas). Se o valor salvo ainda
@@ -208,6 +214,9 @@ if (session) {
       cost_per_thousand_brl: Number(form.cost_per_thousand_brl.value),
       freshness_hours: Number(form.freshness_hours.value),
       stale_alert_policy: form.stale_alert_policy.value,
+      realert_drop_pct: Number(form.realert_drop_pct.value),
+      realert_days: Number(form.realert_days.value),
+      suspicious_below_avg_pct: Number(form.suspicious_below_avg_pct.value),
       updated_at: new Date().toISOString(),
     });
     if (error) {

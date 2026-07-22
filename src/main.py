@@ -1,15 +1,17 @@
 import sys
 import time
 import traceback
-from datetime import date
+from datetime import date, datetime, timezone
 
-from rules import detect_trend, is_good_price
+from rules import detect_trend, is_good_price, is_suspicious_price
 from supabase_client import (
     DEFAULT_SETTINGS,
+    get_last_alert,
     get_price_history,
     get_recent_run_outcomes,
     get_routes,
     get_settings,
+    insert_alert_log,
     insert_price,
     insert_run_log,
 )
@@ -104,6 +106,34 @@ def should_suppress_alert(is_stale: bool, age_hours: float | None, settings: dic
     )
 
 
+def cooldown_blocks_alert(last_alert: dict | None, current_price: float, settings: dict) -> bool:
+    """Etapa 3: não repetir o mesmo bom preço todo dia. True = segurar o alerta.
+
+    Resumo diário nunca é afetado (sempre mostra tudo, não é alerta repetido).
+    Sem alerta anterior da rota → nunca segura (é o primeiro). Com alerta
+    anterior → só segura se o preço NÃO caiu o suficiente E NÃO passou tempo
+    suficiente desde o último envio."""
+    if settings.get("notification_mode") == "daily_summary":
+        return False
+    if last_alert is None:
+        return False
+
+    drop_pct = float(settings.get("realert_drop_pct") or DEFAULT_SETTINGS["realert_drop_pct"])
+    cooldown_days = float(settings.get("realert_days") or DEFAULT_SETTINGS["realert_days"])
+
+    last_price = float(last_alert["price"])
+    threshold = last_price * (1 - drop_pct / 100)
+    price_dropped_enough = current_price <= threshold
+
+    sent_at = datetime.fromisoformat(last_alert["sent_at"])
+    if sent_at.tzinfo is None:
+        sent_at = sent_at.replace(tzinfo=timezone.utc)
+    days_since = (datetime.now(timezone.utc) - sent_at).total_seconds() / 86400
+    enough_time_passed = days_since >= cooldown_days
+
+    return not (price_dropped_enough or enough_time_passed)
+
+
 def process_route(route: dict, settings: dict) -> dict:
     """Busca, grava e avalia uma rota. Retorna um report para a camada de notificação.
 
@@ -154,6 +184,15 @@ def process_route(route: dict, settings: dict) -> dict:
     history_prices = [float(h["price"]) for h in history_30d]
     avg_30d = sum(history_prices) / len(history_prices) if history_prices else None
 
+    suspicious_threshold = float(
+        settings.get("suspicious_below_avg_pct") or DEFAULT_SETTINGS["suspicious_below_avg_pct"]
+    )
+    suspicious = is_suspicious_price(price, history_prices, suspicious_threshold)
+    if suspicious and avg_30d:
+        pct_below_avg = (1 - price / avg_30d) * 100
+        freshness_note += f" | suspeito: {pct_below_avg:.0f}% abaixo da média 30d"
+        print(f"[{route_label}] preço suspeito: {pct_below_avg:.0f}% abaixo da média 30d — alerta não dispara hoje")
+
     target_price = _to_float(route.get("target_price"))
     target_percent = _to_float(route.get("target_percent_below_avg"))
     good, good_reason = is_good_price(price, history_prices, target_price, target_percent)
@@ -164,13 +203,21 @@ def process_route(route: dict, settings: dict) -> dict:
         recent, float(settings["window_3d_pct"]), float(settings["window_7d_pct"])
     )
 
-    would_alert = good or trending
-    suppressed = would_alert and should_suppress_alert(is_stale, age_hours, settings)
-    if suppressed:
+    would_alert = (good or trending) and not suspicious
+    stale_suppressed = would_alert and should_suppress_alert(is_stale, age_hours, settings)
+    if stale_suppressed:
         freshness_note += " — alerta segurado"
         print(f"[{route_label}] alerta segurado: dado velho e política 'suppress'")
     elif would_alert and cache_48h and settings.get("stale_alert_policy") == "suppress":
         freshness_note += " — política suppress não aplicada (idade desconhecida, fonte v3)"
+
+    cooldown_suppressed = False
+    if would_alert and not stale_suppressed:
+        last_alert = get_last_alert(route["id"])
+        cooldown_suppressed = cooldown_blocks_alert(last_alert, price, settings)
+        if cooldown_suppressed:
+            freshness_note += " — alerta segurado (cooldown)"
+            print(f"[{route_label}] alerta segurado: cooldown ativo (sem queda nem tempo suficiente)")
 
     insert_run_log(route["id"], "ok", price=price, detail=f"fonte: v3 | {freshness_note}")
 
@@ -193,7 +240,8 @@ def process_route(route: dict, settings: dict) -> dict:
         "is_stale": is_stale,
         "age_hours": age_hours,
         "cache_48h": cache_48h,
-        "should_alert": would_alert and not suppressed,
+        "suspicious": suspicious,
+        "should_alert": would_alert and not stale_suppressed and not cooldown_suppressed,
         "reason": good_reason if good else (trend_reason if trending else None),
     }
 
@@ -212,6 +260,11 @@ def build_notes(reports: list[dict]) -> list[str]:
                 )
         elif r["status"] == "error":
             notes.append(f"❌ {label}: erro na busca de hoje — será tentada de novo amanhã.")
+        elif r["status"] == "ok" and r.get("suspicious"):
+            notes.append(
+                f"🔍 {label}: preço de hoje (R$ {r['price']:.2f}) muito abaixo da média — marcado como "
+                f"suspeito, alerta não disparado. Será reavaliado amanhã (se persistir 2 dias, deixa de ser suspeito)."
+            )
     return notes
 
 
@@ -257,6 +310,7 @@ def main() -> None:
         for r in reports:
             if r["status"] == "ok" and r["should_alert"]:
                 send_message(build_alert_message(r))
+                insert_alert_log(r["route"]["id"], r["price"], r.get("reason"))
         if notes:
             send_message("\n".join(notes))
 

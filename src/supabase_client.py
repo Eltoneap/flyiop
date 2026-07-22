@@ -10,6 +10,9 @@ DEFAULT_SETTINGS = {
     "cost_per_thousand_brl": 25,
     "freshness_hours": 24,
     "stale_alert_policy": "warn",  # 'warn' = alerta com aviso; 'suppress' = segura o alerta
+    "realert_drop_pct": 5,
+    "realert_days": 3,
+    "suspicious_below_avg_pct": 50,
 }
 
 
@@ -103,6 +106,27 @@ def get_recent_run_outcomes(route_id: str, limit: int = 30) -> list[str]:
     resp = requests.get(_url("run_log"), headers=_headers(), params=params, timeout=30)
     resp.raise_for_status()
     return [r["outcome"] for r in resp.json()]
+
+
+def insert_alert_log(route_id: str, price: float, reason: str | None = None) -> None:
+    """Registra um alerta efetivamente enviado (Etapa 3), pra calcular o cooldown."""
+    payload = {"route_id": route_id, "price": price, "reason": reason}
+    resp = requests.post(_url("alert_log"), headers=_headers(), json=payload, timeout=30)
+    resp.raise_for_status()
+
+
+def get_last_alert(route_id: str) -> dict | None:
+    """Último alerta enviado da rota (mais recente), para a regra de cooldown."""
+    params = {
+        "route_id": f"eq.{route_id}",
+        "select": "sent_at,price",
+        "order": "sent_at.desc",
+        "limit": 1,
+    }
+    resp = requests.get(_url("alert_log"), headers=_headers(), params=params, timeout=30)
+    resp.raise_for_status()
+    rows = resp.json()
+    return rows[0] if rows else None
 
 
 def get_last_update_id() -> int:

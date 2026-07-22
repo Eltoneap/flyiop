@@ -111,6 +111,18 @@
             </select>
             <p class="field-note" id="suppress-note" style="display:none;">⚠️ Com a fonte atual, os alertas de dado velho não são suprimidos — só avisados. A fonte de preços (v3) não informa a idade exata do preço, então "segurar o alerta" está desativado para não bloquear todas as notificações silenciosamente.</p>
           </div>
+          <div>
+            <label>Só re-alertar a mesma rota se cair mais de (%)</label>
+            <input type="number" step="0.1" min="0" name="realert_drop_pct">
+          </div>
+          <div>
+            <label>...ou se passarem (dias) desde o último alerta</label>
+            <input type="number" step="1" min="1" name="realert_days">
+          </div>
+          <div>
+            <label>Marcar como suspeito se estiver (%) abaixo da média 30d</label>
+            <input type="number" step="1" min="1" name="suspicious_below_avg_pct">
+          </div>
         </div>
         <button type="submit">Salvar preferências</button>
       </form>
