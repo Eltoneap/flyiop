@@ -55,5 +55,23 @@ class RunCheckTest(unittest.TestCase):
         self.assertEqual(result["price"], 450.0)
 
 
+class RunCheckMonthTest(unittest.TestCase):
+    @patch("validate_rio.get_prices_for_dates", return_value=[ENTRY_SUNDAY, ENTRY_MONDAY])
+    def test_picks_cheapest_of_the_month(self, _mock):
+        result = validate_rio.run_check_month("RIO→BSB, mês inteiro", "RIO")
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["price"], 380.0)
+
+    @patch("validate_rio.get_prices_for_dates", return_value=[])
+    def test_empty_month_is_vazio(self, _mock):
+        result = validate_rio.run_check_month("RIO→BSB, mês inteiro", "RIO")
+        self.assertEqual(result["status"], "vazio")
+
+    @patch("validate_rio.get_prices_for_dates", side_effect=RuntimeError("timeout simulado"))
+    def test_exception_is_caught_as_erro(self, _mock):
+        result = validate_rio.run_check_month("RIO→BSB, mês inteiro", "RIO")
+        self.assertEqual(result["status"], "erro")
+
+
 if __name__ == "__main__":
     unittest.main()
