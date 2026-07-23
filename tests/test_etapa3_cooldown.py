@@ -159,6 +159,7 @@ class AlertLogWiringTest(unittest.TestCase):
              patch("main.date") as mock_date, \
              patch("main.send_message") as mock_send, \
              patch("main.insert_weekend_alert_log") as mock_insert_weekend_alert, \
+             patch("main.build_package_comparison", return_value=None), \
              patch("main.build_weekend_alert_message", return_value="msg-fds"):
             mock_date.today.return_value.weekday.return_value = 2
             main.main()

@@ -32,7 +32,7 @@ from telegram_notifier import (
     build_weekly_weekend_summary,
     send_message,
 )
-from live_check import run_daily_batch
+from live_check import build_package_comparison, run_daily_batch
 from travelpayouts_client import get_prices_for_dates
 from weekends import process_all_weekend_legs
 
@@ -328,7 +328,8 @@ def main() -> None:
     # curado só às segundas-feiras, cadência própria.
     for wr in weekend_reports:
         if wr["status"] == "ok" and wr["should_alert"]:
-            send_message(build_weekend_alert_message(wr))
+            comparison = build_package_comparison(wr, weekend_settings)
+            send_message(build_weekend_alert_message(wr, comparison))
             insert_weekend_alert_log(wr["leg"]["id"], wr["price"], wr.get("reason"))
 
     if date.today().weekday() == 0:  # segunda-feira

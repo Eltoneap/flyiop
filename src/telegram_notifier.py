@@ -151,14 +151,16 @@ def build_alert_message(report: dict) -> str:
     return header + "\n\n" + build_route_block(report)
 
 
-def build_weekend_alert_message(report: dict) -> str:
+def build_weekend_alert_message(report: dict, comparison: dict | None = None) -> str:
     """Alerta de teto (compra imediata) ou de oportunidade (relativo ao
     próprio histórico da perna) — ida e volta avaliadas independentemente
     desde a revisão de 23/07/2026. Sempre imediato — não espera o resumo
     semanal, é esse o ponto do alerta de teto.
 
-    Nota: a comparação avulso×pacote (ida+volta juntas via fast-flights)
-    é a Parte 4, ainda não implementada — esta versão é só a perna isolada."""
+    `comparison` (Parte 4, regra 4): {'avulso': R$, 'pacote': R$|None} —
+    avulso vem dos current_price já gravados das 2 pernas (sem busca nova);
+    pacote é 1 cotação round-trip nova, best-effort. None = sem perna irmã
+    com preço ainda, comparação não aparece na mensagem."""
     direction = report["direction"]
     direction_label = "Ida (sexta)" if direction == "outbound" else "Volta (domingo/segunda)"
     outbound = report["outbound_date"]
@@ -197,6 +199,14 @@ def build_weekend_alert_message(report: dict) -> str:
         lines.append(f"📌 {report['reason']}")
 
     lines.append(f"📊 R$ {price:.2f} · teto R$ {ceiling:.0f} · fonte: {report.get('source', 'cache')}")
+
+    if comparison and comparison.get("avulso") is not None:
+        avulso = comparison["avulso"]
+        pacote = comparison.get("pacote")
+        if pacote is not None:
+            lines.append(f"💰 Avulso (2 pernas): R$ {avulso:.2f} · Pacote (ida+volta): R$ {pacote:.2f}")
+        else:
+            lines.append(f"💰 Avulso (2 pernas): R$ {avulso:.2f} — pacote indisponível agora")
 
     if airport:
         if direction == "outbound":

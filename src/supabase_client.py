@@ -145,6 +145,25 @@ def get_monitoring_weekends() -> list[dict]:
     return resp.json()
 
 
+def get_weekend(weekend_id: str) -> dict | None:
+    """Weekend por id, sem filtro de data — usado pra montar a data do pacote
+    (regra 4, Parte 4) mesmo se a perna irmã já foi comprada/expirou."""
+    params = {"id": f"eq.{weekend_id}", "select": "*"}
+    resp = requests.get(_url("weekends"), headers=_headers(), params=params, timeout=30)
+    resp.raise_for_status()
+    rows = resp.json()
+    return rows[0] if rows else None
+
+
+def get_weekend_legs_by_weekend(weekend_id: str) -> list[dict]:
+    """Todas as pernas do weekend, qualquer status — pra achar a perna irmã
+    na comparação avulso×pacote mesmo se ela já foi comprada."""
+    params = {"weekend_id": f"eq.{weekend_id}", "select": "*"}
+    resp = requests.get(_url("weekend_legs"), headers=_headers(), params=params, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
 def get_monitoring_legs() -> list[dict]:
     """Todas as pernas com status 'monitoring' (ida ou volta) — o filtro de
     weekend expirado é cruzado pelo chamador com get_monitoring_weekends."""

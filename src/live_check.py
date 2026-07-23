@@ -29,7 +29,13 @@ from datetime import date, datetime, timedelta, timezone
 
 from fast_flights import FlightQuery, create_query, get_flights
 
-from supabase_client import DEFAULT_SETTINGS, insert_weekend_leg_run_log, update_weekend_leg
+from supabase_client import (
+    DEFAULT_SETTINGS,
+    get_weekend,
+    get_weekend_legs_by_weekend,
+    insert_weekend_leg_run_log,
+    update_weekend_leg,
+)
 from telegram_notifier import send_message
 from weekends import BSB, GIG, SDU, evaluate_and_record_leg_price, get_active_legs
 
@@ -129,6 +135,69 @@ def check_and_evaluate_leg(leg: dict, settings: dict) -> tuple[dict, bool]:
     )
     update_weekend_leg(leg["id"], last_live_check_at=now_iso)
     return report, True
+
+
+def check_package_price(airport: str, outbound_date: str, return_date: str) -> dict | None:
+    """1 consulta round-trip ao fast-flights pro pacote fechado (ida+volta
+    juntas) — só no momento do alerta (regra 4), nunca na varredura diária.
+    Best-effort: qualquer falha vira None, o alerta sai igual, sem selo."""
+    try:
+        query = create_query(
+            flights=[
+                FlightQuery(date=outbound_date, from_airport=airport, to_airport=BSB),
+                FlightQuery(date=return_date, from_airport=BSB, to_airport=airport),
+            ],
+            trip="round-trip", seat="economy", currency="BRL", language="pt-BR",
+        )
+        results = get_flights(query)
+    except Exception:
+        print(f"[pacote] EXCEÇÃO {airport}↔BSB {outbound_date}/{return_date}:\n{traceback.format_exc()}")
+        return None
+
+    best = None
+    for entry in results:
+        price = getattr(entry, "price", 0)
+        if not price:
+            continue
+        if best is None or price < best:
+            best = float(price)
+    return {"price": best} if best is not None else None
+
+
+def build_package_comparison(leg_report: dict, settings: dict) -> dict | None:
+    """Regra 4 (Parte 3 do plano, ajustada em 23/07): 'avulso' usa os
+    current_price já gravados das 2 pernas (sem buscar de novo); só o
+    'pacote' é uma cotação nova. Se a perna irmã não tem preço ainda, não
+    há avulso pra comparar — sem linha na mensagem. Kill-switch e
+    best-effort valem aqui também."""
+    if not settings.get("fast_flights_enabled", True):
+        return None
+
+    weekend_id = leg_report["weekend_id"]
+    own_leg_id = leg_report["leg"]["id"]
+    sibling = next(
+        (leg for leg in get_weekend_legs_by_weekend(weekend_id) if leg["id"] != own_leg_id), None
+    )
+    if sibling is None or sibling.get("current_price") is None:
+        return None
+
+    avulso = float(leg_report["price"]) + float(sibling["current_price"])
+
+    weekend = get_weekend(weekend_id)
+    if weekend is None:
+        return {"avulso": avulso, "pacote": None}
+
+    if leg_report["direction"] == "outbound":
+        outbound_date = leg_report["date"]
+        variant = sibling.get("current_variant") or "sunday"
+        return_date = weekend["return_sunday"] if variant == "sunday" else weekend["return_monday"]
+    else:
+        outbound_date = weekend["outbound_date"]
+        return_date = leg_report["date"]
+
+    airport = leg_report.get("airport") or GIG
+    package = check_package_price(airport, outbound_date, return_date)
+    return {"avulso": avulso, "pacote": package["price"] if package else None}
 
 
 def run_daily_batch(settings: dict) -> list[dict]:

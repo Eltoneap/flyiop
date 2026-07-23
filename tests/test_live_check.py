@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import live_check  # noqa: E402
 import main  # noqa: E402
+from telegram_notifier import build_weekend_alert_message  # noqa: E402
 
 
 def fake_result(price: float, num_legs: int = 1):
@@ -246,6 +247,122 @@ class RunDailyBatchTest(unittest.TestCase):
             reports = live_check.run_daily_batch(SETTINGS)
         self.assertEqual(len(reports), 3)
         mock_send.assert_not_called()
+
+
+class CheckPackagePriceTest(unittest.TestCase):
+    @patch("live_check.get_flights")
+    @patch("live_check.create_query")
+    def test_success_returns_cheapest(self, mock_create, mock_get_flights):
+        mock_get_flights.return_value = [fake_result(900.0), fake_result(720.0)]
+        result = live_check.check_package_price("GIG", "2026-09-04", "2026-09-06")
+        self.assertEqual(result["price"], 720.0)
+
+    @patch("live_check.get_flights", return_value=[])
+    @patch("live_check.create_query")
+    def test_empty_results_is_none(self, mock_create, mock_get_flights):
+        result = live_check.check_package_price("GIG", "2026-09-04", "2026-09-06")
+        self.assertIsNone(result)
+
+    @patch("live_check.get_flights", side_effect=RuntimeError("bloqueado"))
+    @patch("live_check.create_query")
+    def test_exception_is_caught_as_none(self, mock_create, mock_get_flights):
+        result = live_check.check_package_price("GIG", "2026-09-04", "2026-09-06")
+        self.assertIsNone(result)
+
+
+class BuildPackageComparisonTest(unittest.TestCase):
+    OUTBOUND_REPORT = {
+        "leg": {"id": "leg-out-1"}, "weekend_id": "wknd-1", "direction": "outbound",
+        "outbound_date": "2026-09-04", "date": "2026-09-04", "price": 300.0, "airport": "GIG",
+    }
+    RETURN_REPORT = {
+        "leg": {"id": "leg-ret-1"}, "weekend_id": "wknd-1", "direction": "return",
+        "outbound_date": "2026-09-04", "date": "2026-09-06", "price": 280.0, "airport": "GIG",
+    }
+    SIBLING_LEG_WITH_PRICE = {"id": "leg-ret-1", "current_price": 280.0, "current_variant": "sunday"}
+    WEEKEND = {"id": "wknd-1", "outbound_date": "2026-09-04", "return_sunday": "2026-09-06", "return_monday": "2026-09-07"}
+
+    def test_kill_switch_off_returns_none(self):
+        settings = {"fast_flights_enabled": False}
+        result = live_check.build_package_comparison(self.OUTBOUND_REPORT, settings)
+        self.assertIsNone(result)
+
+    @patch("live_check.get_weekend_legs_by_weekend", return_value=[])
+    def test_no_sibling_returns_none(self, _mock_legs):
+        result = live_check.build_package_comparison(self.OUTBOUND_REPORT, {"fast_flights_enabled": True})
+        self.assertIsNone(result)
+
+    @patch("live_check.get_weekend_legs_by_weekend")
+    def test_sibling_without_price_returns_none(self, mock_legs):
+        mock_legs.return_value = [{"id": "leg-ret-1", "current_price": None}]
+        result = live_check.build_package_comparison(self.OUTBOUND_REPORT, {"fast_flights_enabled": True})
+        self.assertIsNone(result)
+
+    @patch("live_check.check_package_price")
+    @patch("live_check.get_weekend")
+    @patch("live_check.get_weekend_legs_by_weekend")
+    def test_avulso_uses_stored_prices_no_extra_fetch(self, mock_legs, mock_weekend, mock_package):
+        """Regra ajustada em 23/07: avulso não busca as pernas de novo, só soma
+        current_price já gravados; só 1 chamada fast-flights (pacote)."""
+        mock_legs.return_value = [self.SIBLING_LEG_WITH_PRICE]
+        mock_weekend.return_value = self.WEEKEND
+        mock_package.return_value = {"price": 550.0}
+
+        result = live_check.build_package_comparison(self.OUTBOUND_REPORT, {"fast_flights_enabled": True})
+
+        self.assertEqual(result["avulso"], 580.0)  # 300 (própria) + 280 (irmã, já gravado)
+        self.assertEqual(result["pacote"], 550.0)
+        mock_package.assert_called_once()  # única chamada fast-flights desta função
+
+    @patch("live_check.check_package_price", return_value=None)
+    @patch("live_check.get_weekend")
+    @patch("live_check.get_weekend_legs_by_weekend")
+    def test_package_failure_keeps_avulso_pacote_none(self, mock_legs, mock_weekend, _mock_package):
+        mock_legs.return_value = [self.SIBLING_LEG_WITH_PRICE]
+        mock_weekend.return_value = self.WEEKEND
+        result = live_check.build_package_comparison(self.OUTBOUND_REPORT, {"fast_flights_enabled": True})
+        self.assertEqual(result["avulso"], 580.0)
+        self.assertIsNone(result["pacote"])
+
+    @patch("live_check.check_package_price")
+    @patch("live_check.get_weekend")
+    @patch("live_check.get_weekend_legs_by_weekend")
+    def test_return_report_uses_own_date_and_weekend_outbound_date(self, mock_legs, mock_weekend, mock_package):
+        sibling_outbound = {"id": "leg-out-1", "current_price": 300.0}
+        mock_legs.return_value = [sibling_outbound]
+        mock_weekend.return_value = self.WEEKEND
+        mock_package.return_value = {"price": 550.0}
+
+        live_check.build_package_comparison(self.RETURN_REPORT, {"fast_flights_enabled": True})
+
+        mock_package.assert_called_once_with("GIG", "2026-09-04", "2026-09-06")
+
+
+class BuildWeekendAlertMessageComparisonTest(unittest.TestCase):
+    REPORT = {
+        "leg": {"id": "leg-out-1", "price_ceiling": 200}, "status": "ok", "direction": "outbound",
+        "outbound_date": "2026-09-04", "date": "2026-09-04", "price": 150.0, "airport": "GIG",
+        "variant": None, "transfers": 0, "source": "live", "reason": "abaixo da meta fixa (R$ 200)",
+        "is_ceiling_hit": True,
+    }
+
+    def test_no_comparison_omits_line(self):
+        message = build_weekend_alert_message(self.REPORT, None)
+        self.assertNotIn("Avulso", message)
+
+    def test_comparison_with_both_values(self):
+        message = build_weekend_alert_message(self.REPORT, {"avulso": 430.0, "pacote": 380.0})
+        self.assertIn("💰 Avulso (2 pernas): R$ 430.00 · Pacote (ida+volta): R$ 380.00", message)
+
+    def test_comparison_with_only_avulso(self):
+        message = build_weekend_alert_message(self.REPORT, {"avulso": 430.0, "pacote": None})
+        self.assertIn("Avulso (2 pernas): R$ 430.00 — pacote indisponível agora", message)
+        self.assertNotIn("Pacote (ida+volta)", message)
+
+    def test_comparison_dict_without_avulso_is_ignored(self):
+        message = build_weekend_alert_message(self.REPORT, {"pacote": 380.0})
+        self.assertNotIn("Avulso", message)
+        self.assertNotIn("Pacote", message)
 
 
 class DedupeWeekendReportsTest(unittest.TestCase):
