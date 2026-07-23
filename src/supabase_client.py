@@ -185,6 +185,13 @@ def insert_weekend_alert_log(target_id: str, price: float, reason: str | None = 
     resp.raise_for_status()
 
 
+def insert_weekend_run_log(target_id: str, outcome: str, price: float | None = None, detail: str | None = None) -> None:
+    """Mesmo padrão do insert_run_log das rotas flexíveis, por alvo de fim de semana."""
+    payload = {"target_id": target_id, "outcome": outcome, "price": price, "detail": detail}
+    resp = requests.post(_url("weekend_run_log"), headers=_headers(), json=payload, timeout=30)
+    resp.raise_for_status()
+
+
 def get_weekend_target_counts() -> tuple[int, int]:
     """(total de alvos cadastrados, quantos já comprados) — pro resumo semanal."""
     resp = requests.get(_url("weekend_targets?select=status"), headers=_headers(), timeout=30)
