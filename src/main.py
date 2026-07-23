@@ -1,9 +1,16 @@
 import sys
 import time
 import traceback
-from datetime import date, datetime, timezone
+from datetime import date
 
-from rules import detect_trend, is_good_price, is_suspicious_price
+from rules import (
+    cooldown_blocks_alert,
+    detect_trend,
+    is_good_price,
+    is_suspicious_price,
+    should_suppress_alert,
+    staleness,
+)
 from supabase_client import (
     DEFAULT_SETTINGS,
     get_last_alert,
@@ -11,18 +18,22 @@ from supabase_client import (
     get_recent_run_outcomes,
     get_routes,
     get_settings,
+    get_weekend_target_counts,
     insert_alert_log,
     insert_price,
     insert_run_log,
+    insert_weekend_alert_log,
 )
 from telegram_notifier import (
     build_alert_message,
     build_route_block,
     build_summary_message,
-    hours_since_found,
+    build_weekend_alert_message,
+    build_weekly_weekend_summary,
     send_message,
 )
 from travelpayouts_client import get_prices_for_dates
+from weekends import process_all_weekend_targets
 
 MONTHS_AHEAD = 6  # varre de "em cima da hora" até ~6 meses à frente; o histórico aprende sozinho qual faixa é mais barata
 REQUEST_DELAY_SECONDS = 0.3  # precaução contra possível limite de requisições da Travelpayouts
@@ -78,60 +89,6 @@ def _no_coverage_streak(route_id: str) -> int:
             break
         streak += 1
     return streak
-
-
-def staleness(found_at: str | None, freshness_hours_limit: float) -> tuple[bool, float | None]:
-    """Portão de frescor (Etapa 2): (is_stale, idade_em_horas).
-
-    found_at ausente/ilegível = idade desconhecida → tratado como velho
-    (nunca como fresco). Com a fonte v3 (que não devolve found_at, mas garante
-    cache ≤48h) a ausência é esperada — a mensagem vira informativa (cache_48h)
-    e a política 'suppress' não se aplica (ver should_suppress_alert)."""
-    age_hours = hours_since_found(found_at)
-    return (age_hours is None or age_hours > freshness_hours_limit), age_hours
-
-
-def should_suppress_alert(is_stale: bool, age_hours: float | None, settings: dict) -> bool:
-    """Política 'suppress' segura o alerta de dado velho. Só vale no modo alerta —
-    o resumo diário nunca é suprimido.
-
-    Salvaguarda (Etapa 6): idade DESCONHECIDA não suprime — a fonte v3 nunca
-    informa found_at, e suprimir nesse caso seguraria 100% dos alertas em
-    silêncio. Só suprime quando a idade foi medida e passou do limite."""
-    return (
-        is_stale
-        and age_hours is not None
-        and settings.get("stale_alert_policy") == "suppress"
-        and settings.get("notification_mode") != "daily_summary"
-    )
-
-
-def cooldown_blocks_alert(last_alert: dict | None, current_price: float, settings: dict) -> bool:
-    """Etapa 3: não repetir o mesmo bom preço todo dia. True = segurar o alerta.
-
-    Resumo diário nunca é afetado (sempre mostra tudo, não é alerta repetido).
-    Sem alerta anterior da rota → nunca segura (é o primeiro). Com alerta
-    anterior → só segura se o preço NÃO caiu o suficiente E NÃO passou tempo
-    suficiente desde o último envio."""
-    if settings.get("notification_mode") == "daily_summary":
-        return False
-    if last_alert is None:
-        return False
-
-    drop_pct = float(settings.get("realert_drop_pct") or DEFAULT_SETTINGS["realert_drop_pct"])
-    cooldown_days = float(settings.get("realert_days") or DEFAULT_SETTINGS["realert_days"])
-
-    last_price = float(last_alert["price"])
-    threshold = last_price * (1 - drop_pct / 100)
-    price_dropped_enough = current_price <= threshold
-
-    sent_at = datetime.fromisoformat(last_alert["sent_at"])
-    if sent_at.tzinfo is None:
-        sent_at = sent_at.replace(tzinfo=timezone.utc)
-    days_since = (datetime.now(timezone.utc) - sent_at).total_seconds() / 86400
-    enough_time_passed = days_since >= cooldown_days
-
-    return not (price_dropped_enough or enough_time_passed)
 
 
 def process_route(route: dict, settings: dict) -> dict:
@@ -270,9 +227,6 @@ def build_notes(reports: list[dict]) -> list[str]:
 
 def main() -> None:
     routes = get_routes()
-    if not routes:
-        print("Nenhuma rota cadastrada no Supabase.")
-        return
 
     settings_cache: dict[str, dict] = {}
     reports: list[dict] = []
@@ -294,25 +248,52 @@ def main() -> None:
                 print(f"[{label}] falha também ao gravar run_log")
             reports.append({"route": route, "status": "error"})
 
-    notes = build_notes(reports)
-    # settings do primeiro usuário definem o modo (app é single-user por design)
-    mode = next(iter(settings_cache.values()))["notification_mode"]
+    # settings do primeiro usuário definem tudo (app é single-user por design).
+    # Sem rotas flexíveis cadastradas, cai no default — os alvos de fim de
+    # semana não podem ficar reféns de existir alguma rota flexível.
+    weekend_settings = next(iter(settings_cache.values()), None) or DEFAULT_SETTINGS
+    weekend_reports = process_all_weekend_targets(weekend_settings)
+    if any(wr["status"] == "error" for wr in weekend_reports):
+        had_error = True
 
-    if mode == "daily_summary":
-        blocks = [build_route_block(r) for r in reports if r["status"] == "ok"]
-        for r in reports:
-            if r["status"] == "no_data":
-                blocks.append(
-                    f"✈️ <b>{r['route']['origin']} → {r['route']['destination']}</b> — sem dados na fonte hoje"
-                )
-        send_message(build_summary_message(blocks, notes))
-    else:
-        for r in reports:
-            if r["status"] == "ok" and r["should_alert"]:
-                send_message(build_alert_message(r))
-                insert_alert_log(r["route"]["id"], r["price"], r.get("reason"))
-        if notes:
-            send_message("\n".join(notes))
+    if not routes and not weekend_reports:
+        print("Nenhuma rota nem alvo de fim de semana cadastrado.")
+        return
+
+    notes = build_notes(reports)
+
+    if routes:
+        mode = next(iter(settings_cache.values()))["notification_mode"]
+        if mode == "daily_summary":
+            blocks = [build_route_block(r) for r in reports if r["status"] == "ok"]
+            for r in reports:
+                if r["status"] == "no_data":
+                    blocks.append(
+                        f"✈️ <b>{r['route']['origin']} → {r['route']['destination']}</b> — sem dados na fonte hoje"
+                    )
+            send_message(build_summary_message(blocks, notes))
+        else:
+            for r in reports:
+                if r["status"] == "ok" and r["should_alert"]:
+                    send_message(build_alert_message(r))
+                    insert_alert_log(r["route"]["id"], r["price"], r.get("reason"))
+            if notes:
+                send_message("\n".join(notes))
+    elif notes:
+        send_message("\n".join(notes))
+
+    # Alvos de fim de semana: notificação sempre imediata quando bate teto ou
+    # oportunidade — independe do notification_mode das rotas flexíveis
+    # (é o próprio ponto do alerta de teto: avisar na hora). Resumo semanal
+    # curado só às segundas-feiras, cadência própria.
+    for wr in weekend_reports:
+        if wr["status"] == "ok" and wr["should_alert"]:
+            send_message(build_weekend_alert_message(wr))
+            insert_weekend_alert_log(wr["target"]["id"], wr["price"], wr.get("reason"))
+
+    if date.today().weekday() == 0:  # segunda-feira
+        total, purchased = get_weekend_target_counts()
+        send_message(build_weekly_weekend_summary(weekend_reports, total, purchased))
 
     if had_error:
         sys.exit(1)

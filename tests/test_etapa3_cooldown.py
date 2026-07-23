@@ -114,9 +114,12 @@ class AlertLogWiringTest(unittest.TestCase):
         with patch("main.get_routes", return_value=[route]), \
              patch("main.get_settings", return_value={"notification_mode": "alert_only"}), \
              patch("main.process_route", return_value=report), \
+             patch("main.process_all_weekend_targets", return_value=[]), \
+             patch("main.date") as mock_date, \
              patch("main.send_message") as mock_send, \
              patch("main.insert_alert_log") as mock_insert_alert, \
              patch("main.build_alert_message", return_value="msg"):
+            mock_date.today.return_value.weekday.return_value = 2  # quarta — sem resumo semanal
             main.main()
 
         mock_send.assert_called_once_with("msg")
@@ -131,13 +134,34 @@ class AlertLogWiringTest(unittest.TestCase):
         with patch("main.get_routes", return_value=[route]), \
              patch("main.get_settings", return_value={"notification_mode": "daily_summary"}), \
              patch("main.process_route", return_value=report), \
+             patch("main.process_all_weekend_targets", return_value=[]), \
+             patch("main.date") as mock_date, \
              patch("main.send_message"), \
              patch("main.insert_alert_log") as mock_insert_alert, \
              patch("main.build_route_block", return_value="bloco"), \
              patch("main.build_summary_message", return_value="resumo"):
+            mock_date.today.return_value.weekday.return_value = 2
             main.main()
 
         mock_insert_alert.assert_not_called()
+
+    def test_weekend_targets_processed_even_without_flexible_routes(self):
+        """main() não pode ficar refém de existir alguma rota flexível cadastrada."""
+        weekend_report = {
+            "target": {"id": "alvo-1", "price_ceiling": 400}, "status": "ok", "price": 350.0,
+            "should_alert": True, "reason": "abaixo da meta fixa (R$ 400)",
+        }
+        with patch("main.get_routes", return_value=[]), \
+             patch("main.process_all_weekend_targets", return_value=[weekend_report]), \
+             patch("main.date") as mock_date, \
+             patch("main.send_message") as mock_send, \
+             patch("main.insert_weekend_alert_log") as mock_insert_weekend_alert, \
+             patch("main.build_weekend_alert_message", return_value="msg-fds"):
+            mock_date.today.return_value.weekday.return_value = 2
+            main.main()
+
+        mock_send.assert_called_once_with("msg-fds")
+        mock_insert_weekend_alert.assert_called_once_with("alvo-1", 350.0, "abaixo da meta fixa (R$ 400)")
 
 
 if __name__ == "__main__":

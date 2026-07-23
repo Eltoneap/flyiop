@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import requests
 
@@ -13,6 +13,7 @@ DEFAULT_SETTINGS = {
     "realert_drop_pct": 5,
     "realert_days": 3,
     "suspicious_below_avg_pct": 50,
+    "weekend_opportunity_pct": 15,
 }
 
 
@@ -119,6 +120,82 @@ def get_last_alert(route_id: str) -> dict | None:
     """Último alerta enviado da rota (mais recente), para a regra de cooldown."""
     params = {
         "route_id": f"eq.{route_id}",
+        "select": "sent_at,price",
+        "order": "sent_at.desc",
+        "limit": 1,
+    }
+    resp = requests.get(_url("alert_log"), headers=_headers(), params=params, timeout=30)
+    resp.raise_for_status()
+    rows = resp.json()
+    return rows[0] if rows else None
+
+
+def get_weekend_targets() -> list[dict]:
+    """Alvos ainda não comprados cuja ida não passou — auto-expiração é este
+    filtro (outbound_date >= hoje), não um status separado gravado por cron."""
+    params = {
+        "status": "eq.monitoring",
+        "outbound_date": f"gte.{date.today().isoformat()}",
+        "select": "*",
+        "order": "outbound_date.asc",
+    }
+    resp = requests.get(_url("weekend_targets"), headers=_headers(), params=params, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def update_weekend_target(target_id: str, **fields) -> None:
+    resp = requests.patch(_url(f"weekend_targets?id=eq.{target_id}"), headers=_headers(), json=fields, timeout=30)
+    resp.raise_for_status()
+
+
+def insert_weekend_price(target_id: str, price: float, return_variant: str,
+                         outbound_airport: str | None, return_airport: str | None,
+                         transfers: int | None) -> None:
+    payload = {
+        "target_id": target_id,
+        "price": price,
+        "return_variant": return_variant,
+        "outbound_airport": outbound_airport,
+        "return_airport": return_airport,
+        "transfers": transfers,
+    }
+    resp = requests.post(_url("weekend_price_history"), headers=_headers(), json=payload, timeout=30)
+    resp.raise_for_status()
+
+
+def get_weekend_price_history(target_id: str, days: int | None = None) -> list[dict]:
+    params = {
+        "target_id": f"eq.{target_id}",
+        "select": "checked_at,price",
+        "order": "checked_at.asc",
+    }
+    if days is not None:
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        params["checked_at"] = f"gte.{since}"
+    resp = requests.get(_url("weekend_price_history"), headers=_headers(), params=params, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def insert_weekend_alert_log(target_id: str, price: float, reason: str | None = None) -> None:
+    """Mesma tabela alert_log das rotas flexíveis (Etapa 3), só que via target_id."""
+    payload = {"target_id": target_id, "price": price, "reason": reason}
+    resp = requests.post(_url("alert_log"), headers=_headers(), json=payload, timeout=30)
+    resp.raise_for_status()
+
+
+def get_weekend_target_counts() -> tuple[int, int]:
+    """(total de alvos cadastrados, quantos já comprados) — pro resumo semanal."""
+    resp = requests.get(_url("weekend_targets?select=status"), headers=_headers(), timeout=30)
+    resp.raise_for_status()
+    rows = resp.json()
+    return len(rows), sum(1 for r in rows if r["status"] == "purchased")
+
+
+def get_last_weekend_alert(target_id: str) -> dict | None:
+    params = {
+        "target_id": f"eq.{target_id}",
         "select": "sent_at,price",
         "order": "sent_at.desc",
         "limit": 1,
