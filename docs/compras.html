@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FlyIop — Compras</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">✈️ FlyIop</span>
+    <a href="index.html">Dashboard</a>
+    <a href="compras.html" class="active">Compras</a>
+    <a href="config.html">Configurações</a>
+    <span class="spacer"></span>
+    <button type="button" class="link" id="logout">Sair</button>
+  </nav>
+  <main>
+    <div class="flash" id="flash">Salvo com sucesso.</div>
+    <h1>Compras — fins de semana RIO↔BSB</h1>
+    <p class="subtitle">
+      <strong id="progress-legs">— de — pernas compradas</strong>
+      · <span id="progress-weekends">— de — fins de semana completos</span>
+    </p>
+
+    <section>
+      <h2>Teto padrão</h2>
+      <div class="form-grid">
+        <div>
+          <label>Aplicar a todas as pernas em monitoramento (R$)</label>
+          <input type="number" step="1" min="1" id="default-ceiling-input" placeholder="200">
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <button type="button" id="apply-ceiling-btn">Aplicar a todas</button>
+        </div>
+      </div>
+      <p class="field-note">Sobrescreve o teto individual de toda perna ainda não comprada — inclusive as que você já ajustou manualmente (ex.: datas de feriado com teto mais alto). Não toca nas pernas já compradas.</p>
+    </section>
+
+    <div class="tabs">
+      <button type="button" class="tab active" id="tab-active">Ativos</button>
+      <button type="button" class="tab" id="tab-purchased">Comprados</button>
+    </div>
+
+    <div class="grid" id="weekends-grid"></div>
+    <p class="price-meta" id="empty-state" style="display:none;"></p>
+  </main>
+  <script type="module" src="js/compras.js"></script>
+</body>
+</html>
