@@ -152,73 +152,83 @@ def build_alert_message(report: dict) -> str:
 
 
 def build_weekend_alert_message(report: dict) -> str:
-    """Alerta de teto (compra imediata) ou de oportunidade (relativo ao próprio
-    histórico do alvo) para um fim de semana RIO↔BSB. Sempre imediato — não
-    espera o resumo semanal, é esse o ponto do alerta de teto."""
+    """Alerta de teto (compra imediata) ou de oportunidade (relativo ao
+    próprio histórico da perna) — ida e volta avaliadas independentemente
+    desde a revisão de 23/07/2026. Sempre imediato — não espera o resumo
+    semanal, é esse o ponto do alerta de teto.
+
+    Nota: a comparação avulso×pacote (ida+volta juntas via fast-flights)
+    é a Parte 4, ainda não implementada — esta versão é só a perna isolada."""
+    direction = report["direction"]
+    direction_label = "Ida (sexta)" if direction == "outbound" else "Volta (domingo/segunda)"
     outbound = report["outbound_date"]
-    return_date = report["return_date"]
+    leg_date = report["date"]
     price = report["price"]
-    ceiling = float(report["target"].get("price_ceiling") or 400)
+    ceiling = float(report["leg"].get("price_ceiling") or 200)
 
     if report.get("is_ceiling_hit"):
         header = (
-            f"🎯 <b>Fim de semana {format_date_br(outbound)}: R$ {price:.2f} ≤ teto R$ {ceiling:.0f}</b>\n"
-            f"Compre e marque como comprado no painel — continua sendo monitorado até você marcar."
+            f"🎯 <b>{direction_label} — fim de semana {format_date_br(outbound)}: "
+            f"R$ {price:.2f} ≤ teto R$ {ceiling:.0f}</b>\n"
+            f"Compre e marque como comprada no painel — continua sendo monitorada até você marcar."
         )
     else:
-        header = f"📉 <b>Oportunidade — fim de semana {format_date_br(outbound)} caiu bastante</b>"
+        header = (
+            f"📉 <b>Oportunidade — {direction_label.lower()} do fim de semana "
+            f"{format_date_br(outbound)} caiu bastante</b>"
+        )
 
     lines = [header]
 
-    variant_label = "domingo" if report.get("variant") == "sunday" else "segunda"
-    return_time = _time_hhmm(report.get("return_at_raw"))
-    date_part = f"🗓 Ida {format_date_br(outbound)} → Volta {format_date_br(return_date)} ({variant_label}"
-    if return_time:
-        date_part += f", {return_time}"
-    date_part += ")"
+    date_part = f"🗓 {format_date_br(leg_date)}"
+    if report.get("variant"):
+        variant_label = "domingo" if report["variant"] == "sunday" else "segunda"
+        date_part += f" ({variant_label})"
     stops_label = _stops_label(report.get("transfers"))
     if stops_label:
         date_part += f" · {stops_label}"
     lines.append(date_part)
 
-    airports = []
-    if report.get("outbound_airport"):
-        airports.append(f"ida por {report['outbound_airport']}")
-    if report.get("return_airport"):
-        airports.append(f"volta por {report['return_airport']}")
-    if airports:
-        lines.append(f"📍 {' · '.join(airports)}")
+    airport = report.get("airport")
+    if airport:
+        lines.append(f"📍 {'ida' if direction == 'outbound' else 'volta'} por {airport}")
 
     if report.get("reason"):
         lines.append(f"📌 {report['reason']}")
 
-    lines.append(f"📊 R$ {price:.2f} · teto R$ {ceiling:.0f}")
+    lines.append(f"📊 R$ {price:.2f} · teto R$ {ceiling:.0f} · fonte: {report.get('source', 'cache')}")
 
-    origin_code = report.get("outbound_airport") or "RIO"
-    gf = google_flights_link(origin_code, "BSB", outbound, return_date)
-    av = aviasales_link(origin_code, "BSB", outbound, return_date)
-    lines.append(f'🔗 <a href="{gf}">Google Flights</a> · <a href="{av}">conferência de preço (em USD)</a>')
+    if airport:
+        if direction == "outbound":
+            gf, av = google_flights_link(airport, "BSB", leg_date), aviasales_link(airport, "BSB", leg_date)
+        else:
+            gf, av = google_flights_link("BSB", airport, leg_date), aviasales_link("BSB", airport, leg_date)
+        lines.append(f'🔗 <a href="{gf}">Google Flights</a> · <a href="{av}">conferência de preço (em USD)</a>')
 
     return "\n".join(lines)
 
 
 def build_weekly_weekend_summary(weekend_reports: list[dict], total: int, purchased: int) -> str:
-    """Resumo semanal curado (segundas-feiras): 10 mais baratos + 10 mais
-    próximos, sem listar os ~66 alvos inteiros (a mensagem cresceria demais)."""
+    """Resumo semanal curado (segundas-feiras): 10 pernas mais baratas + 10
+    mais próximas, sem listar as ~132 inteiras (a mensagem cresceria demais)."""
     ok_reports = [r for r in weekend_reports if r["status"] == "ok"]
 
-    lines = ["📅 <b>Resumo semanal — fins de semana RIO↔BSB</b>", f"{purchased} de {total} comprados"]
+    lines = ["📅 <b>Resumo semanal — pernas RIO↔BSB</b>", f"{purchased} de {total} pernas compradas"]
 
     if ok_reports:
+        def leg_label(r: dict) -> str:
+            direction_word = "ida" if r["direction"] == "outbound" else "volta"
+            return f"{format_date_br(r['outbound_date'])} ({direction_word})"
+
         cheapest = sorted(ok_reports, key=lambda r: r["price"])[:10]
-        lines.append("\n<b>Mais baratos agora:</b>")
+        lines.append("\n<b>Mais baratas agora:</b>")
         for r in cheapest:
-            lines.append(f"· {format_date_br(r['outbound_date'])}: R$ {r['price']:.2f}")
+            lines.append(f"· {leg_label(r)}: R$ {r['price']:.2f}")
 
         nearest = sorted(ok_reports, key=lambda r: r["outbound_date"])[:10]
-        lines.append("\n<b>Mais próximos:</b>")
+        lines.append("\n<b>Mais próximas:</b>")
         for r in nearest:
-            lines.append(f"· {format_date_br(r['outbound_date'])}: R$ {r['price']:.2f}")
+            lines.append(f"· {leg_label(r)}: R$ {r['price']:.2f}")
     else:
         lines.append("\nSem preços coletados ainda esta semana.")
 

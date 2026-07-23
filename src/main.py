@@ -18,7 +18,7 @@ from supabase_client import (
     get_recent_run_outcomes,
     get_routes,
     get_settings,
-    get_weekend_target_counts,
+    get_weekend_leg_counts,
     insert_alert_log,
     insert_price,
     insert_run_log,
@@ -33,7 +33,7 @@ from telegram_notifier import (
     send_message,
 )
 from travelpayouts_client import get_prices_for_dates
-from weekends import process_all_weekend_targets
+from weekends import process_all_weekend_legs
 
 MONTHS_AHEAD = 6  # varre de "em cima da hora" até ~6 meses à frente; o histórico aprende sozinho qual faixa é mais barata
 REQUEST_DELAY_SECONDS = 0.3  # precaução contra possível limite de requisições da Travelpayouts
@@ -249,15 +249,15 @@ def main() -> None:
             reports.append({"route": route, "status": "error"})
 
     # settings do primeiro usuário definem tudo (app é single-user por design).
-    # Sem rotas flexíveis cadastradas, cai no default — os alvos de fim de
+    # Sem rotas flexíveis cadastradas, cai no default — as pernas de fim de
     # semana não podem ficar reféns de existir alguma rota flexível.
     weekend_settings = next(iter(settings_cache.values()), None) or DEFAULT_SETTINGS
-    weekend_reports = process_all_weekend_targets(weekend_settings)
+    weekend_reports = process_all_weekend_legs(weekend_settings)
     if any(wr["status"] == "error" for wr in weekend_reports):
         had_error = True
 
     if not routes and not weekend_reports:
-        print("Nenhuma rota nem alvo de fim de semana cadastrado.")
+        print("Nenhuma rota nem perna de fim de semana cadastrada.")
         return
 
     notes = build_notes(reports)
@@ -282,17 +282,17 @@ def main() -> None:
     elif notes:
         send_message("\n".join(notes))
 
-    # Alvos de fim de semana: notificação sempre imediata quando bate teto ou
+    # Pernas de fim de semana: notificação sempre imediata quando bate teto ou
     # oportunidade — independe do notification_mode das rotas flexíveis
     # (é o próprio ponto do alerta de teto: avisar na hora). Resumo semanal
     # curado só às segundas-feiras, cadência própria.
     for wr in weekend_reports:
         if wr["status"] == "ok" and wr["should_alert"]:
             send_message(build_weekend_alert_message(wr))
-            insert_weekend_alert_log(wr["target"]["id"], wr["price"], wr.get("reason"))
+            insert_weekend_alert_log(wr["leg"]["id"], wr["price"], wr.get("reason"))
 
     if date.today().weekday() == 0:  # segunda-feira
-        total, purchased = get_weekend_target_counts()
+        total, purchased = get_weekend_leg_counts()
         send_message(build_weekly_weekend_summary(weekend_reports, total, purchased))
 
     if had_error:

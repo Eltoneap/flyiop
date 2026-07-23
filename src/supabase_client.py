@@ -14,6 +14,8 @@ DEFAULT_SETTINGS = {
     "realert_days": 3,
     "suspicious_below_avg_pct": 50,
     "weekend_opportunity_pct": 15,
+    "fast_flights_enabled": True,
+    "fast_flights_daily_batch_size": 20,
 }
 
 
@@ -130,79 +132,83 @@ def get_last_alert(route_id: str) -> dict | None:
     return rows[0] if rows else None
 
 
-def get_weekend_targets() -> list[dict]:
-    """Alvos ainda não comprados cuja ida não passou — auto-expiração é este
-    filtro (outbound_date >= hoje), não um status separado gravado por cron."""
+def get_monitoring_weekends() -> list[dict]:
+    """Weekends cuja ida não passou — auto-expiração é este filtro
+    (outbound_date >= hoje), não um status separado gravado por cron."""
     params = {
-        "status": "eq.monitoring",
         "outbound_date": f"gte.{date.today().isoformat()}",
-        "select": "*",
+        "select": "id,outbound_date,return_sunday,return_monday",
         "order": "outbound_date.asc",
     }
-    resp = requests.get(_url("weekend_targets"), headers=_headers(), params=params, timeout=30)
+    resp = requests.get(_url("weekends"), headers=_headers(), params=params, timeout=30)
     resp.raise_for_status()
     return resp.json()
 
 
-def update_weekend_target(target_id: str, **fields) -> None:
-    resp = requests.patch(_url(f"weekend_targets?id=eq.{target_id}"), headers=_headers(), json=fields, timeout=30)
+def get_monitoring_legs() -> list[dict]:
+    """Todas as pernas com status 'monitoring' (ida ou volta) — o filtro de
+    weekend expirado é cruzado pelo chamador com get_monitoring_weekends."""
+    params = {"status": "eq.monitoring", "select": "*"}
+    resp = requests.get(_url("weekend_legs"), headers=_headers(), params=params, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def update_weekend_leg(leg_id: str, **fields) -> None:
+    resp = requests.patch(_url(f"weekend_legs?id=eq.{leg_id}"), headers=_headers(), json=fields, timeout=30)
     resp.raise_for_status()
 
 
-def insert_weekend_price(target_id: str, price: float, return_variant: str,
-                         outbound_airport: str | None, return_airport: str | None,
-                         transfers: int | None) -> None:
+def insert_weekend_leg_price(leg_id: str, price: float, airport: str | None, variant: str | None,
+                             source: str, transfers: int | None) -> None:
     payload = {
-        "target_id": target_id,
-        "price": price,
-        "return_variant": return_variant,
-        "outbound_airport": outbound_airport,
-        "return_airport": return_airport,
-        "transfers": transfers,
+        "leg_id": leg_id, "price": price, "airport": airport, "variant": variant,
+        "source": source, "transfers": transfers,
     }
-    resp = requests.post(_url("weekend_price_history"), headers=_headers(), json=payload, timeout=30)
+    resp = requests.post(_url("weekend_leg_price_history"), headers=_headers(), json=payload, timeout=30)
     resp.raise_for_status()
 
 
-def get_weekend_price_history(target_id: str, days: int | None = None) -> list[dict]:
+def get_weekend_leg_price_history(leg_id: str, days: int | None = None) -> list[dict]:
     params = {
-        "target_id": f"eq.{target_id}",
+        "leg_id": f"eq.{leg_id}",
         "select": "checked_at,price",
         "order": "checked_at.asc",
     }
     if days is not None:
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         params["checked_at"] = f"gte.{since}"
-    resp = requests.get(_url("weekend_price_history"), headers=_headers(), params=params, timeout=30)
+    resp = requests.get(_url("weekend_leg_price_history"), headers=_headers(), params=params, timeout=30)
     resp.raise_for_status()
     return resp.json()
 
 
-def insert_weekend_alert_log(target_id: str, price: float, reason: str | None = None) -> None:
-    """Mesma tabela alert_log das rotas flexíveis (Etapa 3), só que via target_id."""
-    payload = {"target_id": target_id, "price": price, "reason": reason}
+def insert_weekend_alert_log(leg_id: str, price: float, reason: str | None = None) -> None:
+    """Mesma tabela alert_log das rotas flexíveis (Etapa 3), só que via leg_id."""
+    payload = {"leg_id": leg_id, "price": price, "reason": reason}
     resp = requests.post(_url("alert_log"), headers=_headers(), json=payload, timeout=30)
     resp.raise_for_status()
 
 
-def insert_weekend_run_log(target_id: str, outcome: str, price: float | None = None, detail: str | None = None) -> None:
-    """Mesmo padrão do insert_run_log das rotas flexíveis, por alvo de fim de semana."""
-    payload = {"target_id": target_id, "outcome": outcome, "price": price, "detail": detail}
-    resp = requests.post(_url("weekend_run_log"), headers=_headers(), json=payload, timeout=30)
+def insert_weekend_leg_run_log(leg_id: str, outcome: str, price: float | None = None,
+                               source: str | None = None, detail: str | None = None) -> None:
+    """Mesmo padrão do insert_run_log das rotas flexíveis, por perna de fim de semana."""
+    payload = {"leg_id": leg_id, "outcome": outcome, "price": price, "source": source, "detail": detail}
+    resp = requests.post(_url("weekend_leg_run_log"), headers=_headers(), json=payload, timeout=30)
     resp.raise_for_status()
 
 
-def get_weekend_target_counts() -> tuple[int, int]:
-    """(total de alvos cadastrados, quantos já comprados) — pro resumo semanal."""
-    resp = requests.get(_url("weekend_targets?select=status"), headers=_headers(), timeout=30)
+def get_weekend_leg_counts() -> tuple[int, int]:
+    """(total de pernas cadastradas, quantas já compradas) — pro resumo semanal."""
+    resp = requests.get(_url("weekend_legs?select=status"), headers=_headers(), timeout=30)
     resp.raise_for_status()
     rows = resp.json()
     return len(rows), sum(1 for r in rows if r["status"] == "purchased")
 
 
-def get_last_weekend_alert(target_id: str) -> dict | None:
+def get_last_weekend_leg_alert(leg_id: str) -> dict | None:
     params = {
-        "target_id": f"eq.{target_id}",
+        "leg_id": f"eq.{leg_id}",
         "select": "sent_at,price",
         "order": "sent_at.desc",
         "limit": 1,
