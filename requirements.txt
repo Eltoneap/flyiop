@@ -1,1 +1,5 @@
 requests>=2.31
+fast-flights==3.0.2
+# O packaging do fast-flights 3.0.2 não declara typing_extensions (bug da lib);
+# sem ela o import quebra com ModuleNotFoundError.
+typing_extensions>=4.0

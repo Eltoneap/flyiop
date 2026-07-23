@@ -115,6 +115,7 @@ class AlertLogWiringTest(unittest.TestCase):
              patch("main.get_settings", return_value={"notification_mode": "alert_only"}), \
              patch("main.process_route", return_value=report), \
              patch("main.process_all_weekend_legs", return_value=[]), \
+             patch("main.run_daily_batch", return_value=[]), \
              patch("main.date") as mock_date, \
              patch("main.send_message") as mock_send, \
              patch("main.insert_alert_log") as mock_insert_alert, \
@@ -135,6 +136,7 @@ class AlertLogWiringTest(unittest.TestCase):
              patch("main.get_settings", return_value={"notification_mode": "daily_summary"}), \
              patch("main.process_route", return_value=report), \
              patch("main.process_all_weekend_legs", return_value=[]), \
+             patch("main.run_daily_batch", return_value=[]), \
              patch("main.date") as mock_date, \
              patch("main.send_message"), \
              patch("main.insert_alert_log") as mock_insert_alert, \
@@ -153,6 +155,7 @@ class AlertLogWiringTest(unittest.TestCase):
         }
         with patch("main.get_routes", return_value=[]), \
              patch("main.process_all_weekend_legs", return_value=[weekend_report]), \
+             patch("main.run_daily_batch", return_value=[]), \
              patch("main.date") as mock_date, \
              patch("main.send_message") as mock_send, \
              patch("main.insert_weekend_alert_log") as mock_insert_weekend_alert, \

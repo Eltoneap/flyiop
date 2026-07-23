@@ -32,6 +32,7 @@ from telegram_notifier import (
     build_weekly_weekend_summary,
     send_message,
 )
+from live_check import run_daily_batch
 from travelpayouts_client import get_prices_for_dates
 from weekends import process_all_weekend_legs
 
@@ -203,6 +204,39 @@ def process_route(route: dict, settings: dict) -> dict:
     }
 
 
+def _weekend_report_priority(r: dict) -> int:
+    """Prioridade pra dedupe_weekend_reports: 'ok' com fonte live > 'ok' com
+    cache > 'no_data' > 'error'. Live é a fonte primária desde a Parte 3."""
+    if r.get("status") == "ok" and r.get("source") == "live":
+        return 3
+    if r.get("status") == "ok":
+        return 2
+    if r.get("status") == "no_data":
+        return 1
+    return 0
+
+
+def dedupe_weekend_reports(reports: list[dict]) -> list[dict]:
+    """Uma perna pode aparecer em cache_reports E live_reports no mesmo run
+    (cache achou hoje e a perna também caiu no lote fast-flights). Sem isso,
+    o alerta sairia duplicado — o insert em alert_log só acontece depois
+    deste ponto (no laço de envio), então o cooldown não veria a duplicata
+    a tempo. Fica só 1 report por perna, o de maior prioridade."""
+    by_leg_id: dict[str, dict] = {}
+    order: list[str] = []
+    for r in reports:
+        leg = r.get("leg")
+        if leg is None:
+            continue
+        leg_id = leg["id"]
+        if leg_id not in by_leg_id:
+            order.append(leg_id)
+            by_leg_id[leg_id] = r
+        elif _weekend_report_priority(r) > _weekend_report_priority(by_leg_id[leg_id]):
+            by_leg_id[leg_id] = r
+    return [by_leg_id[lid] for lid in order]
+
+
 def build_notes(reports: list[dict]) -> list[str]:
     """Notas extras: rotas sem cobertura persistente (sugestão de arquivar) e erros."""
     notes = []
@@ -252,7 +286,13 @@ def main() -> None:
     # Sem rotas flexíveis cadastradas, cai no default — as pernas de fim de
     # semana não podem ficar reféns de existir alguma rota flexível.
     weekend_settings = next(iter(settings_cache.values()), None) or DEFAULT_SETTINGS
-    weekend_reports = process_all_weekend_legs(weekend_settings)
+    # Cache (Travelpayouts) primeiro — conferidor secundário desde a Parte 3
+    # (23/07/2026: só 2/132 pernas bateram, insuficiente pra decidir sozinho).
+    cache_reports = process_all_weekend_legs(weekend_settings)
+    # Live (fast-flights) depois — fonte primária: quando encontra preço,
+    # sobrescreve current_price/current_source da perna naquele dia.
+    live_reports = run_daily_batch(weekend_settings)
+    weekend_reports = dedupe_weekend_reports(cache_reports + live_reports)
     if any(wr["status"] == "error" for wr in weekend_reports):
         had_error = True
 

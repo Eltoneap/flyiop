@@ -24,10 +24,13 @@ is_good_price (teto = meta fixa, oportunidade = % abaixo da média própria),
 is_suspicious_price (autocheck anti-preço-fantasma) e cooldown_blocks_alert
 (Etapa 3, aqui aplicado por perna via alert_log.leg_id).
 
-Checkpoint desta parte (acordado no chat de planejamento, 23/07/2026): antes
-de seguir para o lote fast-flights (Parte 3), o resultado real de produção
-desta busca one-way/GIG+SDU precisa ser conferido — a suposição de que ela
-tem cache mais denso que o RIO round-trip ainda não foi testada na prática.
+Checkpoint da Parte 2 (23/07/2026): resultado real de produção conferido —
+só 2 de 132 pernas bateram (cache insuficiente, mesmo padrão do RIO
+round-trip). Por isso, desde a Parte 3 (live_check.py), esta busca cache
+deixou de ser a fonte primária: o `fast_flights` (Google Flights) passou a
+decidir `current_price`/alerta; esta busca continua rodando como conferidor
+secundário (barata, ~64 consultas/dia), gravando com `source='cache'` via
+a mesma `evaluate_and_record_leg_price` que o live-check usa.
 """
 import time
 import traceback
@@ -116,37 +119,22 @@ def get_active_legs() -> list[dict]:
     return legs
 
 
-def process_weekend_leg(leg: dict, settings: dict, month_cache: dict) -> dict:
-    """Filtra localmente as entradas já buscadas pra essa perna (1 ou 2 datas
-    candidatas × 2 aeroportos), grava a mais barata, e avalia
-    teto/oportunidade/suspeita/cooldown."""
+def evaluate_and_record_leg_price(leg: dict, settings: dict, price: float, airport: str | None,
+                                  variant: str | None, transfers: int | None, source: str) -> dict:
+    """Núcleo compartilhado entre a varredura cache (process_weekend_leg, abaixo)
+    e o lote fast-flights (live_check.py, Parte 3): grava o preço, avalia
+    teto/oportunidade/suspeita/cooldown, e atualiza a perna. `source` é
+    'cache' ou 'live' — desde a Parte 3, 'live' é a fonte primária (decide
+    o current_price/alerta); 'cache' virou conferidor secundário, mas grava
+    exatamente do mesmo jeito (histórico registra as duas fontes)."""
     leg_id = leg["id"]
     direction = leg["direction"]
-    label = f"perna {direction} {leg['outbound_date']}"
+    if direction == "outbound":
+        leg_date = leg["outbound_date"]
+    else:
+        leg_date = leg["return_sunday"] if variant == "sunday" else leg["return_monday"]
 
-    found = []  # (airport, variant, date, entry)
-    for airport in AIRPORTS:
-        for month in relevant_months(leg):
-            entries = month_cache.get((month, airport, direction))
-            if not entries:
-                continue
-            for variant, target_date in date_candidates(leg):
-                if target_date[:7] != month:
-                    continue
-                best = match_leg_entries(entries, target_date)
-                if best is not None:
-                    found.append((airport, variant, target_date, best))
-
-    if not found:
-        print(f"[{label}] sem dado ainda (nenhum match exato) — estado normal, não é erro")
-        insert_weekend_leg_run_log(leg_id, "no_data")
-        return {"leg": leg, "status": "no_data"}
-
-    airport, variant, matched_date, best = min(found, key=lambda f: float(f[3]["price"]))
-    price = float(best["price"])
-    transfers = best.get("transfers")
-
-    insert_weekend_leg_price(leg_id, price, airport, variant, "cache", transfers)
+    insert_weekend_leg_price(leg_id, price, airport, variant, source, transfers)
 
     history = get_weekend_leg_price_history(leg_id, days=90)
     history_prices = [float(h["price"]) for h in history]
@@ -172,17 +160,17 @@ def process_weekend_leg(leg: dict, settings: dict, month_cache: dict) -> dict:
         "current_price": price,
         "current_airport": airport,
         "current_variant": variant,
-        "current_source": "cache",
+        "current_source": source,
     }
     if is_new_low:
         update_fields["lowest_seen"] = price
         update_fields["lowest_seen_at"] = datetime.now(timezone.utc).isoformat()
     update_weekend_leg(leg_id, **update_fields)
 
-    insert_weekend_leg_run_log(leg_id, "ok", price=price, source="cache")
+    insert_weekend_leg_run_log(leg_id, "ok", price=price, source=source)
 
     variant_label = f", {variant}" if variant else ""
-    print(f"[{label}] R$ {price:.2f} ({airport}{variant_label}) teto R$ {ceiling:.0f}")
+    print(f"[perna {direction} {leg['outbound_date']}] R$ {price:.2f} ({airport}{variant_label}, {source}) teto R$ {ceiling:.0f}")
 
     return {
         "leg": leg,
@@ -191,16 +179,49 @@ def process_weekend_leg(leg: dict, settings: dict, month_cache: dict) -> dict:
         "weekend_id": leg["weekend_id"],
         "outbound_date": leg["outbound_date"],
         "price": price,
-        "date": matched_date,
+        "date": leg_date,
         "airport": airport,
         "variant": variant,
         "transfers": transfers,
-        "source": "cache",
+        "source": source,
         "reason": reason,
         "is_ceiling_hit": price <= ceiling,
         "suspicious": suspicious,
         "should_alert": would_alert and not cooldown_suppressed,
     }
+
+
+def process_weekend_leg(leg: dict, settings: dict, month_cache: dict) -> dict:
+    """Filtra localmente as entradas já buscadas pra essa perna (1 ou 2 datas
+    candidatas × 2 aeroportos) e delega a gravação/avaliação pra
+    evaluate_and_record_leg_price (fonte 'cache')."""
+    leg_id = leg["id"]
+    direction = leg["direction"]
+    label = f"perna {direction} {leg['outbound_date']}"
+
+    found = []  # (airport, variant, date, entry)
+    for airport in AIRPORTS:
+        for month in relevant_months(leg):
+            entries = month_cache.get((month, airport, direction))
+            if not entries:
+                continue
+            for variant, target_date in date_candidates(leg):
+                if target_date[:7] != month:
+                    continue
+                best = match_leg_entries(entries, target_date)
+                if best is not None:
+                    found.append((airport, variant, target_date, best))
+
+    if not found:
+        print(f"[{label}] sem dado ainda (nenhum match exato) — estado normal, não é erro")
+        insert_weekend_leg_run_log(leg_id, "no_data")
+        return {"leg": leg, "status": "no_data"}
+
+    airport, variant, _matched_date, best = min(found, key=lambda f: float(f[3]["price"]))
+    price = float(best["price"])
+    transfers = best.get("transfers")
+
+    return evaluate_and_record_leg_price(leg, settings, price, airport, variant, transfers, "cache")
 
 
 def process_all_weekend_legs(settings: dict) -> list[dict]:
