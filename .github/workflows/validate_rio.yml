@@ -1,0 +1,23 @@
+name: Validação código de cidade RIO (Parte 0)
+
+# Disparo manual APENAS — não dispara em push nem em cron, pra não poluir o
+# fluxo diário. Objetivo: confirmar se a Travelpayouts aceita origin=RIO
+# (código de cidade que agrega GIG+SDU) antes de codar o robô dos alvos.
+on:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - run: python scripts/validate_rio.py
+        env:
+          TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
