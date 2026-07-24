@@ -47,6 +47,10 @@ async function updateLeg(legId, fields) {
   return error;
 }
 
+function escapeAttr(text) {
+  return String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
 function renderLegRow(leg, weekend) {
   const { title, date } = legLabel(leg, weekend);
   const row = document.createElement('div');
@@ -73,6 +77,10 @@ function renderLegRow(leg, weekend) {
       <span class="badge ${isPurchased ? 'good' : 'neutral'}">${isPurchased ? 'Comprada ✓' : 'Monitorando'}</span>
       <button type="button" class="small leg-action">${isPurchased ? 'Desfazer' : 'Comprei'}</button>
     </div>
+    <div class="leg-row-notes">
+      <input type="text" class="leg-notes-input" placeholder="localizador, horário..." value="${escapeAttr(leg.notes ?? '')}">
+      <button type="button" class="small leg-notes-save">Salvar</button>
+    </div>
   `;
 
   row.querySelector('.leg-ceiling-save').addEventListener('click', async () => {
@@ -89,6 +97,22 @@ function renderLegRow(leg, weekend) {
     showFlash('Teto salvo.');
     await loadWeekends();
   });
+
+  const notesInput = row.querySelector('.leg-notes-input');
+  let notesSaved = true;
+  const saveNotes = async () => {
+    if (notesSaved) return;
+    notesSaved = true;
+    const error = await updateLeg(leg.id, { notes: notesInput.value.trim() || null });
+    if (error) {
+      alert('Erro ao salvar observações: ' + error.message);
+      return;
+    }
+    showFlash('Observações salvas.');
+  };
+  notesInput.addEventListener('input', () => { notesSaved = false; });
+  notesInput.addEventListener('blur', saveNotes);
+  row.querySelector('.leg-notes-save').addEventListener('click', saveNotes);
 
   row.querySelector('.leg-action').addEventListener('click', async () => {
     const nextStatus = isPurchased ? 'monitoring' : 'purchased';

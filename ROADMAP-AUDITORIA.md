@@ -38,6 +38,15 @@ Resultado da auditoria externa (chat de planejamento) comparando o estado atual 
 
 O trabalho de validação já feito antes desta decisão ser esclarecida (script `scripts/validate_fastflights.py`, 2 execuções locais e 2 no Actions, ambas com 2 de 3 rotas retornando preço) segue válido como evidência técnica de viabilidade — reaproveitar quando a implementação for planejada, sem precisar repetir do zero.
 
+**Revisão de escopo — fast-flights vira fonte primária das pernas de fim de semana (registrada em 24/07/2026):** a regra acima ("no máximo 1 chamada por alerta, nunca na varredura diária") valia para o sistema de rotas flexíveis (BSB↔GIG, GIG↔BSB, RIA↔BSB) e continua em vigor **sem alteração para elas**. Para o sistema de fim de semana RIO↔BSB (132 pernas, `weekend_legs`), o cache da Travelpayouts se mostrou insuficiente em produção (veredito real de 23/07: 2 de 132 pernas cobertas), então o escopo foi revisado especificamente ali:
+- O `fast-flights` passa a rodar também **em lote diário** (não só no evento de alerta), limitado a `settings.fast_flights_daily_batch_size` (default 20) pernas por dia, dentro de uma janela deslizante de 6 meses — cobrindo o platô de ~52 pernas elegíveis em 2–3 dias.
+- Continua **best-effort** (regra 2 inalterada): falha, bloqueio ou resposta vazia nunca atrasa nem derruba o run; a Travelpayouts segue rodando em paralelo, agora como conferência secundária.
+- Continua **sem evasão anti-bot** (regra 4/proibição de sempre): sequencial, ~2,5s de espaçamento entre chamadas, sem proxy, sem spoofing de user-agent. Um detector de bloqueio (≥5 falhas seguidas, ou taxa de sucesso <50% com amostra ≥8) interrompe o lote do dia e avisa no Telegram — sem lógica de contorno.
+- Kill-switch manual dedicado: `settings.fast_flights_enabled` (default `true`), editável em Configurações → "Fins de semana RIO↔BSB". Desligar pausa o lote diário **e** a confirmação pontual do alerta; a Travelpayouts continua sozinha, com cobertura bem mais baixa.
+- Escopo do que é consultado permanece o mesmo de sempre: preço de ida-e-volta/perna, nada de bagagem, tarifa completa ou regras de remarcação.
+
+Detalhe completo da decisão (volume calculado, rotação por `last_live_check_at`, regras do detector de bloqueio) documentado em `/Users/elton/.claude/plans/purrfect-popping-frost.md`, seção "Parte 3 redesenhada".
+
 ---
 
 ## FASE B — Ferramentas de decisão (paridade com Google Flights onde importa)
