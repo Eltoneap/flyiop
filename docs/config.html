@@ -78,8 +78,9 @@
     </section>
 
     <section>
-      <h2>Tendência e preferências</h2>
-      <form id="settings-form">
+      <h2>Rotas flexíveis (legado)</h2>
+      <p class="subtitle">Vale só para BSB→GIG, GIG→BSB e RIA→BSB — as 3 rotas de busca flexível.</p>
+      <form id="legacy-settings-form">
         <div class="form-grid">
           <div>
             <label>Alerta se subir mais de X% em 3 dias</label>
@@ -97,10 +98,6 @@
             </select>
           </div>
           <div>
-            <label>Custo do seu milheiro (R$ / 1000 milhas)</label>
-            <input type="number" step="0.01" name="cost_per_thousand_brl">
-          </div>
-          <div>
             <label>Preço é "fresco" até (horas)</label>
             <input type="number" step="1" min="1" name="freshness_hours">
           </div>
@@ -113,7 +110,25 @@
             <p class="field-note" id="suppress-note" style="display:none;">⚠️ Com a fonte atual, os alertas de dado velho não são suprimidos — só avisados. A fonte de preços (v3) não informa a idade exata do preço, então "segurar o alerta" está desativado para não bloquear todas as notificações silenciosamente.</p>
           </div>
           <div>
-            <label>Só re-alertar a mesma rota se cair mais de (%)</label>
+            <label>Custo do seu milheiro (R$ / 1000 milhas)</label>
+            <input type="number" step="0.01" name="cost_per_thousand_brl">
+          </div>
+        </div>
+        <button type="submit">Salvar preferências (legado)</button>
+      </form>
+    </section>
+
+    <section>
+      <h2>Fins de semana RIO↔BSB</h2>
+      <p class="subtitle">Vale para as pernas de fim de semana monitoradas em <a href="compras.html">Compras</a>. Teto de preço é editável por perna lá, não aqui.</p>
+      <form id="weekend-settings-form">
+        <div class="form-grid">
+          <div>
+            <label>Marcar como oportunidade se estiver (%) abaixo da média própria</label>
+            <input type="number" step="1" min="1" name="weekend_opportunity_pct">
+          </div>
+          <div>
+            <label>Só re-alertar se cair mais de (%)</label>
             <input type="number" step="0.1" min="0" name="realert_drop_pct">
           </div>
           <div>
@@ -125,7 +140,21 @@
             <input type="number" step="1" min="1" name="suspicious_below_avg_pct">
           </div>
         </div>
-        <button type="submit">Salvar preferências</button>
+        <p class="field-note">ℹ️ Cooldown (re-alerta) e autocheck (suspeito) valem para os dois sistemas — rotas flexíveis e fins de semana. Atualizar aqui muda o comportamento dos dois.</p>
+
+        <div class="form-grid" style="margin-top:16px;">
+          <div>
+            <label><input type="checkbox" name="fast_flights_enabled" style="width:auto;margin-right:6px;">Fast-flights ativo</label>
+          </div>
+          <div>
+            <label>Pernas checadas por dia no lote fast-flights</label>
+            <input type="number" step="1" min="1" name="fast_flights_daily_batch_size">
+            <p class="field-note">Default 20 — cobre a janela de 6 meses em ~2-3 dias.</p>
+          </div>
+        </div>
+        <p class="field-note" style="color:var(--warn);">⚠️ Desligar "Fast-flights ativo" pausa completamente as consultas ao Google Flights (lote diário e confirmação de pacote no alerta) — o Travelpayouts continua rodando sozinho, com cobertura bem mais baixa.</p>
+
+        <button type="submit">Salvar preferências (fins de semana)</button>
       </form>
     </section>
   </main>

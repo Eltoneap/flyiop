@@ -12,6 +12,9 @@ const DEFAULT_SETTINGS = {
   realert_drop_pct: 5,
   realert_days: 3,
   suspicious_below_avg_pct: 50,
+  weekend_opportunity_pct: 15,
+  fast_flights_enabled: true,
+  fast_flights_daily_batch_size: 20,
 };
 
 function showFlash() {
@@ -122,15 +125,13 @@ function wireTabs() {
 async function loadSettings(userId) {
   const { data: rows } = await supabase.from('settings').select('*').eq('user_id', userId).limit(1);
   const settings = rows && rows[0] ? rows[0] : DEFAULT_SETTINGS;
-  const form = document.getElementById('settings-form');
-  form.window_3d_pct.value = settings.window_3d_pct;
-  form.window_7d_pct.value = settings.window_7d_pct;
-  form.notification_mode.value = settings.notification_mode;
-  form.cost_per_thousand_brl.value = settings.cost_per_thousand_brl;
-  form.freshness_hours.value = settings.freshness_hours ?? DEFAULT_SETTINGS.freshness_hours;
-  form.realert_drop_pct.value = settings.realert_drop_pct ?? DEFAULT_SETTINGS.realert_drop_pct;
-  form.realert_days.value = settings.realert_days ?? DEFAULT_SETTINGS.realert_days;
-  form.suspicious_below_avg_pct.value = settings.suspicious_below_avg_pct ?? DEFAULT_SETTINGS.suspicious_below_avg_pct;
+
+  const legacyForm = document.getElementById('legacy-settings-form');
+  legacyForm.window_3d_pct.value = settings.window_3d_pct;
+  legacyForm.window_7d_pct.value = settings.window_7d_pct;
+  legacyForm.notification_mode.value = settings.notification_mode;
+  legacyForm.cost_per_thousand_brl.value = settings.cost_per_thousand_brl;
+  legacyForm.freshness_hours.value = settings.freshness_hours ?? DEFAULT_SETTINGS.freshness_hours;
 
   // 'suppress' foi desativado no corte da Etapa 6 (a fonte v3 não informa a idade
   // do preço, então suprimir seguraria 100% dos alertas). Se o valor salvo ainda
@@ -140,10 +141,18 @@ async function loadSettings(userId) {
   const suppressNote = document.getElementById('suppress-note');
   if (savedPolicy === 'suppress') {
     if (suppressNote) suppressNote.style.display = 'block';
-    form.stale_alert_policy.value = 'warn';
+    legacyForm.stale_alert_policy.value = 'warn';
   } else {
-    form.stale_alert_policy.value = savedPolicy;
+    legacyForm.stale_alert_policy.value = savedPolicy;
   }
+
+  const weekendForm = document.getElementById('weekend-settings-form');
+  weekendForm.weekend_opportunity_pct.value = settings.weekend_opportunity_pct ?? DEFAULT_SETTINGS.weekend_opportunity_pct;
+  weekendForm.realert_drop_pct.value = settings.realert_drop_pct ?? DEFAULT_SETTINGS.realert_drop_pct;
+  weekendForm.realert_days.value = settings.realert_days ?? DEFAULT_SETTINGS.realert_days;
+  weekendForm.suspicious_below_avg_pct.value = settings.suspicious_below_avg_pct ?? DEFAULT_SETTINGS.suspicious_below_avg_pct;
+  weekendForm.fast_flights_enabled.checked = settings.fast_flights_enabled ?? DEFAULT_SETTINGS.fast_flights_enabled;
+  weekendForm.fast_flights_daily_batch_size.value = settings.fast_flights_daily_batch_size ?? DEFAULT_SETTINGS.fast_flights_daily_batch_size;
 }
 
 const session = await requireAuth();
@@ -203,7 +212,7 @@ if (session) {
     showFlash();
   });
 
-  document.getElementById('settings-form').addEventListener('submit', async (e) => {
+  document.getElementById('legacy-settings-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const form = e.target;
     const { error } = await supabase.from('settings').upsert({
@@ -214,9 +223,26 @@ if (session) {
       cost_per_thousand_brl: Number(form.cost_per_thousand_brl.value),
       freshness_hours: Number(form.freshness_hours.value),
       stale_alert_policy: form.stale_alert_policy.value,
+      updated_at: new Date().toISOString(),
+    });
+    if (error) {
+      alert('Erro ao salvar preferências: ' + error.message);
+      return;
+    }
+    showFlash();
+  });
+
+  document.getElementById('weekend-settings-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const { error } = await supabase.from('settings').upsert({
+      user_id: session.user.id,
+      weekend_opportunity_pct: Number(form.weekend_opportunity_pct.value),
       realert_drop_pct: Number(form.realert_drop_pct.value),
       realert_days: Number(form.realert_days.value),
       suspicious_below_avg_pct: Number(form.suspicious_below_avg_pct.value),
+      fast_flights_enabled: form.fast_flights_enabled.checked,
+      fast_flights_daily_batch_size: Number(form.fast_flights_daily_batch_size.value),
       updated_at: new Date().toISOString(),
     });
     if (error) {
