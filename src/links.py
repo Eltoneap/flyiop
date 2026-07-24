@@ -21,8 +21,15 @@ def aviasales_link(origin: str, destination: str, depart_date: str, return_date:
 
 def google_flights_link(origin: str, destination: str, depart_date: str,
                         return_date: str | None = None) -> str:
-    """Busca do Google Flights pré-preenchida; com return_date vira ida e volta."""
+    """Busca do Google Flights pré-preenchida; com return_date vira ida e volta.
+
+    Sem return_date, força "one way" no texto da query — sem isso o Google
+    Flights assume ida-e-volta por padrão (confirmado em teste real 24/07/2026:
+    o mesmo link sem essa palavra abriu com volta automática 4 dias depois e
+    preço "ida e volta" bem maior que o one-way de verdade)."""
     query = f"Flights from {origin} to {destination} on {depart_date}"
     if return_date:
         query += f" through {return_date}"
+    else:
+        query += " one way"
     return f"https://www.google.com/travel/flights?q={quote(query)}&hl=pt-BR&gl=BR"

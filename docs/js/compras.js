@@ -61,8 +61,11 @@ function formatLastCheck(iso) {
 
 // Mesma lógica de src/links.py:google_flights_link, adaptada pra one-way
 // (as pernas de fim de semana são buscadas separadas, nunca ida-e-volta).
+// "one way" no texto é obrigatório: sem isso o Google Flights assume
+// ida-e-volta por padrão e mostra preço combinado, não o preço da perna
+// (confirmado em teste real 24/07/2026).
 function googleFlightsLink(origin, destination, isoDate) {
-  const query = `Flights from ${origin} to ${destination} on ${isoDate}`;
+  const query = `Flights from ${origin} to ${destination} on ${isoDate} one way`;
   return `https://www.google.com/travel/flights?q=${encodeURIComponent(query)}&hl=pt-BR&gl=BR`;
 }
 
