@@ -51,6 +51,30 @@ function escapeAttr(text) {
   return String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
 
+function formatLastCheck(iso) {
+  if (!iso) return 'nunca verificado';
+  const diffHours = (Date.now() - new Date(iso).getTime()) / 3600000;
+  if (diffHours < 24) return `há ${Math.max(1, Math.round(diffHours))}h`;
+  const diffDays = Math.round(diffHours / 24);
+  return `há ${diffDays} dia${diffDays === 1 ? '' : 's'}`;
+}
+
+// Mesma lógica de src/links.py:google_flights_link, adaptada pra one-way
+// (as pernas de fim de semana são buscadas separadas, nunca ida-e-volta).
+function googleFlightsLink(origin, destination, isoDate) {
+  const query = `Flights from ${origin} to ${destination} on ${isoDate}`;
+  return `https://www.google.com/travel/flights?q=${encodeURIComponent(query)}&hl=pt-BR&gl=BR`;
+}
+
+function legPurchaseLink(leg, weekend) {
+  const airport = leg.current_airport || 'GIG'; // GIG é o hub padrão até a primeira checagem real
+  if (leg.direction === 'outbound') {
+    return googleFlightsLink(airport, 'BSB', weekend.outbound_date);
+  }
+  const returnDate = leg.current_variant === 'monday' ? weekend.return_monday : weekend.return_sunday;
+  return googleFlightsLink('BSB', airport, returnDate);
+}
+
 function renderLegRow(leg, weekend) {
   const { title, date } = legLabel(leg, weekend);
   const row = document.createElement('div');
@@ -63,11 +87,16 @@ function renderLegRow(leg, weekend) {
   const sourceText = leg.current_price != null && sourceBits.length ? ` (${sourceBits.join(' · ')})` : '';
 
   const isPurchased = leg.status === 'purchased';
+  const purchaseLink = legPurchaseLink(leg, weekend);
 
   row.innerHTML = `
     <div class="leg-row-main">
       <span class="leg-title">${title}${date ? ' ' + formatDateBr(date) : ''}</span>
       <span class="leg-price">${priceText}${sourceText}</span>
+    </div>
+    <div class="leg-row-meta">
+      <span class="leg-updated">atualizado ${formatLastCheck(leg.last_live_check_at)}</span>
+      <a class="small leg-buy-link" href="${purchaseLink}" target="_blank" rel="noopener">Ver/comprar</a>
     </div>
     <div class="leg-row-controls">
       <label class="leg-ceiling-label">
