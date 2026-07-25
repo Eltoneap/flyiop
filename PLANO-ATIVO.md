@@ -6,4 +6,4 @@ _Atualizado em 24/07/2026. Contém só o que está em execução ou pendente de 
 
 ---
 
-Nada em execução ou pendente no momento. Parte 8 (preço pago, Dashboard redesenhado, feriados/alta temporada) entregue em 24/07/2026 — ver `HISTORICO.md`.
+Nada em execução ou pendente no momento. Última entrega: alerta de bloqueio com diagnóstico e escalonamento por dias consecutivos, 25/07/2026 — ver `HISTORICO.md`.
