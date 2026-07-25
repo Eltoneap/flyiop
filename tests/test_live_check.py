@@ -223,10 +223,24 @@ class RunDailyBatchTest(unittest.TestCase):
         results = [(ok_report, True)] * 4 + [(fail_report, False)] * 5 + [(ok_report, True)] * 1
         with patch("live_check.select_batch", return_value=legs), \
              patch("live_check.check_and_evaluate_leg", side_effect=results), \
-             patch("live_check.send_message") as mock_send:
+             patch("live_check.send_message") as mock_send, \
+             patch("live_check.set_weekend_batch_blocked_at") as mock_blocked_at:
             reports = live_check.run_daily_batch(SETTINGS)
         self.assertEqual(len(reports), 9)  # parou antes do 10º
         mock_send.assert_called_once_with(live_check.BLOCK_ALERT_MESSAGE)
+        mock_blocked_at.assert_called_once()
+
+    @patch("live_check.time.sleep", return_value=None)
+    def test_no_block_never_persists_blocked_at(self, _sleep):
+        legs = self.make_legs(3)
+        ok_report = {"leg": None, "status": "ok"}
+        with patch("live_check.select_batch", return_value=legs), \
+             patch("live_check.check_and_evaluate_leg", return_value=(ok_report, True)), \
+             patch("live_check.send_message") as mock_send, \
+             patch("live_check.set_weekend_batch_blocked_at") as mock_blocked_at:
+            live_check.run_daily_batch(SETTINGS)
+        mock_send.assert_not_called()
+        mock_blocked_at.assert_not_called()
 
     @patch("live_check.time.sleep", return_value=None)
     def test_low_success_rate_with_enough_sample_stops_batch(self, _sleep):
@@ -242,10 +256,12 @@ class RunDailyBatchTest(unittest.TestCase):
         ]
         with patch("live_check.select_batch", return_value=legs), \
              patch("live_check.check_and_evaluate_leg", side_effect=results), \
-             patch("live_check.send_message") as mock_send:
+             patch("live_check.send_message") as mock_send, \
+             patch("live_check.set_weekend_batch_blocked_at") as mock_blocked_at:
             reports = live_check.run_daily_batch(SETTINGS)
         self.assertEqual(len(reports), 8)
         mock_send.assert_called_once_with(live_check.BLOCK_ALERT_MESSAGE)
+        mock_blocked_at.assert_called_once()
 
     @patch("live_check.time.sleep", return_value=None)
     def test_low_success_rate_with_small_sample_does_not_stop(self, _sleep):

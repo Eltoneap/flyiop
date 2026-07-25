@@ -21,16 +21,28 @@
   <main>
     <div class="flash" id="flash">Salvo com sucesso.</div>
     <h1>Dashboard</h1>
-    <p class="subtitle">
-      Modo de notificação: <strong id="notification-mode">—</strong>
-      · <span id="last-run">robô ainda não executou</span>
-      · <button type="button" class="link" id="export-csv">Exportar CSV</button>
-    </p>
 
-    <div class="grid" id="routes-grid"></div>
-    <div class="empty-state" id="empty-state" style="display:none;">
-      Nenhuma rota configurada ainda. Vá em <a href="config.html">Configurações</a> para adicionar a primeira.
-    </div>
+    <section id="acao-do-dia"></section>
+    <section id="urgencia" style="display:none;"></section>
+    <section id="progresso"></section>
+
+    <section id="oportunidades"></section>
+    <section id="orcamento"></section>
+    <section id="saude-sistema"></section>
+    <section id="feriados-alta-temporada"></section>
+
+    <details id="rotas-legado">
+      <summary>Rotas flexíveis (legado)</summary>
+      <p class="subtitle">
+        Modo de notificação: <strong id="notification-mode">—</strong>
+        · <span id="last-run">robô ainda não executou</span>
+        · <button type="button" class="link" id="export-csv">Exportar CSV</button>
+      </p>
+      <div class="grid" id="routes-grid"></div>
+      <div class="empty-state" id="empty-state" style="display:none;">
+        Nenhuma rota configurada ainda. Vá em <a href="config.html">Configurações</a> para adicionar a primeira.
+      </div>
+    </details>
   </main>
   <script type="module" src="js/dashboard.js"></script>
 </body>

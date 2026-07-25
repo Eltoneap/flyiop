@@ -41,6 +41,7 @@ from fli.search.flights import SearchFlights
 from supabase_client import (
     DEFAULT_SETTINGS,
     insert_weekend_leg_run_log,
+    set_weekend_batch_blocked_at,
     update_weekend_leg,
 )
 from telegram_notifier import send_message
@@ -214,5 +215,6 @@ def run_daily_batch(settings: dict) -> list[dict]:
 
     if blocked:
         send_message(BLOCK_ALERT_MESSAGE)
+        set_weekend_batch_blocked_at(datetime.now(timezone.utc).isoformat())
 
     return reports

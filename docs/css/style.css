@@ -13,6 +13,10 @@
   --info: #2563eb;
   --info-bg: #dbeafe;
   --neutral-bg: #f1f5f9;
+  --holiday: #b45309;
+  --holiday-bg: #fef3c7;
+  --season: #c2410c;
+  --season-bg: #ffedd5;
 }
 
 * { box-sizing: border-box; }
@@ -151,6 +155,27 @@ h1 {
 .badge.warn { background: var(--warn-bg); color: var(--warn); }
 .badge.info { background: var(--info-bg); color: var(--info); }
 .badge.neutral { background: var(--neutral-bg); color: var(--muted); }
+.badge.holiday { background: var(--holiday-bg); color: var(--holiday); margin-left: 6px; }
+.badge.high-season { background: var(--season-bg); color: var(--season); margin-left: 6px; }
+
+.progress-bar {
+  background: var(--border);
+  border-radius: 999px;
+  height: 8px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.progress-bar-fill {
+  background: var(--primary);
+  height: 100%;
+  border-radius: 999px;
+}
+
+.stat-big {
+  font-size: 26px;
+  font-weight: 700;
+}
 
 .empty-state {
   border: 1px dashed var(--border);
@@ -171,6 +196,52 @@ section {
 section h2 {
   font-size: 16px;
   margin: 0 0 16px;
+}
+
+.link-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+}
+
+.link-list li {
+  border-top: 1px solid var(--border);
+}
+
+.link-list li:first-child {
+  border-top: none;
+}
+
+.link-list a {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  text-decoration: none;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.link-list a:hover {
+  color: var(--primary);
+}
+
+details#rotas-legado {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+details#rotas-legado summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+details#rotas-legado[open] summary {
+  margin-bottom: 16px;
 }
 
 table {
@@ -468,4 +539,34 @@ ul.suggestions li:hover {
   min-width: 0;
   padding: 4px 8px;
   font-size: 12px;
+}
+
+.leg-row-paid {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.leg-paid-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0;
+  white-space: nowrap;
+}
+
+.leg-paid-input {
+  width: 80px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.leg-paid-hint {
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
 }

@@ -254,3 +254,15 @@ def set_last_update_id(update_id: int) -> None:
         _url("bot_state"), headers=headers, json={"key": "last_update_id", "value": str(update_id)}, timeout=30
     )
     resp.raise_for_status()
+
+
+def set_weekend_batch_blocked_at(iso: str) -> None:
+    """Registra quando o detector de bloqueio do lote de consulta ao vivo
+    disparou pela última vez (Parte 8) — lido pelo Dashboard em 'Saúde do
+    sistema'. Mesmo padrão key-value de set_last_update_id."""
+    headers = {**_headers(), "Prefer": "resolution=merge-duplicates"}
+    resp = requests.post(
+        _url("bot_state"), headers=headers,
+        json={"key": "weekend_batch_blocked_at", "value": iso}, timeout=30,
+    )
+    resp.raise_for_status()

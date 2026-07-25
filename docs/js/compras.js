@@ -1,5 +1,6 @@
 import { supabase } from './supabase-client.js';
 import { requireAuth, wireLogout } from './auth-guard.js';
+import { weekendTags } from './holidays.js';
 
 const DEFAULT_CEILING = 200;
 
@@ -113,6 +114,13 @@ function renderLegRow(leg, weekend) {
       <input type="text" class="leg-notes-input" placeholder="localizador, horário..." value="${escapeAttr(leg.notes ?? '')}">
       <button type="button" class="small leg-notes-save">Salvar</button>
     </div>
+    ${isPurchased ? `
+    <div class="leg-row-paid">
+      <label class="leg-paid-label">pago R$ <input type="number" step="0.01" min="0" placeholder="ex: 245.90" class="leg-paid-input" value="${leg.paid_price ?? ''}"></label>
+      <button type="button" class="small leg-paid-save">Salvar</button>
+      <span class="leg-paid-hint">valor real, com taxas — diferente do preço monitorado</span>
+    </div>
+    ` : ''}
   `;
 
   row.querySelector('.leg-ceiling-save').addEventListener('click', async () => {
@@ -146,6 +154,25 @@ function renderLegRow(leg, weekend) {
   notesInput.addEventListener('blur', saveNotes);
   row.querySelector('.leg-notes-save').addEventListener('click', saveNotes);
 
+  const paidInput = row.querySelector('.leg-paid-input');
+  if (paidInput) {
+    let paidSaved = true;
+    const savePaid = async () => {
+      if (paidSaved) return;
+      paidSaved = true;
+      const value = paidInput.value === '' ? null : Number(paidInput.value);
+      const error = await updateLeg(leg.id, { paid_price: value });
+      if (error) {
+        alert('Erro ao salvar valor pago: ' + error.message);
+        return;
+      }
+      showFlash('Valor pago salvo.');
+    };
+    paidInput.addEventListener('input', () => { paidSaved = false; });
+    paidInput.addEventListener('blur', savePaid);
+    row.querySelector('.leg-paid-save').addEventListener('click', savePaid);
+  }
+
   row.querySelector('.leg-action').addEventListener('click', async () => {
     const nextStatus = isPurchased ? 'monitoring' : 'purchased';
     const error = await updateLeg(leg.id, {
@@ -166,16 +193,23 @@ function renderLegRow(leg, weekend) {
 function renderCard(weekend) {
   const card = document.createElement('div');
   card.className = 'card';
+  card.id = `weekend-${weekend.id}`;
 
   const legs = weekend.weekend_legs || [];
   const purchasedCount = legs.filter((leg) => leg.status === 'purchased').length;
   const days = daysUntil(weekend.outbound_date);
   const urgency = days < 0 ? 'já passou' : days === 0 ? 'é hoje' : `faltam ${days} dias`;
 
+  const tags = weekendTags(weekend);
+  const badges = tags.map(({ tag }) => {
+    if (tag === 'feriado') return '<span class="badge holiday" title="Feriado — dificilmente fica abaixo do teto padrão">🎉 feriado</span>';
+    return '<span class="badge high-season" title="Alta temporada — dificilmente fica abaixo do teto padrão">☀️ alta temporada</span>';
+  }).join('');
+
   const header = document.createElement('div');
   header.className = 'weekend-card-header';
   header.innerHTML = `
-    <h3>${formatDateBr(weekend.outbound_date)} → ${formatDateBr(weekend.return_sunday)} ou ${formatDateBr(weekend.return_monday)}</h3>
+    <h3>${formatDateBr(weekend.outbound_date)} → ${formatDateBr(weekend.return_sunday)} ou ${formatDateBr(weekend.return_monday)} ${badges}</h3>
     <span class="price-meta">${urgency} · ${purchasedCount}/2 compradas</span>
   `;
   card.appendChild(header);
