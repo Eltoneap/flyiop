@@ -1,4 +1,20 @@
 requests>=2.31
+flights @ git+https://github.com/punitarani/fli.git@121d34fea056dc513258958c4262cb5a4cc033c1
+# Fonte primária das pernas de fim de semana desde 24/07/2026 — acessa o
+# endpoint interno GetShoppingResults do Google Flights diretamente (não faz
+# parsing de HTML), resolvendo o bug de preço incorreto do fast-flights (ver
+# "Problema conhecido" no plano de fins de semana). Pinado num commit
+# específico (não @main) porque o projeto não publica no PyPI e não roda em
+# tags — evita quebra silenciosa se o repositório mudar. O requirement usa
+# "flights" (nome real do projeto no metadata/pyproject.toml do repositório
+# github.com/punitarani/fli) — "fli" faria o pip rejeitar a instalação por
+# nome divergente. O import no código continua sendo `import fli`.
+
+# fast-flights mantido por 1 ciclo de release só pra rollback rápido — não é
+# mais importado por nenhum código ativo. Mesmo padrão do corte v2→v3 da
+# Travelpayouts (get_month_matrix ainda existe em travelpayouts_client.py,
+# sem ser chamado). Remover quando fli tiver rodado em produção por tempo
+# suficiente.
 fast-flights==3.0.2
 # O packaging do fast-flights 3.0.2 não declara typing_extensions (bug da lib);
 # sem ela o import quebra com ModuleNotFoundError.

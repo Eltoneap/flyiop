@@ -146,15 +146,15 @@
 
         <div class="form-grid" style="margin-top:16px;">
           <div>
-            <label><input type="checkbox" name="fast_flights_enabled" style="width:auto;margin-right:6px;">Fast-flights ativo</label>
+            <label><input type="checkbox" name="fast_flights_enabled" style="width:auto;margin-right:6px;">Consulta de preço ao vivo (Google Flights)</label>
           </div>
           <div>
-            <label>Pernas checadas por dia no lote fast-flights</label>
+            <label>Pernas checadas por dia no lote de consulta ao vivo</label>
             <input type="number" step="1" min="1" name="fast_flights_daily_batch_size">
             <p class="field-note">Default 20 — cobre a janela de 6 meses em ~2-3 dias.</p>
           </div>
         </div>
-        <p class="field-note" style="color:var(--warn);">⚠️ Desligar "Fast-flights ativo" pausa completamente as consultas ao Google Flights (lote diário e confirmação de pacote no alerta) — o Travelpayouts continua rodando sozinho, com cobertura bem mais baixa.</p>
+        <p class="field-note" style="color:var(--warn);">⚠️ Desligar "Consulta de preço ao vivo" pausa completamente o lote diário de consultas ao Google Flights — o Travelpayouts continua rodando sozinho, com cobertura bem mais baixa.</p>
 
         <button type="submit">Salvar preferências (fins de semana)</button>
       </form>

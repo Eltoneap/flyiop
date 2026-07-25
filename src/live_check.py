@@ -1,9 +1,18 @@
-"""Lote fast-flights (Google Flights) — fonte primária das pernas de fim de
-semana desde a Parte 3 (23/07/2026), depois do veredito da Parte 2: o cache
-Travelpayouts é estruturalmente insuficiente pra esse caso de uso (2 de 132
-pernas bateram). O Travelpayouts (weekends.py) continua rodando em paralelo
-como conferidor secundário, barato e sem risco — nunca mais decide o preço
-corrente de uma perna de fim de semana.
+"""Lote de consulta ao vivo (Google Flights) — fonte primária das pernas de
+fim de semana desde a Parte 3 (23/07/2026), depois do veredito da Parte 2: o
+cache Travelpayouts é estruturalmente insuficiente pra esse caso de uso (2 de
+132 pernas bateram). O Travelpayouts (weekends.py) continua rodando em
+paralelo como conferidor secundário, barato e sem risco — nunca mais decide
+o preço corrente de uma perna de fim de semana.
+
+Migrado de `fast_flights` pra `fli` em 24/07/2026 (Parte 7): o `fast_flights`
+lê um payload SSR do Google (`ds:1`) que provou divergir do preço real da UI
+(caso real: perna gravou R$561, preço de verdade R$286) — bug estrutural de
+parsing de HTML, não de configuração. `fli` chama o endpoint interno
+`GetShoppingResults` do Google diretamente, sem parsing de HTML, e devolveu
+o preço correto na mesma consulta que expôs o bug. Detalhe completo da
+investigação e da migração: seção "Problema conhecido" e "Parte 7" do plano
+de fins de semana.
 
 Regras não-negociáveis (Parte 1 do PLAN-VALIDACAO-CRUZADA.md + decisões de
 23/07/2026):
@@ -18,8 +27,7 @@ Regras não-negociáveis (Parte 1 do PLAN-VALIDACAO-CRUZADA.md + decisões de
   contorna tecnicamente, só recua.
 - Kill-switch manual (settings.fast_flights_enabled) sempre vale por cima.
 
-Reusa o cliente já validado na Etapa 0 (scripts/validate_fastflights.py) e
-a avaliação de teto/oportunidade/suspeita/cooldown de weekends.py — o
+Reusa a avaliação de teto/oportunidade/suspeita/cooldown de weekends.py — o
 live-check só descobre o preço; quem decide o que fazer com ele é a mesma
 função usada pelo caminho cache (evaluate_and_record_leg_price).
 """
@@ -27,12 +35,11 @@ import time
 import traceback
 from datetime import date, datetime, timedelta, timezone
 
-from fast_flights import FlightQuery, create_query, get_flights
+from fli.models import Airport, FlightSearchFilters, FlightSegment, PassengerInfo, SeatType, TripType
+from fli.search.flights import SearchFlights
 
 from supabase_client import (
     DEFAULT_SETTINGS,
-    get_weekend,
-    get_weekend_legs_by_weekend,
     insert_weekend_leg_run_log,
     update_weekend_leg,
 )
@@ -48,27 +55,36 @@ BLOCK_ALERT_MESSAGE = "⚠️ Google Flights não está respondendo — prováve
 
 
 def check_live_price(origin: str, destination: str, travel_date: str) -> dict | None:
-    """1 consulta one-way ao fast-flights. Best-effort: qualquer falha (sem
-    resultado, exceção, timeout) vira None — nunca propaga, nunca derruba
-    o lote (Parte 1 do PLAN-VALIDACAO-CRUZADA.md)."""
+    """1 consulta one-way via fli (endpoint interno GetShoppingResults do
+    Google, sem parsing de HTML). Best-effort: qualquer falha (sem resultado,
+    exceção, timeout) vira None — nunca propaga, nunca derruba o lote
+    (Parte 1 do PLAN-VALIDACAO-CRUZADA.md)."""
     try:
-        query = create_query(
-            flights=[FlightQuery(date=travel_date, from_airport=origin, to_airport=destination)],
-            trip="one-way", seat="economy", currency="BRL", language="pt-BR",
+        segment = FlightSegment(
+            departure_airport=[[getattr(Airport, origin), 0]],
+            arrival_airport=[[getattr(Airport, destination), 0]],
+            travel_date=travel_date,
         )
-        results = get_flights(query)
+        filters = FlightSearchFilters(
+            trip_type=TripType.ONE_WAY,
+            passenger_info=PassengerInfo(adults=1),
+            flight_segments=[segment],
+            seat_type=SeatType.ECONOMY,
+        )
+        results = SearchFlights().search(filters, currency="BRL", language="pt-BR", country="BR")
     except Exception:
         print(f"[live-check] EXCEÇÃO em {origin}→{destination} {travel_date}:\n{traceback.format_exc()}")
         return None
 
-    best = None
-    for entry in results:
-        price = getattr(entry, "price", 0)
-        if not price:
-            continue
-        if best is None or price < best["price"]:
-            best = {"price": float(price), "transfers": max(len(getattr(entry, "flights", []) or []) - 1, 0)}
-    return best
+    if not results:
+        return None
+
+    priced = [r for r in results if r.price is not None]
+    if not priced:
+        return None
+
+    best = min(priced, key=lambda r: r.price)
+    return {"price": float(best.price), "transfers": best.stops}
 
 
 def leg_travel_date(leg: dict) -> str:
@@ -103,7 +119,7 @@ def select_batch(settings: dict) -> list[dict]:
 
 
 def check_and_evaluate_leg(leg: dict, settings: dict) -> tuple[dict, bool]:
-    """Checa 1 perna via fast-flights (GIG, com fallback SDU se GIG vier
+    """Checa 1 perna via consulta ao vivo (GIG, com fallback SDU se GIG vier
     vazio). Retorna (report, teve_sucesso). last_live_check_at avança em
     toda tentativa — sucesso ou falha — pra rotação sempre andar."""
     direction = leg["direction"]
@@ -137,71 +153,23 @@ def check_and_evaluate_leg(leg: dict, settings: dict) -> tuple[dict, bool]:
     return report, True
 
 
-def check_package_price(airport: str, outbound_date: str, return_date: str) -> dict | None:
-    """1 consulta round-trip ao fast-flights pro pacote fechado (ida+volta
-    juntas) — só no momento do alerta (regra 4), nunca na varredura diária.
-    Best-effort: qualquer falha vira None, o alerta sai igual, sem selo."""
-    try:
-        query = create_query(
-            flights=[
-                FlightQuery(date=outbound_date, from_airport=airport, to_airport=BSB),
-                FlightQuery(date=return_date, from_airport=BSB, to_airport=airport),
-            ],
-            trip="round-trip", seat="economy", currency="BRL", language="pt-BR",
-        )
-        results = get_flights(query)
-    except Exception:
-        print(f"[pacote] EXCEÇÃO {airport}↔BSB {outbound_date}/{return_date}:\n{traceback.format_exc()}")
-        return None
-
-    best = None
-    for entry in results:
-        price = getattr(entry, "price", 0)
-        if not price:
-            continue
-        if best is None or price < best:
-            best = float(price)
-    return {"price": best} if best is not None else None
-
-
 def build_package_comparison(leg_report: dict, settings: dict) -> dict | None:
-    """Regra 4 (Parte 3 do plano, ajustada em 23/07): 'avulso' usa os
-    current_price já gravados das 2 pernas (sem buscar de novo); só o
-    'pacote' é uma cotação nova. Se a perna irmã não tem preço ainda, não
-    há avulso pra comparar — sem linha na mensagem. Kill-switch e
-    best-effort valem aqui também."""
-    if not settings.get("fast_flights_enabled", True):
-        return None
-
-    weekend_id = leg_report["weekend_id"]
-    own_leg_id = leg_report["leg"]["id"]
-    sibling = next(
-        (leg for leg in get_weekend_legs_by_weekend(weekend_id) if leg["id"] != own_leg_id), None
-    )
-    if sibling is None or sibling.get("current_price") is None:
-        return None
-
-    avulso = float(leg_report["price"]) + float(sibling["current_price"])
-
-    weekend = get_weekend(weekend_id)
-    if weekend is None:
-        return {"avulso": avulso, "pacote": None}
-
-    if leg_report["direction"] == "outbound":
-        outbound_date = leg_report["date"]
-        variant = sibling.get("current_variant") or "sunday"
-        return_date = weekend["return_sunday"] if variant == "sunday" else weekend["return_monday"]
-    else:
-        outbound_date = weekend["outbound_date"]
-        return_date = leg_report["date"]
-
-    airport = leg_report.get("airport") or GIG
-    package = check_package_price(airport, outbound_date, return_date)
-    return {"avulso": avulso, "pacote": package["price"] if package else None}
+    """Suspensa em 24/07/2026 (Parte 7): não há hoje nenhuma fonte que
+    consulte round-trip de verdade de forma sequencial. O fast_flights (que
+    fazia isso) provou ser estruturalmente não confiável — ver seção
+    "Problema conhecido" do plano. O fli (a substituta) só faz round-trip
+    via expansão em threads paralelas, o que viola a regra de sempre do
+    projeto (sequencial, sem paralelismo). Comparar um "avulso" correto
+    contra um "pacote" sabidamente impreciso seria pior que não comparar —
+    a mensagem quase sempre diria "avulso mais barato" independente da
+    realidade. Reativar só faz sentido se surgir uma fonte round-trip
+    compatível com a regra de sequencial. Mitigação: o link "Ver/comprar"
+    por perna no painel permite alternar pra ida-e-volta manualmente."""
+    return None
 
 
 def run_daily_batch(settings: dict) -> list[dict]:
-    """Lote diário do fast-flights. Kill-switch primeiro; depois seleção
+    """Lote diário de consulta ao vivo. Kill-switch primeiro; depois seleção
     (janela + rotação); depois laço sequencial e espaçado com detector de
     bloqueio — para o lote e avisa no Telegram se disparar."""
     if not settings.get("fast_flights_enabled", True):
