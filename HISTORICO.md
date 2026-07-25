@@ -105,3 +105,16 @@ Perna "Ida (sex) 22/01, GIG→BSB" mostrou R$561 no painel (fonte live); o Googl
 ### Higiene de dado
 
 **Preços `source='live'` gravados antes de 24/07/2026 são suspeitos** (não usar pra calibrar teto nem pra análise futura de melhor antecedência de compra) — não apagar, é histórico real do que o robô viu. A partir de 24/07/2026, `source='live'` é confiável. Preços `source='cache'` (Travelpayouts) nunca foram afetados por esse bug. A rotação natural do lote diário (ordenada por `last_live_check_at`) re-checa e substitui os valores suspeitos nos primeiros 2-3 dias após a migração.
+
+---
+
+## 6. Parte 8 — Preço pago, Dashboard redesenhado, feriados/alta temporada, 24/07/2026
+
+Com o preço já confiável (seção 5), fez sentido usar dados reais no lugar de placeholder. Três entregas combinadas:
+
+- **`weekend_legs.paid_price`** (SQL): valor efetivamente pago por perna, editável em Compras (mesmo padrão blur+salvar das notas), só aparece quando a perna está `purchased`.
+- **`docs/js/holidays.js`** (novo): feriados nacionais 2026/2027 calculados programaticamente (fixos + móveis a partir da Páscoa: 2026-04-05, 2027-03-28). Cruzamento com os 66 fins de semana monitorados: **24 batem** (16 feriado + 10 alta temporada, 2 sobrepostos — 2026-12-25 e 2027-01-01) — lista validada duas vezes de forma independente (cálculo próprio + script do usuário, mesmo resultado exato) antes da implementação. Selo 🎉/☀️ no card de Compras; cada card ganhou âncora `weekend-<id>` pra permitir link direto a partir do Dashboard.
+- **Dashboard redesenhado** (`docs/index.html` + `docs/js/dashboard.js`), mobile-first, curto em cima: ação do dia (pernas abaixo do teto agora, tocável → Compras), urgência (fins de semana nos próximos 60 dias com pelo menos 1 perna não comprada), progresso (com barra visual nova, `.progress-bar`), melhores oportunidades (top 5 por menor distância percentual ao teto), orçamento (soma/média de `paid_price`, com estimativa explícita do que falta), saúde do sistema (última execução, pernas checadas 24h/7d, consulta ao vivo ativa/desligada, bloqueio recente), feriados/alta temporada. Conteúdo antigo (rotas flexíveis: cards, gráfico Chart.js, export CSV) movido pra uma seção `<details>` recolhida no fim, sem mudança de comportamento.
+- **Backend:** `set_weekend_batch_blocked_at` (`supabase_client.py`) persiste o timestamp do detector de bloqueio na tabela `bot_state` (mesmo padrão key-value de `last_update_id`) — chamado em `live_check.py` quando o lote é bloqueado, lido pelo Dashboard em "Saúde do sistema". RLS de `bot_state` recebeu policy de select pra autenticado (não estava rastreada em nenhum `sql/*.sql` antes).
+
+**Verificação:** 121 testes locais passando. `holidays.js` testado isolado no navegador contra os 66 fins de semana — bateu exatamente com a lista validada. Verificação visual no navegador (mobile 375px e desktop) com dados mock, sem login — dados reais dependem do login real (celular, pós-deploy).
