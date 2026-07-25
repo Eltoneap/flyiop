@@ -435,6 +435,34 @@ ul.suggestions li:hover {
   border-bottom-color: var(--primary);
 }
 
+.filter-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: 16px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.filter-chip {
+  flex: none;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.filter-chip.active {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
 .advisory {
   background: var(--neutral-bg);
   border-radius: 8px;
@@ -569,4 +597,18 @@ ul.suggestions li:hover {
   font-size: 11px;
   color: var(--muted);
   font-style: italic;
+}
+
+button.small.saved {
+  background: var(--neutral-bg);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+.save-check {
+  display: none;
+  color: var(--good);
+  font-weight: 700;
+  font-size: 12px;
+  margin-left: 4px;
 }

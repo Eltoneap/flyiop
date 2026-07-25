@@ -56,7 +56,7 @@ function renderAcaoDoDia(allLegs) {
 
   section.innerHTML = `
     <h2>Ação do dia</h2>
-    <a href="compras.html" style="text-decoration:none;">
+    <a href="compras.html?filtro=abaixo-do-teto" style="text-decoration:none;">
       <p class="stat-big" style="color:var(--good);margin:0;">${hits.length} perna${hits.length === 1 ? '' : 's'} abaixo do teto agora</p>
       <p class="price-meta">Toque para ver em Compras →</p>
     </a>
