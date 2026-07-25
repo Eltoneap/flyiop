@@ -2,7 +2,7 @@
 
 Monitor automático de passagens aéreas. Busca preços diariamente via Travelpayouts, compara com metas configuradas e avisa por Telegram quando encontra um bom preço ou uma alta preocupante.
 
-Escopo completo em [escopo-projeto-passagens.md](escopo-projeto-passagens.md).
+Escopo completo em [CLAUDE.md](CLAUDE.md). Histórico de decisões e partes entregues em [HISTORICO.md](HISTORICO.md); trabalho em execução em [PLANO-ATIVO.md](PLANO-ATIVO.md).
 
 ## Arquitetura
 

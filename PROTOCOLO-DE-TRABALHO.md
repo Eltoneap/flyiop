@@ -41,3 +41,8 @@ Ver comparação detalhada entregue em 14/07/2026 (arquitetura de dados, frequê
 - Alerta de câmbio combinado com preço
 - Regras da tarifa (bagagem, remarcação) no alerta
 - Reavaliação pós-compra
+
+## Documentação de planos (regras vigentes desde 24/07/2026)
+
+- **Dois arquivos apenas para planejamento**: `PLANO-ATIVO.md` (só o que está em execução ou pendente de aprovação/implementação) e `HISTORICO.md` (tudo que já foi concluído, com data — investigações, partes entregues, decisões tomadas). Nada de arquivos de plano soltos na raiz com nomes ad-hoc (`PLAN-*.md`, `ALVO-*.md` ou nomes aleatórios de Plan Mode) — ao fechar uma parte, mover o conteúdo pro `HISTORICO.md` e apagar/esvaziar a origem.
+- **Apresentação no chat mostra só o delta**: ao apresentar um plano ou atualização, mostrar apenas a seção nova ou alterada, nunca o arquivo inteiro. Para dar contexto, referenciar a seção pelo nome (ex.: "ver Parte 7 no HISTORICO.md") em vez de reproduzir o conteúdo. O arquivo completo fica no disco para consulta a qualquer momento; o chat recebe só o delta.
