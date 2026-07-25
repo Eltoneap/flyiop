@@ -15,7 +15,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import live_check  # noqa: E402
 import main  # noqa: E402
-from telegram_notifier import build_weekend_alert_message  # noqa: E402
+from telegram_notifier import (  # noqa: E402
+    build_block_alert_message,
+    build_block_recovered_message,
+    build_weekend_alert_message,
+)
 
 
 def fake_result(price, stops: int = 0):
@@ -209,6 +213,7 @@ class RunDailyBatchTest(unittest.TestCase):
         ok_report = {"leg": None, "status": "ok"}
         with patch("live_check.select_batch", return_value=legs), \
              patch("live_check.check_and_evaluate_leg", return_value=(ok_report, True)), \
+             patch("live_check.get_weekend_block_streak", return_value=(0, None)), \
              patch("live_check.send_message") as mock_send:
             reports = live_check.run_daily_batch(SETTINGS)
         self.assertEqual(len(reports), 10)
@@ -223,12 +228,24 @@ class RunDailyBatchTest(unittest.TestCase):
         results = [(ok_report, True)] * 4 + [(fail_report, False)] * 5 + [(ok_report, True)] * 1
         with patch("live_check.select_batch", return_value=legs), \
              patch("live_check.check_and_evaluate_leg", side_effect=results), \
+             patch("live_check.get_last_successful_live_check", return_value=None), \
+             patch("live_check.get_weekend_block_streak", return_value=(0, None)), \
+             patch("live_check.set_weekend_block_streak") as mock_set_streak, \
+             patch("live_check.build_block_alert_message", return_value="sentinel-message") as mock_build, \
              patch("live_check.send_message") as mock_send, \
              patch("live_check.set_weekend_batch_blocked_at") as mock_blocked_at:
             reports = live_check.run_daily_batch(SETTINGS)
         self.assertEqual(len(reports), 9)  # parou antes do 10º
-        mock_send.assert_called_once_with(live_check.BLOCK_ALERT_MESSAGE)
+        mock_send.assert_called_once_with("sentinel-message")
         mock_blocked_at.assert_called_once()
+        mock_set_streak.assert_called_once_with(1, date.today().isoformat())
+        diag = mock_build.call_args.args[0]
+        self.assertEqual(diag["checked"], 9)
+        self.assertEqual(diag["failures"], 5)
+        self.assertEqual(diag["reason"], "falhas seguidas")
+        self.assertEqual(diag["streak_days"], 1)
+        self.assertIsNone(diag["seconds_since_last_success"])
+        self.assertEqual(diag["config_url"], live_check.WEEKEND_CONFIG_URL)
 
     @patch("live_check.time.sleep", return_value=None)
     def test_no_block_never_persists_blocked_at(self, _sleep):
@@ -236,6 +253,7 @@ class RunDailyBatchTest(unittest.TestCase):
         ok_report = {"leg": None, "status": "ok"}
         with patch("live_check.select_batch", return_value=legs), \
              patch("live_check.check_and_evaluate_leg", return_value=(ok_report, True)), \
+             patch("live_check.get_weekend_block_streak", return_value=(0, None)), \
              patch("live_check.send_message") as mock_send, \
              patch("live_check.set_weekend_batch_blocked_at") as mock_blocked_at:
             live_check.run_daily_batch(SETTINGS)
@@ -256,12 +274,19 @@ class RunDailyBatchTest(unittest.TestCase):
         ]
         with patch("live_check.select_batch", return_value=legs), \
              patch("live_check.check_and_evaluate_leg", side_effect=results), \
+             patch("live_check.get_last_successful_live_check", return_value=None), \
+             patch("live_check.get_weekend_block_streak", return_value=(0, None)), \
+             patch("live_check.set_weekend_block_streak") as mock_set_streak, \
+             patch("live_check.build_block_alert_message", return_value="sentinel-message") as mock_build, \
              patch("live_check.send_message") as mock_send, \
              patch("live_check.set_weekend_batch_blocked_at") as mock_blocked_at:
             reports = live_check.run_daily_batch(SETTINGS)
         self.assertEqual(len(reports), 8)
-        mock_send.assert_called_once_with(live_check.BLOCK_ALERT_MESSAGE)
+        mock_send.assert_called_once_with("sentinel-message")
         mock_blocked_at.assert_called_once()
+        mock_set_streak.assert_called_once_with(1, date.today().isoformat())
+        diag = mock_build.call_args.args[0]
+        self.assertEqual(diag["reason"], "taxa de sucesso")
 
     @patch("live_check.time.sleep", return_value=None)
     def test_low_success_rate_with_small_sample_does_not_stop(self, _sleep):
@@ -272,10 +297,54 @@ class RunDailyBatchTest(unittest.TestCase):
         results = [(ok_report, True), (fail_report, False), (fail_report, False)]
         with patch("live_check.select_batch", return_value=legs), \
              patch("live_check.check_and_evaluate_leg", side_effect=results), \
+             patch("live_check.get_weekend_block_streak", return_value=(0, None)), \
              patch("live_check.send_message") as mock_send:
             reports = live_check.run_daily_batch(SETTINGS)
         self.assertEqual(len(reports), 3)
         mock_send.assert_not_called()
+
+    @patch("live_check.time.sleep", return_value=None)
+    def test_second_block_day_increments_streak_keeps_start_date(self, _sleep):
+        legs = self.make_legs(5)
+        fail_report = {"leg": None, "status": "no_data"}
+        with patch("live_check.select_batch", return_value=legs), \
+             patch("live_check.check_and_evaluate_leg", return_value=(fail_report, False)), \
+             patch("live_check.get_last_successful_live_check", return_value=None), \
+             patch("live_check.get_weekend_block_streak", return_value=(1, "2026-07-24")), \
+             patch("live_check.set_weekend_block_streak") as mock_set_streak, \
+             patch("live_check.build_block_alert_message", return_value="msg"), \
+             patch("live_check.send_message"), \
+             patch("live_check.set_weekend_batch_blocked_at"):
+            live_check.run_daily_batch(SETTINGS)
+        mock_set_streak.assert_called_once_with(2, "2026-07-24")
+
+    @patch("live_check.time.sleep", return_value=None)
+    def test_recovery_after_streak_sends_message_and_resets(self, _sleep):
+        legs = self.make_legs(3)
+        ok_report = {"leg": None, "status": "ok"}
+        with patch("live_check.select_batch", return_value=legs), \
+             patch("live_check.check_and_evaluate_leg", return_value=(ok_report, True)), \
+             patch("live_check.get_weekend_block_streak", return_value=(3, "2026-07-22")), \
+             patch("live_check.set_weekend_block_streak") as mock_set_streak, \
+             patch("live_check.build_block_recovered_message", return_value="recovered-message") as mock_build, \
+             patch("live_check.send_message") as mock_send:
+            live_check.run_daily_batch(SETTINGS)
+        mock_build.assert_called_once_with(3)
+        mock_send.assert_called_once_with("recovered-message")
+        mock_set_streak.assert_called_once_with(0, None)
+
+    @patch("live_check.time.sleep", return_value=None)
+    def test_no_recovery_message_when_streak_already_zero(self, _sleep):
+        legs = self.make_legs(3)
+        ok_report = {"leg": None, "status": "ok"}
+        with patch("live_check.select_batch", return_value=legs), \
+             patch("live_check.check_and_evaluate_leg", return_value=(ok_report, True)), \
+             patch("live_check.get_weekend_block_streak", return_value=(0, None)), \
+             patch("live_check.set_weekend_block_streak") as mock_set_streak, \
+             patch("live_check.send_message") as mock_send:
+            live_check.run_daily_batch(SETTINGS)
+        mock_send.assert_not_called()
+        mock_set_streak.assert_not_called()
 
 
 class BuildPackageComparisonTest(unittest.TestCase):
@@ -368,6 +437,63 @@ class DedupeWeekendReportsTest(unittest.TestCase):
         r1_dup = {"leg": self.leg("leg-1"), "status": "no_data"}
         result = main.dedupe_weekend_reports([r1, r2, r1_dup])
         self.assertEqual([r["leg"]["id"] for r in result], ["leg-1", "leg-2"])
+
+
+class BuildBlockAlertMessageTest(unittest.TestCase):
+    """Conteúdo do alerta de bloqueio escalonado por dias consecutivos —
+    pedido do usuário (24/07): diagnóstico com números reais, nunca repetir
+    texto idêntico dia após dia, nunca sugerir proxy/IP/evasão."""
+
+    BASE_DIAG = {
+        "checked": 9, "failures": 5, "reason": "falhas seguidas",
+        "seconds_since_last_success": None, "streak_days": 1,
+        "streak_started_at": None, "config_url": "https://eltoneap.github.io/flyiop/config.html",
+    }
+
+    def test_day_one_is_informative_only(self):
+        message = build_block_alert_message(self.BASE_DIAG)
+        self.assertIn("Nenhuma ação necessária", message)
+        self.assertNotIn("reduzir", message)
+        self.assertNotIn("desligar", message)
+
+    def test_day_two_and_three_suggest_reducing_batch(self):
+        for day in (2, 3):
+            diag = {**self.BASE_DIAG, "streak_days": day}
+            message = build_block_alert_message(diag)
+            self.assertIn("reduzir", message)
+            self.assertIn(f"{day}º dia", message)
+            self.assertNotIn("desligar", message)
+
+    def test_day_four_plus_suggests_kill_switch_and_frozen_date(self):
+        diag = {**self.BASE_DIAG, "streak_days": 4, "streak_started_at": "2026-07-21"}
+        message = build_block_alert_message(diag)
+        self.assertIn("desligar", message)
+        self.assertIn("2026-07-21", message)
+
+    def test_missing_last_success_omits_line(self):
+        message = build_block_alert_message(self.BASE_DIAG)
+        self.assertNotIn("Última consulta bem-sucedida", message)
+
+    def test_present_last_success_shows_elapsed(self):
+        diag = {**self.BASE_DIAG, "seconds_since_last_success": 7200}
+        message = build_block_alert_message(diag)
+        self.assertIn("Última consulta bem-sucedida", message)
+        self.assertIn("2h", message)
+
+    def test_always_includes_config_link(self):
+        message = build_block_alert_message(self.BASE_DIAG)
+        self.assertIn(self.BASE_DIAG["config_url"], message)
+
+    def test_never_suggests_evasion(self):
+        for day in (1, 2, 4):
+            message = build_block_alert_message({**self.BASE_DIAG, "streak_days": day, "streak_started_at": "2026-07-20"})
+            lowered = message.lower()
+            for banned in ("proxy", "ip", "user-agent", "fingerprint", "evas"):
+                self.assertNotIn(banned, lowered)
+
+    def test_recovered_message_singular_plural(self):
+        self.assertIn("1 dia ", build_block_recovered_message(1) + " ")
+        self.assertIn("3 dias", build_block_recovered_message(3))
 
 
 if __name__ == "__main__":

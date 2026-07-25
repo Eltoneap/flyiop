@@ -40,11 +40,14 @@ from fli.search.flights import SearchFlights
 
 from supabase_client import (
     DEFAULT_SETTINGS,
+    get_last_successful_live_check,
+    get_weekend_block_streak,
     insert_weekend_leg_run_log,
     set_weekend_batch_blocked_at,
+    set_weekend_block_streak,
     update_weekend_leg,
 )
-from telegram_notifier import send_message
+from telegram_notifier import build_block_alert_message, build_block_recovered_message, send_message
 from weekends import BSB, GIG, SDU, evaluate_and_record_leg_price, get_active_legs
 
 LIVE_CHECK_WINDOW_DAYS = 183  # ~6 meses — pernas mais distantes ficam dormentes
@@ -52,7 +55,7 @@ LIVE_CHECK_DELAY_SECONDS = 2.5
 BLOCK_STREAK_THRESHOLD = 5
 BLOCK_RATE_THRESHOLD = 0.5
 MIN_SAMPLE_FOR_RATE_CHECK = 8
-BLOCK_ALERT_MESSAGE = "⚠️ Google Flights não está respondendo — provável bloqueio, fonte suspensa"
+WEEKEND_CONFIG_URL = "https://eltoneap.github.io/flyiop/config.html"
 
 
 def check_live_price(origin: str, destination: str, travel_date: str) -> dict | None:
@@ -214,7 +217,30 @@ def run_daily_batch(settings: dict) -> list[dict]:
     print(f"[live-check] {checked}/{len(batch)} pernas checadas, {successes} com preço" + (" — BLOQUEADO" if blocked else ""))
 
     if blocked:
-        send_message(BLOCK_ALERT_MESSAGE)
+        failures = checked - successes
+        last_success = get_last_successful_live_check()
+        seconds_since_last_success = None
+        if last_success:
+            last_success_dt = datetime.fromisoformat(last_success.replace("Z", "+00:00"))
+            seconds_since_last_success = (datetime.now(timezone.utc) - last_success_dt).total_seconds()
+
+        streak_days, streak_started_at = get_weekend_block_streak()
+        streak_days += 1
+        if streak_days == 1:
+            streak_started_at = date.today().isoformat()
+        set_weekend_block_streak(streak_days, streak_started_at)
+
+        send_message(build_block_alert_message({
+            "checked": checked, "failures": failures, "reason": reason,
+            "seconds_since_last_success": seconds_since_last_success,
+            "streak_days": streak_days, "streak_started_at": streak_started_at,
+            "config_url": WEEKEND_CONFIG_URL,
+        }))
         set_weekend_batch_blocked_at(datetime.now(timezone.utc).isoformat())
+    else:
+        streak_days, _ = get_weekend_block_streak()
+        if streak_days > 0:
+            send_message(build_block_recovered_message(streak_days))
+            set_weekend_block_streak(0, None)
 
     return reports

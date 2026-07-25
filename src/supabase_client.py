@@ -266,3 +266,58 @@ def set_weekend_batch_blocked_at(iso: str) -> None:
         json={"key": "weekend_batch_blocked_at", "value": iso}, timeout=30,
     )
     resp.raise_for_status()
+
+
+def get_last_successful_live_check() -> str | None:
+    """ran_at do check mais recente com outcome='ok' e source='live' em
+    weekend_leg_run_log — usado no diagnóstico do alerta de bloqueio
+    (evaluate_and_record_leg_price, em weekends.py, já grava essas linhas
+    em todo sucesso, cache ou live)."""
+    resp = requests.get(
+        _url("weekend_leg_run_log?outcome=eq.ok&source=eq.live&select=ran_at&order=ran_at.desc&limit=1"),
+        headers=_headers(), timeout=30,
+    )
+    resp.raise_for_status()
+    rows = resp.json()
+    return rows[0]["ran_at"] if rows else None
+
+
+def get_weekend_block_streak() -> tuple[int, str | None]:
+    """(dias consecutivos de bloqueio, data ISO de início da sequência atual)."""
+    resp = requests.get(
+        _url("bot_state?key=in.(weekend_block_streak_days,weekend_block_streak_started_at)&select=key,value"),
+        headers=_headers(), timeout=30,
+    )
+    resp.raise_for_status()
+    rows = {r["key"]: r["value"] for r in resp.json()}
+    days = int(rows.get("weekend_block_streak_days") or 0)
+    return days, rows.get("weekend_block_streak_started_at")
+
+
+def set_weekend_block_streak(days: int, started_at: str | None) -> None:
+    """Ajuste do usuário (24/07): ao zerar (days=0), apaga
+    weekend_block_streak_started_at em vez de deixar a data antiga órfã no
+    banco.
+
+    Limitação conhecida (aceita, não resolvida agora): se o kill-switch for
+    desligado no meio de uma sequência de bloqueio e religado depois, os dias
+    pausados não contam — o contador só soma dias em que o lote realmente
+    rodou e bateu bloqueio. A mensagem de recuperação ("normalizada depois de
+    N dias") reflete dias de bloqueio real, não o tempo de calendário total."""
+    headers = {**_headers(), "Prefer": "resolution=merge-duplicates"}
+    resp = requests.post(
+        _url("bot_state"), headers=headers,
+        json={"key": "weekend_block_streak_days", "value": str(days)}, timeout=30,
+    )
+    resp.raise_for_status()
+    if started_at is not None:
+        resp2 = requests.post(
+            _url("bot_state"), headers=headers,
+            json={"key": "weekend_block_streak_started_at", "value": started_at}, timeout=30,
+        )
+        resp2.raise_for_status()
+    elif days == 0:
+        resp3 = requests.delete(
+            _url("bot_state?key=eq.weekend_block_streak_started_at"), headers=_headers(), timeout=30,
+        )
+        resp3.raise_for_status()

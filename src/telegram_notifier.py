@@ -251,3 +251,57 @@ def build_summary_message(blocks: list[str], extra_notes: list[str] | None = Non
     if extra_notes:
         parts.append("\n".join(extra_notes))
     return "\n\n".join(parts)
+
+
+def _format_elapsed_seconds(seconds: float) -> str:
+    hours = seconds / 3600
+    if hours < 1:
+        return "menos de 1h"
+    if hours < 24:
+        return f"{round(hours)}h"
+    days = round(hours / 24)
+    return f"{days} dia{'s' if days != 1 else ''}"
+
+
+def build_block_alert_message(diag: dict) -> str:
+    """Alerta de bloqueio do lote de consulta ao vivo, com diagnóstico e
+    escalonamento por dias consecutivos (nunca sugere proxy/IP/evasão — a
+    resposta a bloqueio é sempre recuar, nunca contornar).
+
+    diag: checked, failures, reason, seconds_since_last_success (float|None),
+    streak_days (int, já contando o dia de hoje), streak_started_at
+    (str ISO|None), config_url (str)."""
+    lines = [
+        "🚫 <b>Consulta ao vivo bloqueada</b>",
+        f"{diag['checked']} consultas feitas hoje, {diag['failures']} falharam · gatilho: {diag['reason']}",
+    ]
+    if diag.get("seconds_since_last_success") is not None:
+        lines.append(f"Última consulta bem-sucedida: há {_format_elapsed_seconds(diag['seconds_since_last_success'])}")
+    lines.append("")
+    lines.append("✅ Lote de hoje interrompido · Travelpayouts segue como fonte secundária · nenhuma nova tentativa hoje")
+    lines.append("")
+
+    streak = diag["streak_days"]
+    if streak <= 1:
+        lines.append("Isso costuma ser temporário — a execução de amanhã tenta do zero. Nenhuma ação necessária por enquanto.")
+    elif streak <= 3:
+        lines.append(
+            f"Já é o {streak}º dia seguido bloqueado. Se persistir, considere reduzir "
+            f'"Pernas checadas por dia no lote de consulta ao vivo" em Configurações.'
+        )
+    else:
+        started = diag.get("streak_started_at")
+        frozen = f" desde {started}" if started else ""
+        lines.append(
+            f"Já são {streak} dias seguidos bloqueado. Considere desligar \"Consulta de preço ao vivo\" em "
+            f"Configurações — os preços no painel de Compras estão parados{frozen} (a Travelpayouts continua "
+            f"rodando por baixo, com cobertura bem mais baixa)."
+        )
+
+    lines.append(f'⚙️ <a href="{diag["config_url"]}">Abrir Configurações</a>')
+    return "\n".join(lines)
+
+
+def build_block_recovered_message(streak_days: int) -> str:
+    dias = f"{streak_days} dia{'s' if streak_days != 1 else ''}"
+    return f"✅ <b>Consulta ao vivo normalizada</b> — voltou a funcionar depois de {dias} sem sucesso."
