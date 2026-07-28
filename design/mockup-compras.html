@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FlyIop · Compras (proposta visual)</title>
+<style>
+  :root{
+    --bg:#EFEFF4;
+    --card:#FFFFFF;
+    --line:#D8D8E0;
+    --line-strong:#B9B9C4;
+    --ink:#16161D;
+    --ink-2:#5A5A68;
+    --ink-3:#8E8E9A;
+
+    --blue:#2563EB;
+    --blue-ink:#1D4ED8;
+
+    --green:#0E7A4F;
+    --green-bg:#E6F5EE;
+    --green-line:#8FD3B4;
+
+    --deal:#16A34A;
+    --deal-bg:#EAFBF0;
+
+    --amber:#B45309;
+    --amber-bg:#FEF6E3;
+    --amber-line:#EBCB8B;
+
+    --holiday-bg:#FDF0C9;
+    --holiday-ink:#8A6100;
+
+    --r:14px;
+    --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:var(--font);
+    background:var(--bg);
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+    padding:16px 12px 60px;
+  }
+  .wrap{max-width:440px;margin:0 auto}
+
+  /* ---------- legenda do mockup ---------- */
+  .legend{
+    background:#fff;border:1px solid var(--line);border-radius:var(--r);
+    padding:14px 16px;margin-bottom:20px;
+  }
+  .legend h1{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin-bottom:10px}
+  .legend ul{list-style:none;display:grid;gap:7px}
+  .legend li{font-size:13px;color:var(--ink-2);display:flex;gap:8px;align-items:flex-start;line-height:1.4}
+  .swatch{width:12px;height:12px;border-radius:3px;flex:none;margin-top:3px}
+
+  /* ---------- chips ---------- */
+  .chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:14px;-ms-overflow-style:none;scrollbar-width:none}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{
+    flex:none;font-size:14px;font-weight:600;padding:8px 15px;border-radius:999px;
+    background:#fff;border:1px solid var(--line);color:var(--ink-2);
+  }
+  .chip.on{background:var(--blue);border-color:var(--blue);color:#fff}
+
+  /* ---------- card do fim de semana ---------- */
+  .wk{
+    background:var(--card);
+    border:1px solid var(--line-strong);
+    border-radius:var(--r);
+    box-shadow:0 1px 2px rgba(16,16,30,.05), 0 6px 16px rgba(16,16,30,.05);
+    margin-bottom:18px;
+    overflow:hidden;
+  }
+  .wk-rail{height:4px;background:var(--line)}
+  .wk-rail.part{background:linear-gradient(90deg,var(--green) 0 50%,var(--line) 50% 100%)}
+  .wk-rail.done{background:var(--green)}
+
+  .wk-head{padding:15px 16px 13px;display:flex;flex-direction:column;gap:5px}
+  .wk-title{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .wk-dates{font-size:19px;font-weight:700;letter-spacing:-.01em}
+  .tag{font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px}
+  .tag-hol{background:var(--holiday-bg);color:var(--holiday-ink)}
+  .wk-meta{font-size:13.5px;color:var(--ink-3);display:flex;align-items:center;gap:7px}
+  .count{font-weight:700}
+  .count.part{color:var(--amber)}
+  .count.done{color:var(--green)}
+
+  /* ---------- perna ---------- */
+  .leg{border-top:1px solid #EDEDF2;padding:14px 16px 16px;position:relative}
+  .leg::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:transparent}
+  .leg.deal::before{background:var(--deal)}
+  .leg.bought{background:var(--green-bg)}
+  .leg.bought::before{background:var(--green)}
+
+  .leg-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+  .leg-name{font-size:15px;font-weight:700;color:var(--ink)}
+  .leg-name .dir{font-size:12px;font-weight:700;color:var(--ink-3);letter-spacing:.05em;display:block;text-transform:uppercase;margin-bottom:1px}
+
+  .price{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em;text-align:right}
+  .price.high{color:var(--ink-3)}
+  .price.deal{color:var(--deal)}
+  .price.paid{color:var(--green)}
+  .price s{color:var(--ink-3);font-weight:500;font-size:14px;display:block;letter-spacing:0}
+  .price small{display:block;font-size:11.5px;font-weight:600;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
+
+  .badge{
+    display:inline-flex;align-items:center;gap:5px;
+    font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;margin-top:9px;
+    background:#F1F1F6;color:var(--ink-2);
+  }
+  .badge.deal{background:var(--deal-bg);color:var(--deal)}
+  .badge.bought{background:var(--green);color:#fff}
+
+  .stamp{font-size:12.5px;color:var(--ink-3);margin-top:7px}
+
+  /* ---------- controles ---------- */
+  .row{display:flex;align-items:center;gap:9px;margin-top:13px}
+  .lbl{font-size:13px;color:var(--ink-2);font-weight:600;flex:none}
+
+  .fld{
+    flex:1;font-family:var(--font);font-size:15px;
+    padding:9px 12px;border-radius:10px;
+    border:1.5px dashed var(--line-strong);
+    background:#FAFAFC;color:var(--ink-3);
+  }
+  .fld.filled{border-style:solid;border-color:#C3C3CE;background:#fff;color:var(--ink);font-weight:600}
+  .fld.dirty{border-style:solid;border-color:var(--amber-line);background:var(--amber-bg);color:var(--amber);font-weight:600}
+  .fld.cap{flex:none;width:88px;text-align:center;font-variant-numeric:tabular-nums}
+
+  .btn{
+    font-family:var(--font);font-size:14.5px;font-weight:700;
+    padding:9px 16px;border-radius:10px;border:1.5px solid transparent;flex:none;
+  }
+  .btn-primary{background:var(--blue);color:#fff}
+  .btn-ghost{background:#fff;color:var(--blue-ink);border-color:#C7D6F7}
+  .btn-idle{background:transparent;color:var(--ink-3);border-color:transparent;padding-left:6px;padding-right:6px}
+  .btn-save{background:var(--amber);color:#fff}
+  .btn-undo{background:transparent;color:var(--green);border-color:var(--green-line);font-size:13px;padding:7px 12px}
+  .btn-full{flex:1;text-align:center}
+
+  .ok{color:var(--green);font-weight:800;font-size:15px;flex:none}
+  .dot{color:var(--amber);font-size:22px;line-height:0;flex:none}
+
+  /* ---------- card concluído (colapsado) ---------- */
+  .done-head{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:15px 16px;background:var(--green-bg);
+  }
+  .done-left{display:flex;flex-direction:column;gap:3px}
+  .done-dates{font-size:17px;font-weight:700;color:var(--green);display:flex;align-items:center;gap:8px}
+  .done-sub{font-size:13px;color:#3D7A61}
+  .done-total{font-size:18px;font-weight:700;color:var(--green);font-variant-numeric:tabular-nums;text-align:right}
+  .done-total small{display:block;font-size:11px;font-weight:600;color:#3D7A61;text-transform:uppercase;letter-spacing:.05em}
+  .chev{color:var(--green);font-size:13px;margin-left:auto;padding-left:12px}
+
+  .note{font-size:12.5px;color:var(--ink-2);margin-top:10px;padding:8px 11px;background:#fff;border:1px solid var(--green-line);border-radius:9px}
+  .note b{color:var(--green)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="legend">
+    <h1>O que mudou nesta proposta</h1>
+    <ul>
+      <li><span class="swatch" style="background:#8E8E9A"></span><b style="font-weight:700">Preço tem cor.</b>&nbsp;Cinza = acima do teto. Verde = abaixo do teto.</li>
+      <li><span class="swatch" style="background:#16A34A"></span><b style="font-weight:700">Perna comprada muda o fundo inteiro</b>&nbsp;— não só o botão.</li>
+      <li><span class="swatch" style="background:#B45309"></span><b style="font-weight:700">Âmbar = editado e não salvo.</b>&nbsp;Salvar só acende quando há o que salvar.</li>
+      <li><span class="swatch" style="background:#D8D8E0"></span><b style="font-weight:700">Campo vazio é tracejado</b>, preenchido é sólido.</li>
+      <li><span class="swatch" style="background:#0E7A4F"></span><b style="font-weight:700">Fim de semana 2/2 colapsa</b>&nbsp;e sai do caminho.</li>
+    </ul>
+  </div>
+
+  <div class="chips">
+    <div class="chip on">Todos</div>
+    <div class="chip">Abaixo do teto</div>
+    <div class="chip">Sem preço</div>
+    <div class="chip">Feriado</div>
+  </div>
+
+  <!-- ============ CARD 1: nada comprado, preço alto ============ -->
+  <div class="wk">
+    <div class="wk-rail"></div>
+    <div class="wk-head">
+      <div class="wk-title">
+        <span class="wk-dates">04/09 → 06/09</span>
+        <span class="tag tag-hol">🎉 feriado</span>
+      </div>
+      <div class="wk-meta">faltam 39 dias · <span class="count">0/2 compradas</span></div>
+    </div>
+
+    <div class="leg">
+      <div class="leg-top">
+        <div class="leg-name"><span class="dir">Ida</span>sex 04/09</div>
+        <div class="price high">R$ 513<small>GIG · ao vivo</small></div>
+      </div>
+      <div class="badge">Monitorando · 105% acima do teto</div>
+      <div class="stamp">verificado há 2 dias</div>
+
+      <div class="row">
+        <span class="lbl">teto</span>
+        <input class="fld cap filled" value="R$ 250">
+        <span class="ok">✓</span>
+        <button class="btn btn-idle">Salvar</button>
+        <button class="btn btn-primary" style="margin-left:auto">Ver voos</button>
+      </div>
+
+      <div class="row">
+        <input class="fld" placeholder="localizador, horário…">
+        <button class="btn btn-idle">Salvar</button>
+      </div>
+
+      <div class="row">
+        <button class="btn btn-ghost btn-full">Marcar como comprada</button>
+      </div>
+    </div>
+
+    <div class="leg">
+      <div class="leg-top">
+        <div class="leg-name"><span class="dir">Volta</span>dom 06/09</div>
+        <div class="price high">R$ 515<small>GIG · ao vivo</small></div>
+      </div>
+      <div class="badge">Monitorando · 106% acima do teto</div>
+      <div class="stamp">verificado há 2 dias</div>
+
+      <div class="row">
+        <span class="lbl">teto</span>
+        <input class="fld cap filled" value="R$ 250">
+        <span class="ok">✓</span>
+        <button class="btn btn-idle">Salvar</button>
+        <button class="btn btn-primary" style="margin-left:auto">Ver voos</button>
+      </div>
+
+      <div class="row">
+        <input class="fld" placeholder="localizador, horário…">
+        <button class="btn btn-idle">Salvar</button>
+      </div>
+
+      <div class="row">
+        <button class="btn btn-ghost btn-full">Marcar como comprada</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 2: 1 comprada + 1 oportunidade + campo sujo ============ -->
+  <div class="wk">
+    <div class="wk-rail part"></div>
+    <div class="wk-head">
+      <div class="wk-title">
+        <span class="wk-dates">11/09 → 13/09</span>
+      </div>
+      <div class="wk-meta">faltam 46 dias · <span class="count part">1/2 compradas</span></div>
+    </div>
+
+    <!-- perna comprada -->
+    <div class="leg bought">
+      <div class="leg-top">
+        <div class="leg-name"><span class="dir">Ida</span>sex 11/09</div>
+        <div class="price paid">R$ 231<s>hoje R$ 513</s><small>você pagou</small></div>
+      </div>
+      <div class="badge bought">✓ Comprada</div>
+      <div class="note"><b>LATAM · JX4K2P</b> · 06:15 → 07:55</div>
+
+      <div class="row">
+        <button class="btn btn-undo">Desfazer compra</button>
+        <button class="btn btn-idle" style="margin-left:auto">Editar dados</button>
+      </div>
+    </div>
+
+    <!-- perna em oportunidade -->
+    <div class="leg deal">
+      <div class="leg-top">
+        <div class="leg-name"><span class="dir">Volta</span>dom 13/09</div>
+        <div class="price deal">R$ 218<small>GIG · ao vivo</small></div>
+      </div>
+      <div class="badge deal">↓ R$ 32 abaixo do teto</div>
+      <div class="stamp">verificado hoje, 06:12</div>
+
+      <div class="row">
+        <span class="lbl">teto</span>
+        <input class="fld cap dirty" value="R$ 280">
+        <span class="dot">•</span>
+        <button class="btn btn-save">Salvar</button>
+        <button class="btn btn-primary" style="margin-left:auto">Ver voos</button>
+      </div>
+
+      <div class="row">
+        <input class="fld" placeholder="localizador, horário…">
+        <button class="btn btn-idle">Salvar</button>
+      </div>
+
+      <div class="row">
+        <button class="btn btn-ghost btn-full">Marcar como comprada</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 3: concluído, colapsado ============ -->
+  <div class="wk">
+    <div class="wk-rail done"></div>
+    <div class="done-head">
+      <div class="done-left">
+        <div class="done-dates">✓ 18/09 → 20/09</div>
+        <div class="done-sub">2/2 compradas · ida e volta resolvidas</div>
+      </div>
+      <div class="done-total">R$ 462<small>total pago</small></div>
+      <div class="chev">▾</div>
+    </div>
+  </div>
+
+  <!-- ============ CARD 4: sem preço ainda ============ -->
+  <div class="wk">
+    <div class="wk-rail"></div>
+    <div class="wk-head">
+      <div class="wk-title"><span class="wk-dates">25/09 → 27/09</span></div>
+      <div class="wk-meta">faltam 60 dias · <span class="count">0/2 compradas</span></div>
+    </div>
+
+    <div class="leg">
+      <div class="leg-top">
+        <div class="leg-name"><span class="dir">Ida</span>sex 25/09</div>
+        <div class="price high" style="font-size:15px;font-weight:600">sem preço<small>fora da janela</small></div>
+      </div>
+      <div class="badge">Entra no monitoramento em 12 dias</div>
+
+      <div class="row">
+        <span class="lbl">teto</span>
+        <input class="fld cap filled" value="R$ 250">
+        <span class="ok">✓</span>
+        <button class="btn btn-idle">Salvar</button>
+        <button class="btn btn-ghost" style="margin-left:auto">Ver voos</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
