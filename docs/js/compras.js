@@ -181,11 +181,15 @@ function renderLegRow(leg, weekend) {
     ${!isPurchased ? '<button type="button" class="leg-action btn-outline-full">Marcar como comprada</button>' : ''}
   `;
 
-  // Estado visual "salvo" (botão discreto + ✓) vs "não salvo" (botão azul,
-  // sem ✓) — pedido do usuário (25/07): o botão azul chamativo o tempo todo
-  // dava a impressão de que sempre faltava fazer algo.
-  const markFieldState = (button, check, saved, hasValue) => {
+  // Estado visual "salvo" (botão discreto + ✓) vs "não salvo, alteração
+  // pendente" (botão e campo âmbar — B1, 27/07) — pedido do usuário (25/07):
+  // o botão azul chamativo o tempo todo dava a impressão de que sempre
+  // faltava fazer algo; âmbar reserva o alerta visual só pra quando há de
+  // fato algo não salvo.
+  const markFieldState = (button, check, input, saved, hasValue) => {
     button.classList.toggle('saved', saved);
+    button.classList.toggle('dirty', !saved);
+    if (input) input.classList.toggle('field-dirty', !saved);
     if (check) check.style.display = saved && hasValue ? 'inline' : 'none';
   };
 
@@ -200,8 +204,8 @@ function renderLegRow(leg, weekend) {
   const ceilingInput = row.querySelector('.leg-ceiling-input');
   const ceilingBtn = row.querySelector('.leg-ceiling-save');
   const ceilingCheck = row.querySelector('.leg-ceiling-check');
-  markFieldState(ceilingBtn, ceilingCheck, true, true); // valor renderizado = valor salvo
-  ceilingInput.addEventListener('input', () => markFieldState(ceilingBtn, ceilingCheck, false, true));
+  markFieldState(ceilingBtn, ceilingCheck, ceilingInput, true, true); // valor renderizado = valor salvo
+  ceilingInput.addEventListener('input', () => markFieldState(ceilingBtn, ceilingCheck, ceilingInput, false, true));
 
   ceilingBtn.addEventListener('click', async () => {
     const value = Number(ceilingInput.value);
@@ -221,24 +225,24 @@ function renderLegRow(leg, weekend) {
   const notesInput = row.querySelector('.leg-notes-input');
   const notesBtn = row.querySelector('.leg-notes-save');
   const notesCheck = row.querySelector('.leg-notes-check');
-  markFieldState(notesBtn, notesCheck, true, !!notesInput.value.trim());
+  markFieldState(notesBtn, notesCheck, notesInput, true, !!notesInput.value.trim());
   let notesSaved = true;
   const saveNotes = async () => {
     if (notesSaved) return;
     notesSaved = true;
-    markFieldState(notesBtn, notesCheck, true, !!notesInput.value.trim());
+    markFieldState(notesBtn, notesCheck, notesInput, true, !!notesInput.value.trim());
     const error = await updateLeg(leg.id, { notes: notesInput.value.trim() || null });
     if (error) {
       alert('Erro ao salvar observações: ' + error.message);
       notesSaved = false;
-      markFieldState(notesBtn, notesCheck, false, !!notesInput.value.trim());
+      markFieldState(notesBtn, notesCheck, notesInput, false, !!notesInput.value.trim());
       return;
     }
     showFlash('Observações salvas.');
   };
   notesInput.addEventListener('input', () => {
     notesSaved = false;
-    markFieldState(notesBtn, notesCheck, false, !!notesInput.value.trim());
+    markFieldState(notesBtn, notesCheck, notesInput, false, !!notesInput.value.trim());
     markFieldFill(notesInput, !!notesInput.value.trim());
   });
   notesInput.addEventListener('blur', saveNotes);
@@ -248,25 +252,25 @@ function renderLegRow(leg, weekend) {
   if (paidInput) {
     const paidBtn = row.querySelector('.leg-paid-save');
     const paidCheck = row.querySelector('.leg-paid-check');
-    markFieldState(paidBtn, paidCheck, true, paidInput.value !== '');
+    markFieldState(paidBtn, paidCheck, paidInput, true, paidInput.value !== '');
     let paidSaved = true;
     const savePaid = async () => {
       if (paidSaved) return;
       paidSaved = true;
-      markFieldState(paidBtn, paidCheck, true, paidInput.value !== '');
+      markFieldState(paidBtn, paidCheck, paidInput, true, paidInput.value !== '');
       const value = paidInput.value === '' ? null : Number(paidInput.value);
       const error = await updateLeg(leg.id, { paid_price: value });
       if (error) {
         alert('Erro ao salvar valor pago: ' + error.message);
         paidSaved = false;
-        markFieldState(paidBtn, paidCheck, false, paidInput.value !== '');
+        markFieldState(paidBtn, paidCheck, paidInput, false, paidInput.value !== '');
         return;
       }
       showFlash('Valor pago salvo.');
     };
     paidInput.addEventListener('input', () => {
       paidSaved = false;
-      markFieldState(paidBtn, paidCheck, false, paidInput.value !== '');
+      markFieldState(paidBtn, paidCheck, paidInput, false, paidInput.value !== '');
       markFieldFill(paidInput, paidInput.value !== '');
     });
     paidInput.addEventListener('blur', savePaid);
@@ -290,21 +294,37 @@ function renderLegRow(leg, weekend) {
   return row;
 }
 
+// Total pago de um fim de semana 2/2 — nunca soma ignorando perna sem
+// paid_price (produziria um total falso). Sem nenhum valor: sem total.
+function weekendPaidTotal(legs) {
+  const paidValues = legs
+    .filter((leg) => leg.status === 'purchased')
+    .map((leg) => leg.paid_price)
+    .filter((v) => v != null);
+  if (paidValues.length === 0) return null;
+  const total = paidValues.reduce((sum, v) => sum + Number(v), 0);
+  const label = paidValues.length === legs.length ? 'total pago' : 'total parcial';
+  return { total, label };
+}
+
 function renderCard(weekend) {
   const card = document.createElement('div');
-  card.className = 'card weekend-card';
-  card.id = `weekend-${weekend.id}`;
-
   const legs = weekend.weekend_legs || [];
   const purchasedCount = legs.filter((leg) => leg.status === 'purchased').length;
   const days = daysUntil(weekend.outbound_date);
   const urgency = days < 0 ? 'já passou' : days === 0 ? 'é hoje' : `faltam ${days} dias`;
 
-  // Progresso do fim de semana (0/2, 1/2, 2/2) reaproveitado tanto na faixa
-  // no topo do card (A3) quanto na cor do contador (A6).
+  // Progresso do fim de semana (0/2, 1/2, 2/2) reaproveitado na faixa no
+  // topo do card (A3), na cor do contador (A6) e no card colapsado (B2).
   const progressClass = purchasedCount === 0 ? ''
     : legs.length > 0 && purchasedCount === legs.length ? 'done'
     : 'part';
+  const isDone = progressClass === 'done';
+
+  // Card 2/2 nasce colapsado (B2) — estado só em memória/DOM, some ao
+  // recarregar. Sem persistência nova.
+  card.className = `card weekend-card${isDone ? ' is-collapsed' : ''}`;
+  card.id = `weekend-${weekend.id}`;
 
   const rail = document.createElement('div');
   rail.className = `card-rail ${progressClass ? `rail-${progressClass}` : ''}`.trim();
@@ -328,6 +348,22 @@ function renderCard(weekend) {
   const returnLeg = legs.find((leg) => leg.direction === 'return');
   if (outboundLeg) card.appendChild(renderLegRow(outboundLeg, weekend));
   if (returnLeg) card.appendChild(renderLegRow(returnLeg, weekend));
+
+  if (isDone) {
+    const paidTotal = weekendPaidTotal(legs);
+    const doneHead = document.createElement('div');
+    doneHead.className = 'card-done-head';
+    doneHead.innerHTML = `
+      <div class="card-done-left">
+        <div class="card-done-dates">✓ ${formatDateBr(weekend.outbound_date)} → ${formatDateBr(weekend.return_sunday)} ou ${formatDateBr(weekend.return_monday)}</div>
+        <div class="card-done-sub">2/2 compradas · ida e volta resolvidas</div>
+      </div>
+      ${paidTotal ? `<div class="card-done-total">R$ ${paidTotal.total.toFixed(2)}<small>${paidTotal.label}</small></div>` : ''}
+      <div class="card-done-chev">▾</div>
+    `;
+    doneHead.addEventListener('click', () => card.classList.toggle('is-collapsed'));
+    card.appendChild(doneHead);
+  }
 
   return card;
 }

@@ -6,11 +6,4 @@ _Atualizado em 24/07/2026. Contém só o que está em execução ou pendente de 
 
 ---
 
-## Parte 9 — Redesign visual da aba Compras — Bloco B (pendente, não iniciar)
-
-Bloco A concluído e registrado no `HISTORICO.md` (Parte 10). Bloco B só começa depois que o usuário validar o Bloco A no ar. Referência visual: `design/mockup-compras.html`. Tokens `--amber`/`--amber-bg`/`--amber-line` já existem em `style.css` (adicionados no Bloco A), reservados pra este bloco.
-
-- **B1** Botão "Salvar": salvo → apagado; não salvo → âmbar sólido (`--amber`); campo alterado ganha `field-dirty` (`--amber-bg`). Reaproveita o mecanismo `markFieldState` já existente em `compras.js`.
-- **B2** Card 2/2 colapsa por padrão (faixa verde com datas + total pago), expande no clique. Total só soma se **ambas** as pernas tiverem `paid_price`; senão "total parcial" ou omite o número — nunca somar ignorando campo vazio.
-
-Arquivos: `docs/css/style.css`, `docs/js/compras.js` — mesmos do Bloco A, sem novos arquivos.
+Nada em execução ou pendente no momento. Última entrega: redesign visual da aba Compras (Blocos A e B), 27/07/2026 — ver `HISTORICO.md`.

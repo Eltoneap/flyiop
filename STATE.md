@@ -7,7 +7,7 @@
 
 ## 1. Status atual
 
-FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volta independentes) na rota RIO↔BSB entre set/2026 e dez/2027. Fonte primária de preço é a `fli` (endpoint interno do Google Flights, migrada de `fast-flights` por bug de parsing), com Travelpayouts como cache secundário. Robô diário via GitHub Actions grava no Supabase; alertas via bot Telegram (FlyIopBot); site em GitHub Pages com 3 páginas (Dashboard, Compras, Configurações), login via Supabase Auth. Painel de Compras já tem: cards por fim de semana, teto editável por perna, campo de notas (localizador/horário), campo de valor pago, filtros (chips), selos de feriado/alta temporada, estado visual salvo/não-salvo. Dashboard redesenhado (ação do dia, urgência, progresso, oportunidades, orçamento, saúde do sistema). Alerta de bloqueio do scraping agora é rico e escalona por dias consecutivos. As 3 rotas flexíveis antigas (BSB→GIG, GIG→BSB, RIA→BSB) continuam rodando em paralelo, tratadas como legado.
+FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volta independentes) na rota RIO↔BSB entre set/2026 e dez/2027. Fonte primária de preço é a `fli` (endpoint interno do Google Flights, migrada de `fast-flights` por bug de parsing), com Travelpayouts como cache secundário. Robô diário via GitHub Actions grava no Supabase; alertas via bot Telegram (FlyIopBot); site em GitHub Pages com 3 páginas (Dashboard, Compras, Configurações), login via Supabase Auth. Painel de Compras já tem: cards por fim de semana, teto editável por perna, campo de notas (localizador/horário), campo de valor pago, filtros (chips), selos de feriado/alta temporada, estado visual salvo/não-salvo/em-edição (âmbar), hierarquia visual por preço/status (perna comprada com identidade forte, card 2/2 colapsando por padrão com total pago). Dashboard redesenhado (ação do dia, urgência, progresso, oportunidades, orçamento, saúde do sistema). Alerta de bloqueio do scraping agora é rico e escalona por dias consecutivos. As 3 rotas flexíveis antigas (BSB→GIG, GIG→BSB, RIA→BSB) continuam rodando em paralelo, tratadas como legado.
 
 ## 2. Decisões vivas
 
@@ -26,9 +26,8 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 ## 3. Próximos passos (ordem sugerida)
 
 1. **Recalibrar o teto padrão por perna** (hoje R$250) — dado real recente mostrou pernas a R$242-248, ou seja, o teto está quase colado no preço real; usuário decidiu esperar mais alguns dias de coleta antes de decidir o número novo.
-2. **Validar no ar o Bloco A do redesign visual da aba Compras** (entregue 27/07 — ver `HISTORICO.md` Parte 10) e, se aprovado, seguir pro Bloco B (botão Salvar âmbar quando "sujo", card 2/2 colapsando por padrão — plano em `PLANO-ATIVO.md`).
-3. **Investigar arquitetura multi-usuário** (ver seção 4 — decisão em aberto, não iniciada).
-4. Migrar esta conversa pro Projeto dedicado "FlyIop" no Claude — organizacional, sem pressa, decisão do usuário.
+2. **Investigar arquitetura multi-usuário** (ver seção 4 — decisão em aberto, não iniciada).
+3. Migrar esta conversa pro Projeto dedicado "FlyIop" no Claude — organizacional, sem pressa, decisão do usuário.
 
 ## 4. Bloqueios / perguntas em aberto
 

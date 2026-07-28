@@ -153,6 +153,65 @@ h1 {
   background: var(--good);
 }
 
+.card-done-head {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 -20px -20px;
+  padding: 15px 20px;
+  background: var(--bought-bg);
+  cursor: pointer;
+}
+
+.card.weekend-card.is-collapsed .card-done-head {
+  display: flex;
+}
+
+.card.weekend-card.is-collapsed .weekend-card-header,
+.card.weekend-card.is-collapsed .leg-row {
+  display: none;
+}
+
+.card-done-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.card-done-dates {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--bought);
+}
+
+.card-done-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.card-done-total {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--bought);
+  text-align: right;
+}
+
+.card-done-total small {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.card-done-chev {
+  color: var(--bought);
+  font-size: 13px;
+  margin-left: 4px;
+}
+
 .card h3 {
   margin: 0 0 4px;
   font-size: 16px;
@@ -651,6 +710,13 @@ ul.suggestions li:hover {
   font-weight: 600;
 }
 
+.field-dirty {
+  background: var(--amber-bg);
+  border-color: var(--amber-line);
+  color: var(--amber);
+  font-weight: 600;
+}
+
 .leg-row-paid {
   display: flex;
   align-items: center;
@@ -685,6 +751,11 @@ button.small.saved {
   background: var(--neutral-bg);
   color: var(--muted);
   border: 1px solid var(--border);
+}
+
+button.small.dirty {
+  background: var(--amber);
+  color: #fff;
 }
 
 .save-check {

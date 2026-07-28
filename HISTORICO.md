@@ -170,4 +170,15 @@ Tokens novos em `:root` (`style.css`): `--bought`/`--bought-bg`/`--bought-line` 
 
 **Verificação:** sem servidor com dados reais logados disponível na sessão — montado harness estático temporário (fora do repo, removido ao final) reproduzindo o HTML exato que `compras.js` gera pros 5 estados-chave (preço acima/abaixo/sem preço, perna comprada com e sem valor pago, card 0/2 · 1/2 · 2/2), carregado com o `style.css` real em viewport 390px (uso principal é celular). Conferido visualmente: cores, badges, faixa de progresso, contorno de botões. Altura da perna cresceu (~1 linha a mais por causa do botão full-width e do badge com mais texto), mas não a ponto de justificar parar e avisar — sem testes automatizados cobrindo essas classes.
 
-**Bloco B (troca de estado do botão Salvar pra âmbar quando "sujo", card 2/2 colapsando por padrão) segue pendente — só inicia depois que o usuário validar o Bloco A no ar** (ver `PLANO-ATIVO.md`).
+Bloco A validado pelo usuário no ar: bate com o mockup em todos os pontos, incluindo o caso de perna comprada sem valor pago.
+
+## 11. Redesign visual da aba Compras — Bloco B, 27/07/2026
+
+Sequência do item 10. Plan Mode dedicada de novo (o plano original já estava aprovado em alto nível; essa rodada amarrou a implementação exata em cima do código do Bloco A). Só CSS/markup + estado de UI local (dirty/collapsed, sem persistência nova) — mesmas restrições de escopo do Bloco A.
+
+- **B1** Botão "Salvar" reflete estado sujo/limpo: `markFieldState` (em `renderLegRow`, `compras.js`) ganhou um parâmetro `input` — quando há alteração pendente, botão e campo (teto/notas/valor pago) ficam âmbar (`button.small.dirty`, `.field-dirty`); ao salvar, voltam ao estado apagado normal.
+- **B2** Card 2/2 compradas colapsa por padrão: `renderCard` nasce com a classe `is-collapsed` quando as duas pernas estão compradas, mostrando só uma faixa verde (`.card-done-head`) com as datas, "2/2 compradas · ida e volta resolvidas" e o total pago. Clique expande/colapsa (toggle simples, estado só em memória). Total pago: soma cheia rotulada "total pago" só se **ambas** as pernas tiverem `paid_price`; soma só da perna com valor rotulada "total parcial" se só uma tiver; **sem bloco de total** se nenhuma tiver — nunca soma ignorando campo vazio (decisão do usuário no plano, pra não produzir total falso).
+
+**Verificação:** harness estático temporário (removido antes do commit) cobrindo 6 casos em viewport 390px — campo com alteração pendente, campo recém-salvo, card 2/2 com total pago cheio, com total parcial, sem total, e clique expandindo o card colapsado (toggle real via JS, testado com `javascript_tool` clicando no `.card-done-head` e conferindo a classe `is-collapsed`). Screenshots enviadas e validadas pelo usuário antes do push, incluindo conferência explícita do caso de total parcial (R$240, só a perna com valor preenchido). Sem testes automatizados cobrindo essas classes.
+
+Com isso, o redesign visual da aba Compras (Blocos A e B) está concluído e no ar.
