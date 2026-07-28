@@ -151,3 +151,23 @@ O alerta de bloqueio do lote de consulta ao vivo era uma string fixa, sem númer
 ## 9. Verificação de menções soltas ("bot via Claude Haiku", "experimento de VPN"), 27/07/2026
 
 Um `STATE.md` trazido de outra sessão de planejamento listava como pendência auditar a origem dessas duas menções, suspeitando de alucinação. **Não é alucinação — são reais e rastreáveis**: ambas vêm do roadmap `Fase C`/`Fase D` do antigo `PLAN-VALIDACAO-CRUZADA.md` (item 2 deste `HISTORICO.md`, "Roadmap consolidado B/C/D"), planejado em 18/07/2026 e nunca executado — superado pelo pivô pro alvo de fins de semana (22-23/07) antes de qualquer item começar. Nenhuma ação necessária; item removido da lista de pendências do `STATE.md`.
+
+---
+
+## 10. Redesign visual da aba Compras — Bloco A, 27/07/2026
+
+Sessão de design visual dedicada (Plan Mode), separada da sessão funcional. Referência: `design/mockup-compras.html` (commitado isoladamente antes da implementação). Só CSS/markup — nenhuma lógica de preço/teto/alertas/robô/scraping tocada, sem SQL/RLS, sem biblioteca nova, Dashboard e Configurações intocados.
+
+- **A1** Preço ganha semântica de cor: acima do teto (cinza), abaixo do teto (verde + badge "↓ R$X abaixo do teto"), sem preço (texto menor, cinza) + badge contextual. Badge de status agora traz o percentual acima do teto ou "ainda sem preço" em vez de só "Monitorando".
+- **A2** Perna comprada: fundo verde-menta + faixa esquerda 3px, badge "✓ Comprada" sólido. Valor pago vira número grande só quando **preenchido**; se vazio (marcar como comprada não exige valor pago), o preço ao vivo continua como número principal e aparece "valor não informado" — decisão do usuário pra não inverter hierarquia com dado inexistente.
+- **A3** Card do fim de semana: borda mais visível + sombra sutil + barra de progresso no topo (cinza 0/2, meio-verde 1/2, verde 2/2).
+- **A4** Campos de teto/notas/valor pago: vazio = borda tracejada, preenchido = borda sólida + negrito.
+- **A5** "Ver/comprar" é o único azul sólido; "Marcar como comprada" virou botão de contorno azul, largura total, abaixo dos campos — só em pernas não compradas.
+- **A6** Contador "X/2 compradas" ganha cor (âmbar em 1/2, verde em 2/2).
+- **A7** (era B3 no plano original, movido pra cá em Plan Mode porque é só CSS condicionado ao mesmo `is-bought` da A2): perna comprada troca o botão de ação por "Desfazer compra" em contorno verde discreto — nunca compete com o botão azul full-width da A5, que é exclusivo de pernas não compradas.
+
+Tokens novos em `:root` (`style.css`): `--bought`/`--bought-bg`/`--bought-line` (verde de perna comprada, distinto do verde "oportunidade" que reaproveita `--good` já existente), `--amber`/`--amber-bg`/`--amber-line` (reservado pro Bloco B), `--line-strong`.
+
+**Verificação:** sem servidor com dados reais logados disponível na sessão — montado harness estático temporário (fora do repo, removido ao final) reproduzindo o HTML exato que `compras.js` gera pros 5 estados-chave (preço acima/abaixo/sem preço, perna comprada com e sem valor pago, card 0/2 · 1/2 · 2/2), carregado com o `style.css` real em viewport 390px (uso principal é celular). Conferido visualmente: cores, badges, faixa de progresso, contorno de botões. Altura da perna cresceu (~1 linha a mais por causa do botão full-width e do badge com mais texto), mas não a ponto de justificar parar e avisar — sem testes automatizados cobrindo essas classes.
+
+**Bloco B (troca de estado do botão Salvar pra âmbar quando "sujo", card 2/2 colapsando por padrão) segue pendente — só inicia depois que o usuário validar o Bloco A no ar** (ver `PLANO-ATIVO.md`).

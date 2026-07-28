@@ -26,7 +26,7 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 ## 3. Próximos passos (ordem sugerida)
 
 1. **Recalibrar o teto padrão por perna** (hoje R$250) — dado real recente mostrou pernas a R$242-248, ou seja, o teto está quase colado no preço real; usuário decidiu esperar mais alguns dias de coleta antes de decidir o número novo.
-2. **Melhorar o design visual da aba Compras** — sessão dedicada de design (Claude Code, modelo forte tipo Opus/Fable), sem misturar com a sessão funcional; objetivo é hierarquia visual (cores, peso tipográfico, posição de botões), sem mudar lógica/estrutura.
+2. **Validar no ar o Bloco A do redesign visual da aba Compras** (entregue 27/07 — ver `HISTORICO.md` Parte 10) e, se aprovado, seguir pro Bloco B (botão Salvar âmbar quando "sujo", card 2/2 colapsando por padrão — plano em `PLANO-ATIVO.md`).
 3. **Investigar arquitetura multi-usuário** (ver seção 4 — decisão em aberto, não iniciada).
 4. Migrar esta conversa pro Projeto dedicado "FlyIop" no Claude — organizacional, sem pressa, decisão do usuário.
 

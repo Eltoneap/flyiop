@@ -17,6 +17,13 @@
   --holiday-bg: #fef3c7;
   --season: #c2410c;
   --season-bg: #ffedd5;
+  --bought: #0e7a4f;
+  --bought-bg: #e6f5ee;
+  --bought-line: #8fd3b4;
+  --amber: #b45309;
+  --amber-bg: #fef6e3;
+  --amber-line: #ebcb8b;
+  --line-strong: #b9b9c4;
 }
 
 * { box-sizing: border-box; }
@@ -125,6 +132,27 @@ h1 {
   overflow-x: hidden;
 }
 
+.card.weekend-card {
+  border-color: var(--line-strong);
+  box-shadow: 0 1px 2px rgba(16, 16, 30, 0.05), 0 4px 12px rgba(16, 16, 30, 0.04);
+  overflow: hidden;
+}
+
+.card-rail {
+  height: 4px;
+  background: var(--border);
+  margin: -20px -20px 16px;
+  border-radius: 12px 12px 0 0;
+}
+
+.card-rail.rail-part {
+  background: linear-gradient(90deg, var(--good) 0 50%, var(--border) 50% 100%);
+}
+
+.card-rail.rail-done {
+  background: var(--good);
+}
+
 .card h3 {
   margin: 0 0 4px;
   font-size: 16px;
@@ -157,6 +185,8 @@ h1 {
 .badge.neutral { background: var(--neutral-bg); color: var(--muted); }
 .badge.holiday { background: var(--holiday-bg); color: var(--holiday); margin-left: 6px; }
 .badge.high-season { background: var(--season-bg); color: var(--season); margin-left: 6px; }
+.badge.deal { background: var(--good-bg); color: var(--good); }
+.badge.bought { background: var(--bought); color: #fff; }
 
 .progress-bar {
   background: var(--border);
@@ -518,6 +548,46 @@ ul.suggestions li:hover {
   min-width: 0;
 }
 
+.leg-price--above { color: var(--muted); }
+.leg-price--below { color: var(--good); }
+.leg-price--none { font-size: 13px; font-weight: 600; color: var(--muted); }
+.leg-price--paid { color: var(--bought); font-size: 16px; }
+
+.leg-price-live {
+  display: block;
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 11px;
+  text-decoration: line-through;
+}
+
+.leg-price-note {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-top: 2px;
+}
+
+.leg-row.is-bought {
+  background: var(--bought-bg);
+  margin: 0 -20px;
+  padding: 10px 20px 10px 23px;
+  position: relative;
+}
+
+.leg-row.is-bought::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--bought);
+}
+
 .leg-row-meta {
   display: flex;
   align-items: center;
@@ -569,6 +639,18 @@ ul.suggestions li:hover {
   font-size: 12px;
 }
 
+.field-empty {
+  border: 1.5px dashed var(--border);
+  background: #fafafc;
+  color: var(--muted);
+}
+
+.field-filled {
+  border: 1.5px solid #c3c3ce;
+  color: var(--text);
+  font-weight: 600;
+}
+
 .leg-row-paid {
   display: flex;
   align-items: center;
@@ -612,3 +694,38 @@ button.small.saved {
   font-size: 12px;
   margin-left: 4px;
 }
+
+.btn-outline-full {
+  display: block;
+  width: 100%;
+  text-align: center;
+  background: #fff;
+  color: var(--primary-dark);
+  border: 1.5px solid #c7d6f7;
+  border-radius: 6px;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 10px;
+  cursor: pointer;
+}
+
+.btn-outline-full:hover { background: #eff6ff; }
+
+.btn-undo {
+  display: inline-block;
+  background: transparent;
+  color: var(--bought);
+  border: 1.5px solid var(--bought-line);
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 10px;
+  cursor: pointer;
+}
+
+.btn-undo:hover { background: var(--bought-bg); }
+
+.count-part { color: var(--amber); }
+.count-done { color: var(--good); }

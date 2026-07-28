@@ -83,24 +83,73 @@ function legPurchaseLink(leg, weekend) {
   return googleFlightsLink('BSB', airport, returnDate);
 }
 
+// Estado do preço vs. teto, só faz sentido pra pernas em monitoramento —
+// pernas compradas têm sua própria exibição (ver isPurchased abaixo).
+function legPriceState(leg) {
+  if (leg.current_price == null) return 'none';
+  const ceiling = Number(leg.price_ceiling ?? DEFAULT_CEILING);
+  return Number(leg.current_price) <= ceiling ? 'below' : 'above';
+}
+
+function legStatusBadge(leg, priceState) {
+  if (leg.status === 'purchased') return { cls: 'bought', text: '✓ Comprada' };
+  const ceiling = Number(leg.price_ceiling ?? DEFAULT_CEILING);
+  if (priceState === 'below') {
+    const diff = Math.round(ceiling - Number(leg.current_price));
+    return { cls: 'deal', text: `↓ R$ ${diff} abaixo do teto` };
+  }
+  if (priceState === 'above') {
+    const pct = Math.round(((Number(leg.current_price) - ceiling) / ceiling) * 100);
+    return { cls: 'neutral', text: `Monitorando · ${pct}% acima do teto` };
+  }
+  return { cls: 'neutral', text: 'Monitorando · ainda sem preço' };
+}
+
 function renderLegRow(leg, weekend) {
   const { title, date } = legLabel(leg, weekend);
+  const isPurchased = leg.status === 'purchased';
   const row = document.createElement('div');
-  row.className = 'leg-row';
+  row.className = `leg-row${isPurchased ? ' is-bought' : ''}`;
 
-  const priceText = leg.current_price != null
+  const livePriceText = leg.current_price != null
     ? `R$ ${Number(leg.current_price).toFixed(2)}`
     : '— sem preço ainda';
   const sourceBits = [leg.current_airport, leg.current_source].filter(Boolean);
   const sourceText = leg.current_price != null && sourceBits.length ? ` (${sourceBits.join(' · ')})` : '';
 
-  const isPurchased = leg.status === 'purchased';
+  const priceState = legPriceState(leg);
+  const badge = legStatusBadge(leg, priceState);
   const purchaseLink = legPurchaseLink(leg, weekend);
+
+  // Perna comprada com valor pago: valor pago vira o número grande (dado que
+  // já importa mais que o preço ao vivo), preço ao vivo passa a nota riscada.
+  // Sem valor pago (comprar não exige preenchê-lo): NÃO inverter — o preço ao
+  // vivo continua como número principal, sem riscar, com nota discreta no
+  // lugar do valor pago (pedido do usuário, 27/07 — evita mostrar dado que
+  // não existe como se fosse o principal).
+  let priceClass = 'leg-price';
+  let priceHtml;
+  if (isPurchased && leg.paid_price != null) {
+    priceClass += ' leg-price--paid';
+    priceHtml = `R$ ${Number(leg.paid_price).toFixed(2)}` +
+      `<s class="leg-price-live">hoje ${livePriceText}</s>` +
+      `<small class="leg-price-note">você pagou</small>`;
+  } else if (isPurchased) {
+    priceHtml = `${livePriceText}${sourceText}<small class="leg-price-note">valor não informado</small>`;
+  } else {
+    priceClass += priceState === 'below' ? ' leg-price--below'
+      : priceState === 'above' ? ' leg-price--above'
+      : ' leg-price--none';
+    priceHtml = `${livePriceText}${sourceText}`;
+  }
+
+  const notesFilled = !!(leg.notes ?? '').toString().trim();
+  const paidFilled = leg.paid_price != null && leg.paid_price !== '';
 
   row.innerHTML = `
     <div class="leg-row-main">
       <span class="leg-title">${title}${date ? ' ' + formatDateBr(date) : ''}</span>
-      <span class="leg-price">${priceText}${sourceText}</span>
+      <span class="${priceClass}">${priceHtml}</span>
     </div>
     <div class="leg-row-meta">
       <span class="leg-updated">atualizado ${formatLastCheck(leg.last_live_check_at)}</span>
@@ -108,27 +157,28 @@ function renderLegRow(leg, weekend) {
     </div>
     <div class="leg-row-controls">
       <label class="leg-ceiling-label">
-        teto R$ <input type="number" step="1" min="0" value="${leg.price_ceiling ?? DEFAULT_CEILING}" class="leg-ceiling-input">
+        teto R$ <input type="number" step="1" min="0" value="${leg.price_ceiling ?? DEFAULT_CEILING}" class="leg-ceiling-input field-filled">
         <span class="save-check leg-ceiling-check">✓</span>
       </label>
       <button type="button" class="small leg-ceiling-save">Salvar</button>
-      <span class="badge ${isPurchased ? 'good' : 'neutral'}">${isPurchased ? 'Comprada ✓' : 'Monitorando'}</span>
-      <button type="button" class="small leg-action">${isPurchased ? 'Desfazer' : 'Comprei'}</button>
+      <span class="badge ${badge.cls}">${badge.text}</span>
+      ${isPurchased ? '<button type="button" class="leg-action btn-undo">Desfazer compra</button>' : ''}
     </div>
     <div class="leg-row-notes">
-      <input type="text" class="leg-notes-input" placeholder="localizador, horário..." value="${escapeAttr(leg.notes ?? '')}">
+      <input type="text" class="leg-notes-input ${notesFilled ? 'field-filled' : 'field-empty'}" placeholder="localizador, horário..." value="${escapeAttr(leg.notes ?? '')}">
       <span class="save-check leg-notes-check">✓</span>
       <button type="button" class="small leg-notes-save">Salvar</button>
     </div>
     ${isPurchased ? `
     <div class="leg-row-paid">
-      <label class="leg-paid-label">pago R$ <input type="number" step="0.01" min="0" placeholder="ex: 245.90" class="leg-paid-input" value="${leg.paid_price ?? ''}">
+      <label class="leg-paid-label">pago R$ <input type="number" step="0.01" min="0" placeholder="ex: 245.90" class="leg-paid-input ${paidFilled ? 'field-filled' : 'field-empty'}" value="${leg.paid_price ?? ''}">
         <span class="save-check leg-paid-check">✓</span>
       </label>
       <button type="button" class="small leg-paid-save">Salvar</button>
       <span class="leg-paid-hint">valor real, com taxas — diferente do preço monitorado</span>
     </div>
     ` : ''}
+    ${!isPurchased ? '<button type="button" class="leg-action btn-outline-full">Marcar como comprada</button>' : ''}
   `;
 
   // Estado visual "salvo" (botão discreto + ✓) vs "não salvo" (botão azul,
@@ -137,6 +187,14 @@ function renderLegRow(leg, weekend) {
   const markFieldState = (button, check, saved, hasValue) => {
     button.classList.toggle('saved', saved);
     if (check) check.style.display = saved && hasValue ? 'inline' : 'none';
+  };
+
+  // Vazio = borda tracejada, preenchido = borda sólida + texto em negrito
+  // (A4) — atualizado a cada tecla, além do estado inicial já vir correto
+  // do template acima.
+  const markFieldFill = (input, hasValue) => {
+    input.classList.toggle('field-filled', hasValue);
+    input.classList.toggle('field-empty', !hasValue);
   };
 
   const ceilingInput = row.querySelector('.leg-ceiling-input');
@@ -181,6 +239,7 @@ function renderLegRow(leg, weekend) {
   notesInput.addEventListener('input', () => {
     notesSaved = false;
     markFieldState(notesBtn, notesCheck, false, !!notesInput.value.trim());
+    markFieldFill(notesInput, !!notesInput.value.trim());
   });
   notesInput.addEventListener('blur', saveNotes);
   notesBtn.addEventListener('click', saveNotes);
@@ -208,6 +267,7 @@ function renderLegRow(leg, weekend) {
     paidInput.addEventListener('input', () => {
       paidSaved = false;
       markFieldState(paidBtn, paidCheck, false, paidInput.value !== '');
+      markFieldFill(paidInput, paidInput.value !== '');
     });
     paidInput.addEventListener('blur', savePaid);
     paidBtn.addEventListener('click', savePaid);
@@ -232,13 +292,23 @@ function renderLegRow(leg, weekend) {
 
 function renderCard(weekend) {
   const card = document.createElement('div');
-  card.className = 'card';
+  card.className = 'card weekend-card';
   card.id = `weekend-${weekend.id}`;
 
   const legs = weekend.weekend_legs || [];
   const purchasedCount = legs.filter((leg) => leg.status === 'purchased').length;
   const days = daysUntil(weekend.outbound_date);
   const urgency = days < 0 ? 'já passou' : days === 0 ? 'é hoje' : `faltam ${days} dias`;
+
+  // Progresso do fim de semana (0/2, 1/2, 2/2) reaproveitado tanto na faixa
+  // no topo do card (A3) quanto na cor do contador (A6).
+  const progressClass = purchasedCount === 0 ? ''
+    : legs.length > 0 && purchasedCount === legs.length ? 'done'
+    : 'part';
+
+  const rail = document.createElement('div');
+  rail.className = `card-rail ${progressClass ? `rail-${progressClass}` : ''}`.trim();
+  card.appendChild(rail);
 
   const tags = weekendTags(weekend);
   const badges = tags.map(({ tag }) => {
@@ -250,7 +320,7 @@ function renderCard(weekend) {
   header.className = 'weekend-card-header';
   header.innerHTML = `
     <h3>${formatDateBr(weekend.outbound_date)} → ${formatDateBr(weekend.return_sunday)} ou ${formatDateBr(weekend.return_monday)} ${badges}</h3>
-    <span class="price-meta">${urgency} · ${purchasedCount}/2 compradas</span>
+    <span class="price-meta">${urgency} · <span class="count ${progressClass ? `count-${progressClass}` : ''}">${purchasedCount}/2 compradas</span></span>
   `;
   card.appendChild(header);
 
