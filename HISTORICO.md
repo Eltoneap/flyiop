@@ -145,3 +145,9 @@ O alerta de bloqueio do lote de consulta ao vivo era uma string fixa, sem númer
 - **Estado visual salvo/não-salvo** nos três campos editáveis (teto, notas, valor pago): botão "Salvar" fica cinza discreto + ✓ verde ao lado do campo quando o valor bate com o banco; volta a ficar azul e o ✓ some ao editar. Se o salvamento falhar, volta pro estado "não salvo" em vez de fingir sucesso. Teto ganhou rastreio de sujo/limpo que não existia antes (só salvava no clique); notas/pago já tinham a trava contra duplo-envio (blur + clique quase juntos), preservada.
 
 **Verificação:** sem mudança em `src/**` nem SQL. Frontend testado no navegador (375px e leitura de DOM): chips renderizam e rolam horizontalmente (5 chips, só 3 cabem na tela sem rolar), estado salvo/não-salvo visualmente correto nos 3 campos. Lógica de filtro e leitura de `?filtro=` verificadas isoladamente com dados mock (incluindo `holidays.js` real) — resultados batem com o esperado, inclusive um caso em que uma data de teste caiu coincidentemente perto de um feriado real (Finados), confirmando que o predicado de feriado está genuinamente correto, não hardcoded. Push tocou só `docs/**` — não dispara `daily.yml`.
+
+---
+
+## 9. Verificação de menções soltas ("bot via Claude Haiku", "experimento de VPN"), 27/07/2026
+
+Um `STATE.md` trazido de outra sessão de planejamento listava como pendência auditar a origem dessas duas menções, suspeitando de alucinação. **Não é alucinação — são reais e rastreáveis**: ambas vêm do roadmap `Fase C`/`Fase D` do antigo `PLAN-VALIDACAO-CRUZADA.md` (item 2 deste `HISTORICO.md`, "Roadmap consolidado B/C/D"), planejado em 18/07/2026 e nunca executado — superado pelo pivô pro alvo de fins de semana (22-23/07) antes de qualquer item começar. Nenhuma ação necessária; item removido da lista de pendências do `STATE.md`.
