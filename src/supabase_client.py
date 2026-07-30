@@ -18,6 +18,12 @@ DEFAULT_SETTINGS = {
     "fast_flights_daily_batch_size": 20,
 }
 
+DEFAULT_SYSTEM_CONFIG = {
+    "suspicious_below_avg_pct": 50,
+    "fast_flights_enabled": True,
+    "fast_flights_daily_batch_size": 20,
+}
+
 
 def _headers() -> dict:
     key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -41,6 +47,21 @@ def get_routes() -> list[dict]:
 
 def get_settings(user_id: str) -> dict | None:
     resp = requests.get(_url(f"settings?user_id=eq.{user_id}&select=*"), headers=_headers(), timeout=30)
+    resp.raise_for_status()
+    rows = resp.json()
+    return rows[0] if rows else None
+
+
+def get_system_config() -> dict | None:
+    # select explícito das 3 colunas (não select=*): id/updated_at
+    # contaminariam o merge com settings em main.py.
+    resp = requests.get(
+        _url(
+            "system_config?select=suspicious_below_avg_pct,fast_flights_enabled,"
+            "fast_flights_daily_batch_size&limit=1"
+        ),
+        headers=_headers(), timeout=30,
+    )
     resp.raise_for_status()
     rows = resp.json()
     return rows[0] if rows else None

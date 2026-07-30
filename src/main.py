@@ -13,11 +13,13 @@ from rules import (
 )
 from supabase_client import (
     DEFAULT_SETTINGS,
+    DEFAULT_SYSTEM_CONFIG,
     get_last_alert,
     get_price_history,
     get_recent_run_outcomes,
     get_routes,
     get_settings,
+    get_system_config,
     get_weekend_leg_counts,
     get_weekend_scrape_state,
     insert_alert_log,
@@ -282,11 +284,12 @@ def main() -> None:
     primary_run = is_primary_run(hour)
 
     routes = get_routes()
+    system_config = get_system_config() or DEFAULT_SYSTEM_CONFIG
     settings_cache: dict[str, dict] = {}
     for route in routes:
         user_id = route["user_id"]
         if user_id not in settings_cache:
-            settings_cache[user_id] = get_settings(user_id) or DEFAULT_SETTINGS
+            settings_cache[user_id] = {**(get_settings(user_id) or DEFAULT_SETTINGS), **system_config}
 
     reports: list[dict] = []
     had_error = False
@@ -310,7 +313,7 @@ def main() -> None:
     # settings do primeiro usuário definem tudo (app é single-user por design).
     # Sem rotas flexíveis cadastradas, cai no default — as pernas de fim de
     # semana não podem ficar reféns de existir alguma rota flexível.
-    weekend_settings = next(iter(settings_cache.values()), None) or DEFAULT_SETTINGS
+    weekend_settings = next(iter(settings_cache.values()), None) or {**DEFAULT_SETTINGS, **system_config}
 
     scrape_state = get_weekend_scrape_state()
     initial_stage = scrape_state["stage"]  # decide o "agendado hoje" — não muda com bloqueio nesta execução

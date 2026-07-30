@@ -9,7 +9,6 @@ const DEFAULT_SETTINGS = {
   window_7d_pct: 15,
   notification_mode: 'alert_only',
   cost_per_thousand_brl: 25,
-  fast_flights_enabled: true,
 };
 
 const URGENCY_WINDOW_DAYS = 60;
@@ -223,7 +222,7 @@ function renderOrcamento(weekends) {
 
 // ---------- (f) Saúde do sistema ----------
 
-async function renderSaude(settings) {
+async function renderSaude(liveActive) {
   const section = document.getElementById('saude-sistema');
   const since24h = new Date(Date.now() - 24 * 3600000).toISOString();
   const since7d = new Date(Date.now() - 7 * 24 * 3600000).toISOString();
@@ -250,7 +249,11 @@ async function renderSaude(settings) {
   const blockedAt = blockedRows && blockedRows[0] ? new Date(blockedRows[0].value) : null;
   const blockedRecent = blockedAt && (Date.now() - blockedAt.getTime()) < BLOCK_RECENT_HOURS * 3600000;
 
-  const liveActive = settings.fast_flights_enabled !== false;
+  // liveActive: true/false vindo de system_config, ou null se a consulta
+  // falhou/tabela ainda não existe — degrada pra "desconhecido" em vez de
+  // quebrar o resto do painel.
+  const liveStatusLabel = liveActive === null ? 'desconhecido' : (liveActive ? 'ativa' : 'desligada');
+  const liveStatusClass = liveActive === null ? 'neutral' : (liveActive ? 'good' : 'neutral');
 
   // Escalonamento automático de frequência (Parte 10, 28/07/2026) — stage
   // 0/1/2 vem de bot_state, texto local em vez de importar telegram_notifier.
@@ -266,7 +269,7 @@ async function renderSaude(settings) {
     <h2>Saúde do sistema</h2>
     <p class="price-meta">Última execução do robô: ${lastRunText}</p>
     <p class="price-meta">Pernas checadas: ${count24h ?? 0} nas últimas 24h · ${count7d ?? 0} nos últimos 7 dias</p>
-    <p class="price-meta">Consulta de preço ao vivo: <span class="badge ${liveActive ? 'good' : 'neutral'}">${liveActive ? 'ativa' : 'desligada'}</span></p>
+    <p class="price-meta">Consulta de preço ao vivo: <span class="badge ${liveStatusClass}">${liveStatusLabel}</span></p>
     <p class="price-meta">${stageLine}</p>
     ${blockedRecent
       ? `<p class="price-meta"><span class="badge warn">⚠️ bloqueio detectado</span> em ${blockedAt.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</p>`
@@ -494,9 +497,11 @@ const session = await requireAuth();
 if (session) {
   wireLogout('logout');
 
-  const [{ data: weekends }, { data: settingsRows }] = await Promise.all([
+  const [{ data: weekends }, { data: settingsRows }, systemConfigResult] = await Promise.all([
     supabase.from('weekends').select('*, weekend_legs(*)').order('outbound_date', { ascending: true }),
     supabase.from('settings').select('*').eq('user_id', session.user.id).limit(1),
+    supabase.from('system_config').select('fast_flights_enabled').limit(1)
+      .then((res) => res, (err) => ({ data: null, error: err })),
   ]);
 
   const settings = settingsRows && settingsRows[0] ? settingsRows[0] : DEFAULT_SETTINGS;
@@ -504,12 +509,20 @@ if (session) {
   const allLegs = allWeekends.flatMap((w) => w.weekend_legs || []);
   const weekendById = Object.fromEntries(allWeekends.map((w) => [w.id, w]));
 
+  // system_config pode ainda não existir (SQL da Etapa 3 não rodado) ou a
+  // consulta pode falhar — degrada pra "desconhecido" (null) em vez de
+  // travar o carregamento do resto do Dashboard.
+  const systemConfigRow = systemConfigResult && !systemConfigResult.error && systemConfigResult.data
+    ? systemConfigResult.data[0]
+    : null;
+  const liveActive = systemConfigRow ? systemConfigRow.fast_flights_enabled !== false : null;
+
   renderAcaoDoDia(allLegs);
   renderUrgencia(allWeekends);
   renderProgresso(allLegs, allWeekends);
   renderOportunidades(allLegs, weekendById);
   renderOrcamento(allWeekends);
-  await renderSaude(settings);
+  await renderSaude(liveActive);
   renderFeriados(allWeekends);
   await renderLegacyRoutes(session);
 }

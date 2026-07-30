@@ -137,24 +137,8 @@
             <label>...ou se passarem (dias) desde o último alerta</label>
             <input type="number" step="1" min="1" name="realert_days">
           </div>
-          <div>
-            <label>Marcar como suspeito se estiver (%) abaixo da média 30d</label>
-            <input type="number" step="1" min="1" name="suspicious_below_avg_pct">
-          </div>
         </div>
-        <p class="field-note">ℹ️ Cooldown (re-alerta) e autocheck (suspeito) valem para os dois sistemas — rotas flexíveis e fins de semana. Atualizar aqui muda o comportamento dos dois.</p>
-
-        <div class="form-grid" style="margin-top:16px;">
-          <div>
-            <label><input type="checkbox" name="fast_flights_enabled" style="width:auto;margin-right:6px;">Consulta de preço ao vivo (Google Flights)</label>
-          </div>
-          <div>
-            <label>Pernas checadas por dia no lote de consulta ao vivo</label>
-            <input type="number" step="1" min="1" name="fast_flights_daily_batch_size">
-            <p class="field-note">Default 20 — cobre a janela de 6 meses em ~2-3 dias.</p>
-          </div>
-        </div>
-        <p class="field-note" style="color:var(--warn);">⚠️ Desligar "Consulta de preço ao vivo" pausa completamente o lote diário de consultas ao Google Flights — o Travelpayouts continua rodando sozinho, com cobertura bem mais baixa.</p>
+        <p class="field-note">ℹ️ Cooldown (re-alerta) vale para os dois sistemas — rotas flexíveis e fins de semana. Atualizar aqui muda o comportamento dos dois. Autocheck (suspeito) e a consulta de preço ao vivo (Google Flights, com seu kill-switch) agora são configuração de sistema, editada via banco — ver <code>RUNBOOK.md</code>.</p>
 
         <button type="submit">Salvar preferências (fins de semana)</button>
       </form>

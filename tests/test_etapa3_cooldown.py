@@ -121,6 +121,7 @@ class AlertLogWiringTest(unittest.TestCase):
         }
         with patch("main.get_routes", return_value=[route]), \
              patch("main.get_settings", return_value={"notification_mode": "alert_only"}), \
+             patch("main.get_system_config", return_value=None), \
              patch("main.process_route", return_value=report), \
              patch("main.process_all_weekend_legs", return_value=[]), \
              patch("main.run_daily_batch", return_value=([], False)), \
@@ -145,6 +146,7 @@ class AlertLogWiringTest(unittest.TestCase):
         }
         with patch("main.get_routes", return_value=[route]), \
              patch("main.get_settings", return_value={"notification_mode": "daily_summary"}), \
+             patch("main.get_system_config", return_value=None), \
              patch("main.process_route", return_value=report), \
              patch("main.process_all_weekend_legs", return_value=[]), \
              patch("main.run_daily_batch", return_value=([], False)), \
@@ -168,6 +170,7 @@ class AlertLogWiringTest(unittest.TestCase):
             "should_alert": True, "reason": "abaixo da meta fixa (R$ 200)",
         }
         with patch("main.get_routes", return_value=[]), \
+             patch("main.get_system_config", return_value=None), \
              patch("main.process_all_weekend_legs", return_value=[weekend_report]), \
              patch("main.run_daily_batch", return_value=([], False)), \
              patch("main.current_brt_hour", return_value=8), \

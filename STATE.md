@@ -1,7 +1,7 @@
 # STATE.md — FlyIop
 
-> Atualizado em: 27/07/2026
-> Última sessão: Claude Code (documentação/manutenção)
+> Atualizado em: 29/07/2026
+> Última sessão: Claude Code (Etapa 3 da iniciativa multi-usuário — `system_config` separada de `settings`)
 
 ---
 
@@ -24,6 +24,7 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 - **Janela deslizante de monitoramento ao vivo: ~6 meses**, ~20 pernas/dia no lote de scraping, rotação por `last_live_check_at`.
 - **Janela de compra real começa em 29/01/2027** (decisão de 28/07/2026, chat de planejamento). Fins de semana antes disso (set/2026–jan/2027) são monitorados intencionalmente e nunca serão comprados — são a fonte de dado mais valiosa do projeto hoje (histórico de preço, teste de ferramentas, curva completa até ~180 dias de antecedência) e não devem ser removidos da rotação por economia de chamadas. Progresso e orçamento do Dashboard devem contar só a partir de 29/01/2027. Antecedência máxima de interesse para compra: 180 dias — a janela deslizante de ~6 meses está correta em princípio, desde que ande de fato com o tempo.
 - **Escalonamento automático de frequência do lote `fli`, Estágio 0→1→2** (decisão de 28/07/2026). Sobe 1 estágio após 5 dias consecutivos sem bloqueio; qualquer bloqueio derruba pro Estágio 0 na hora e reseta a contagem; teto automático é o Estágio 2 (3x/dia) — não sobe sozinho além disso sem aprovação explícita no chat. Toda mudança de estágio avisa no Telegram. Só a execução primária (08h BRT) roda rotas flexíveis/cache Travelpayouts/notificações de rotas/resumo semanal — execuções extras do estágio só rodam o lote `fli`, pra não triplicar consumo da Travelpayouts sem necessidade.
+- **Config de sistema (`suspicious_below_avg_pct`, `fast_flights_enabled`, `fast_flights_daily_batch_size`) vive em `system_config`, linha única sem dono — não em `settings`** (Etapa 3 multi-usuário, concluída 29/07/2026). Motivo: essas 3 colunas já eram tratadas como globais pelo backend mesmo `settings` sendo per-user — risco real de um segundo usuário sobrescrever o kill-switch ou o limiar de suspeita de todo mundo sem perceber. Edição é 100% manual via SQL Editor do Supabase agora (sem UI, sem policy de update liberada) — procedimento em `RUNBOOK.md`. As 3 colunas antigas continuam em `settings`, intocadas e sem uso (Etapa 3b de remoção fica para depois de alguns dias de produção estável).
 
 ## 3. Próximos passos (ordem sugerida)
 
@@ -34,7 +35,9 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 
 ## 4. Bloqueios / perguntas em aberto
 
-- **Multi-usuário (amigo que também vai comprar RIO↔BSB em 2027):** decidido em linhas gerais — preço/histórico/robô continuam **compartilhados** (mesma rota, não faz sentido duplicar scraping); o que precisa ser separado é a "camada de decisão pessoal" por usuário (teto, status de compra, notas, valor pago). Login próprio dele via Supabase Auth; alertas em bot Telegram separado (canal simples, não integrado ao mesmo bot). **Falta**: investigação de como a RLS/schema atual está desenhada hoje (provavelmente assume usuário único) antes de qualquer plano de implementação — próxima etapa é um prompt de auditoria, não implementação direta.
+- **Multi-usuário (amigo que também vai comprar RIO↔BSB em 2027):** iniciativa ativa, em execução por etapas — ver `PLANO-ATIVO.md`. Escopo completo (alertas + painel + aba Compras próprios); Telegram em grupo único compartilhado, mensagem identifica nome+teto de quem disparou. Etapas 1-3 concluídas; Etapa 4 (`weekend_leg_user_state`, o núcleo do trabalho) ainda não iniciada — exige revisão explícita no chat de planejamento antes de começar (regra dura: nunca encadear etapa sozinho).
+
+  **Resumo para colar em novo chat de planejamento:** iniciativa multi-usuário em andamento (7 etapas, ver `PLANO-ATIVO.md`). Etapas 1-3 concluídas: `routes`/`settings` já são per-user (RLS confirmada); policy de `alert_log` corrigida em produção (cobre `leg_id`); config de sistema (`suspicious_below_avg_pct`, `fast_flights_enabled`, `fast_flights_daily_batch_size`) migrada para `system_config` (linha única, sem dono, edição só via SQL Editor — ver `RUNBOOK.md`), colunas antigas em `settings` intocadas por ora (Etapa 3b de remoção pendente). `weekend_legs.{price_ceiling,status,notes,paid_price}` são o núcleo do trabalho que falta (hoje 1 valor global, precisam virar por usuário — Etapa 4); RLS de `weekend_legs`/`weekends` é genérica hoje (qualquer autenticado edita tudo — resolver antes da Etapa 7); Telegram é hardcoded a 1 chat_id, resolvido pela decisão de grupo único; robô sempre usa service_role (nunca passa por RLS). Detalhe completo em `AUDITORIA-MULTIUSUARIO.md`. Regra dura: criar a conta do segundo usuário é sempre a última etapa.
 - **Teto padrão**: aguardando mais dias de coleta de preço real antes de decidir o valor de recalibração.
 
 ## 5. Fora de escopo (lembrete de disciplina)
@@ -54,3 +57,4 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 - `HISTORICO.md` — tudo já decidido/implementado, cronológico
 - `CLAUDE.md` — escopo geral do projeto (lido automaticamente pelo Claude Code)
 - `PROTOCOLO-DE-TRABALHO.md` — como usuário e Claude Code trabalham juntos (Plan Mode, gatilhos de revisão, regra de manutenção dos três arquivos de documentação)
+- `RUNBOOK.md` — operações manuais sem UI própria (kill-switch e outros ajustes de `system_config` via SQL Editor)

@@ -11,10 +11,7 @@ const DEFAULT_SETTINGS = {
   stale_alert_policy: 'warn',
   realert_drop_pct: 5,
   realert_days: 3,
-  suspicious_below_avg_pct: 50,
   weekend_opportunity_pct: 15,
-  fast_flights_enabled: true,
-  fast_flights_daily_batch_size: 20,
 };
 
 function showFlash() {
@@ -150,9 +147,6 @@ async function loadSettings(userId) {
   weekendForm.weekend_opportunity_pct.value = settings.weekend_opportunity_pct ?? DEFAULT_SETTINGS.weekend_opportunity_pct;
   weekendForm.realert_drop_pct.value = settings.realert_drop_pct ?? DEFAULT_SETTINGS.realert_drop_pct;
   weekendForm.realert_days.value = settings.realert_days ?? DEFAULT_SETTINGS.realert_days;
-  weekendForm.suspicious_below_avg_pct.value = settings.suspicious_below_avg_pct ?? DEFAULT_SETTINGS.suspicious_below_avg_pct;
-  weekendForm.fast_flights_enabled.checked = settings.fast_flights_enabled ?? DEFAULT_SETTINGS.fast_flights_enabled;
-  weekendForm.fast_flights_daily_batch_size.value = settings.fast_flights_daily_batch_size ?? DEFAULT_SETTINGS.fast_flights_daily_batch_size;
 }
 
 const session = await requireAuth();
@@ -240,9 +234,6 @@ if (session) {
       weekend_opportunity_pct: Number(form.weekend_opportunity_pct.value),
       realert_drop_pct: Number(form.realert_drop_pct.value),
       realert_days: Number(form.realert_days.value),
-      suspicious_below_avg_pct: Number(form.suspicious_below_avg_pct.value),
-      fast_flights_enabled: form.fast_flights_enabled.checked,
-      fast_flights_daily_batch_size: Number(form.fast_flights_daily_batch_size.value),
       updated_at: new Date().toISOString(),
     });
     if (error) {

@@ -35,6 +35,7 @@ class BlockAtLastScheduledHourTest(unittest.TestCase):
         }
 
         with patch("main.get_routes", return_value=[]), \
+             patch("main.get_system_config", return_value=None), \
              patch("main.process_all_weekend_legs", return_value=[]), \
              patch("main.run_daily_batch", return_value=([], True)), \
              patch("main.current_brt_hour", return_value=20), \
@@ -68,6 +69,7 @@ class BlockAtLastScheduledHourTest(unittest.TestCase):
         }
 
         with patch("main.get_routes", return_value=[]), \
+             patch("main.get_system_config", return_value=None), \
              patch("main.process_all_weekend_legs", return_value=[]), \
              patch("main.run_daily_batch", return_value=([], False)), \
              patch("main.current_brt_hour", return_value=20), \

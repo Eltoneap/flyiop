@@ -25,7 +25,8 @@ Regras não-negociáveis (Parte 1 do PLAN-VALIDACAO-CRUZADA.md + decisões de
 - Detector de bloqueio: ≥5 falhas seguidas OU taxa de sucesso <50% (com
   amostra mínima de 8) para o lote na hora e avisa no Telegram — nunca
   contorna tecnicamente, só recua.
-- Kill-switch manual (settings.fast_flights_enabled) sempre vale por cima.
+- Kill-switch manual (system_config.fast_flights_enabled, via system_config,
+  mesclado em settings_cache) sempre vale por cima.
 
 Reusa a avaliação de teto/oportunidade/suspeita/cooldown de weekends.py — o
 live-check só descobre o preço; quem decide o que fazer com ele é a mesma
