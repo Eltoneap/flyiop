@@ -34,7 +34,7 @@ a mesma `evaluate_and_record_leg_price` que o live-check usa.
 """
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from rules import cooldown_blocks_alert, is_good_price, is_suspicious_price
 from supabase_client import (
@@ -100,33 +100,55 @@ def match_leg_entries(entries: list[dict], target_date: str) -> dict | None:
     return cheapest_entry(matches)
 
 
+def leg_expiry_date(leg: dict) -> str:
+    """Última data em que essa perna, especificamente, ainda faz sentido
+    monitorar: a própria data de ida, ou (pra volta) `return_monday` — o
+    candidato mais tardio entre domingo/segunda, cobrindo os dois mesmo sem
+    `current_variant` decidido ainda. Ida e volta expiram de forma
+    independente (Parte 9, 28/07/2026) — antes, as duas expiravam junto pela
+    data de ida do weekend, cortando a perna de volta 2-3 dias cedo demais."""
+    if leg["direction"] == "outbound":
+        return leg["outbound_date"]
+    return leg["return_monday"]
+
+
 def get_active_legs() -> list[dict]:
-    """Pernas com status 'monitoring' cujo weekend ainda não passou
-    (outbound_date >= hoje) — auto-expiração sem job separado. Cada perna
-    volta com as datas do weekend anexadas, prontas pro matching local."""
+    """Pernas com status 'monitoring' cuja própria data (não a do weekend)
+    ainda não passou de D+1 — expiração independente por perna (Parte 9).
+    D+1 é folga de segurança: o robô roda 1x/dia, D0 puro arriscaria perder
+    a checagem do próprio dia do voo por atraso de execução ou horário do
+    voo já ter passado de manhã. Cada perna volta com as datas do weekend
+    anexadas, prontas pro matching local."""
+    cutoff = (date.today() - timedelta(days=1)).isoformat()
     weekends_by_id = {w["id"]: w for w in get_monitoring_weekends()}
     legs = []
     for leg in get_monitoring_legs():
         weekend = weekends_by_id.get(leg["weekend_id"])
         if weekend is None:
-            continue  # weekend já passou ou não existe mais
-        legs.append({
+            continue  # weekend já passou (nem a volta é mais válida) ou não existe mais
+        merged = {
             **leg,
             "outbound_date": weekend["outbound_date"],
             "return_sunday": weekend["return_sunday"],
             "return_monday": weekend["return_monday"],
-        })
+        }
+        if leg_expiry_date(merged) < cutoff:
+            continue  # essa perna específica já passou do D+1 dela
+        legs.append(merged)
     return legs
 
 
 def evaluate_and_record_leg_price(leg: dict, settings: dict, price: float, airport: str | None,
-                                  variant: str | None, transfers: int | None, source: str) -> dict:
+                                  variant: str | None, transfers: int | None, source: str,
+                                  airline: str | None = None, departure_time: str | None = None) -> dict:
     """Núcleo compartilhado entre a varredura cache (process_weekend_leg, abaixo)
     e o lote fast-flights (live_check.py, Parte 3): grava o preço, avalia
     teto/oportunidade/suspeita/cooldown, e atualiza a perna. `source` é
     'cache' ou 'live' — desde a Parte 3, 'live' é a fonte primária (decide
     o current_price/alerta); 'cache' virou conferidor secundário, mas grava
-    exatamente do mesmo jeito (histórico registra as duas fontes)."""
+    exatamente do mesmo jeito (histórico registra as duas fontes).
+    `airline`/`departure_time` (Parte 9, 28/07/2026): só a fonte 'live' (fli)
+    devolve esses campos — a Travelpayouts ('cache') não, ficam None ali."""
     leg_id = leg["id"]
     direction = leg["direction"]
     if direction == "outbound":
@@ -134,7 +156,7 @@ def evaluate_and_record_leg_price(leg: dict, settings: dict, price: float, airpo
     else:
         leg_date = leg["return_sunday"] if variant == "sunday" else leg["return_monday"]
 
-    insert_weekend_leg_price(leg_id, price, airport, variant, source, transfers)
+    insert_weekend_leg_price(leg_id, price, airport, variant, source, transfers, airline, departure_time)
 
     history = get_weekend_leg_price_history(leg_id, days=90)
     history_prices = [float(h["price"]) for h in history]
@@ -161,6 +183,8 @@ def evaluate_and_record_leg_price(leg: dict, settings: dict, price: float, airpo
         "current_airport": airport,
         "current_variant": variant,
         "current_source": source,
+        "current_airline": airline,
+        "current_departure_time": departure_time,
     }
     if is_new_low:
         update_fields["lowest_seen"] = price
