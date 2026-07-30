@@ -9,9 +9,9 @@ Sistema pessoal que pesquisa preços de passagens diariamente, compara com metas
 ### 1. Fins de semana RIO↔BSB (foco principal)
 - 66 fins de semana fixos, de sexta 04/09/2026 a sexta 03/12/2027 (viagem RIO→BSB na sexta, BSB→RIO no domingo ou segunda seguinte).
 - Cada fim de semana vira **2 pernas independentes** (ida/volta, 132 pernas ao todo) — decisão de 23/07/2026 depois que o modelo de round-trip único mostrou cobertura de cache insuficiente.
-- **Fonte primária de preço: `fast-flights`** (scraping do Google Flights, biblioteca de terceiros) — roda em lote diário (`system_config.fast_flights_daily_batch_size`, default 20/dia) dentro de uma janela deslizante de 6 meses, com rotação por perna menos checada recentemente, detector de bloqueio (para o lote e avisa no Telegram) e kill-switch manual (`system_config.fast_flights_enabled`). A Travelpayouts roda em paralelo como conferência secundária. Best-effort e sem evasão anti-bot (regras completas em `ROADMAP-AUDITORIA.md`, item A5). Operação manual desses controles (kill-switch, batch size): ver `RUNBOOK.md`.
+- **Fonte primária de preço: `fli`** (endpoint interno do Google Flights, acessado diretamente — migrada de `fast-flights` em 24/07/2026 por bug de parsing do payload SSR que divergia do preço real) — roda em lote diário (`system_config.fast_flights_daily_batch_size`, default 20/dia) dentro de uma janela deslizante de 6 meses, com rotação por perna menos checada recentemente, detector de bloqueio (para o lote e avisa no Telegram) e kill-switch manual (`system_config.fast_flights_enabled`). A Travelpayouts roda em paralelo como conferência secundária. Best-effort e sem evasão anti-bot (regras completas em `ROADMAP-AUDITORIA.md`, item A5). Operação manual desses controles (kill-switch, batch size): ver `RUNBOOK.md`.
 - Cada perna tem teto de preço editável (default R$ 200, pendente de calibração com dados reais de ida vs. volta), status (monitorando/comprada) e campo de observações livre (localizador, horário) preenchido depois da compra.
-- Quando uma perna dispara alerta, o robô busca a perna irmã do mesmo fim de semana e compara "avulso" (soma das duas pernas) vs. "pacote" (ida+volta junto, 1 consulta round-trip extra ao fast-flights) — decisão de compra sempre fica com o usuário.
+- Quando uma perna dispara alerta, o robô busca a perna irmã do mesmo fim de semana e compara "avulso" (soma das duas pernas) vs. "pacote" (ida+volta junto, 1 consulta round-trip extra à `fli`) — decisão de compra sempre fica com o usuário.
 - Painel web: `docs/compras.html` — cards por fim de semana, abas Ativos/Comprados, teto por perna (individual ou aplicar a todos os não comprados), progresso (X de 132 pernas / Y de 66 fins de semana completos).
 - **Janela de compra real: só a partir do fim de semana de 29/01/2027** (decisão de 28/07/2026). Fins de semana de set/2026 a jan/2027 são monitorados de propósito mas nunca serão comprados — servem para construir histórico de preço, testar as ferramentas e observar a curva de preço completa (até ~180 dias de antecedência) sem a compra interromper a série; não devem ser desativados, despriorizados ou tirados da rotação por economia de chamadas. Métricas de progresso e orçamento do painel devem contar só a partir de 29/01/2027. Antecedência máxima de interesse para compra: 180 dias.
 
@@ -32,7 +32,7 @@ Sistema pessoal que pesquisa preços de passagens diariamente, compara com metas
 - **Backend**: Python (`src/`), agendado via **GitHub Actions** (`daily.yml`, roda 1x/dia).
 - **Banco**: **Supabase** (Postgres + RLS + Auth) — substituiu o plano original de CSV/SQLite no repositório.
 - **Frontend**: `docs/` — HTML/JS vanilla (sem build step), Supabase JS client, publicado via **GitHub Pages**. Páginas: `index.html` (Dashboard), `compras.html` (fins de semana), `config.html` (rotas + preferências), `login.html`.
-- **Dados de preço**: Travelpayouts Data API v3 (`prices_for_dates`) + `fast-flights` (Google Flights) — ver detalhamento por sistema acima.
+- **Dados de preço**: Travelpayouts Data API v3 (`prices_for_dates`) + `fli` (Google Flights, endpoint interno) — ver detalhamento por sistema acima.
   - ~~Amadeus Self-Service~~ — descartado: portal descomissionado em 17/07/2026.
   - Kiwi Tequila / Skyscanner API oficial — descartados: exigem volume/parceria comercial incompatível com uso pessoal.
 - **Notificação**: Bot do Telegram (**FlyIopBot**).
@@ -41,7 +41,7 @@ Sistema pessoal que pesquisa preços de passagens diariamente, compara com metas
 - **Não automatizada.** Risco de segurança (dados de cartão) e barreira estrutural (sem alternativa self-service de emissão pra pessoa física). Autofill de navegador/gerenciador de senhas cobre a maior parte do preenchimento com segurança.
 
 ### Nota sobre scraping
-- `fast-flights` é a única fonte de scraping em uso, e só nos moldes definidos no `ROADMAP-AUDITORIA.md` (item A5): sequencial, com espaçamento, best-effort, sem rotação de proxy/user-agent nem qualquer tática de evasão anti-bot. Se bloquear, o sistema para e avisa — nunca contorna.
+- `fli` é a única fonte de scraping em uso, e só nos moldes definidos no `ROADMAP-AUDITORIA.md` (item A5): sequencial, com espaçamento, best-effort, sem rotação de proxy/user-agent nem qualquer tática de evasão anti-bot. Se bloquear, o sistema para e avisa — nunca contorna.
 
 ## Prontas para uso imediato (referência externa, enquanto alguma cobertura faltar)
 - Google Voos — monitoramento gratuito, "qualquer data", alerta por e-mail
