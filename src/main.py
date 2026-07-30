@@ -19,20 +19,31 @@ from supabase_client import (
     get_routes,
     get_settings,
     get_weekend_leg_counts,
+    get_weekend_scrape_state,
     insert_alert_log,
     insert_price,
     insert_run_log,
     insert_weekend_alert_log,
+    set_weekend_scrape_state,
 )
 from telegram_notifier import (
     build_alert_message,
     build_route_block,
+    build_stage_change_message,
     build_summary_message,
     build_weekend_alert_message,
     build_weekly_weekend_summary,
     send_message,
 )
 from live_check import build_package_comparison, run_daily_batch
+from scrape_schedule import (
+    apply_block_reversion,
+    current_brt_hour,
+    evaluate_stage_transition,
+    is_last_scheduled_hour,
+    is_primary_run,
+    should_run_live_batch,
+)
 from travelpayouts_client import get_prices_for_dates
 from weekends import process_all_weekend_legs
 
@@ -260,38 +271,91 @@ def build_notes(reports: list[dict]) -> list[str]:
 
 
 def main() -> None:
+    # Parte 10 (28/07/2026): daily.yml roda 3x/dia (janelas fixas em cron),
+    # mas só a execução primária (08h BRT) faz rotas flexíveis + cache
+    # Travelpayouts das pernas de fim de semana + notificações de rotas —
+    # as execuções extras do estágio de frequência automática só rodam o
+    # lote fli. Sem isso, subir o estágio triplicaria consumo da
+    # Travelpayouts sem necessidade (ela não tem detector de bloqueio nem
+    # é o gargalo que motivou o escalonamento).
+    hour = current_brt_hour()
+    primary_run = is_primary_run(hour)
+
     routes = get_routes()
-
     settings_cache: dict[str, dict] = {}
-    reports: list[dict] = []
-    had_error = False
-
     for route in routes:
         user_id = route["user_id"]
         if user_id not in settings_cache:
             settings_cache[user_id] = get_settings(user_id) or DEFAULT_SETTINGS
-        try:
-            reports.append(process_route(route, settings_cache[user_id]))
-        except Exception:
-            had_error = True
-            label = f"{route['origin']} → {route['destination']}"
-            print(f"[{label}] ERRO:\n{traceback.format_exc()}")
+
+    reports: list[dict] = []
+    had_error = False
+
+    if primary_run:
+        for route in routes:
             try:
-                insert_run_log(route["id"], "error", detail=traceback.format_exc()[-500:])
+                reports.append(process_route(route, settings_cache[route["user_id"]]))
             except Exception:
-                print(f"[{label}] falha também ao gravar run_log")
-            reports.append({"route": route, "status": "error"})
+                had_error = True
+                label = f"{route['origin']} → {route['destination']}"
+                print(f"[{label}] ERRO:\n{traceback.format_exc()}")
+                try:
+                    insert_run_log(route["id"], "error", detail=traceback.format_exc()[-500:])
+                except Exception:
+                    print(f"[{label}] falha também ao gravar run_log")
+                reports.append({"route": route, "status": "error"})
+    else:
+        print(f"[main] execução extra de estágio ({hour}h BRT) — pulando rotas flexíveis e cache Travelpayouts")
 
     # settings do primeiro usuário definem tudo (app é single-user por design).
     # Sem rotas flexíveis cadastradas, cai no default — as pernas de fim de
     # semana não podem ficar reféns de existir alguma rota flexível.
     weekend_settings = next(iter(settings_cache.values()), None) or DEFAULT_SETTINGS
-    # Cache (Travelpayouts) primeiro — conferidor secundário desde a Parte 3
-    # (23/07/2026: só 2/132 pernas bateram, insuficiente pra decidir sozinho).
-    cache_reports = process_all_weekend_legs(weekend_settings)
-    # Live (fast-flights) depois — fonte primária: quando encontra preço,
-    # sobrescreve current_price/current_source da perna naquele dia.
-    live_reports = run_daily_batch(weekend_settings)
+
+    scrape_state = get_weekend_scrape_state()
+    initial_stage = scrape_state["stage"]  # decide o "agendado hoje" — não muda com bloqueio nesta execução
+
+    if primary_run:
+        # Novo dia de contagem começando — sempre reseta (idempotente se já
+        # estava False). Persistido na hora: cada horário é um processo novo,
+        # não dá pra confiar em estado só em memória entre execuções.
+        scrape_state["blocked_today"] = False
+        set_weekend_scrape_state(blocked_today=False)
+        # Cache (Travelpayouts) — conferidor secundário desde a Parte 3
+        # (23/07/2026: só 2/132 pernas bateram, insuficiente pra decidir sozinho).
+        cache_reports = process_all_weekend_legs(weekend_settings)
+    else:
+        cache_reports = []
+
+    if should_run_live_batch(initial_stage, hour):
+        # Live (fli) — fonte primária: quando encontra preço, sobrescreve
+        # current_price/current_source da perna naquele dia.
+        live_reports, blocked = run_daily_batch(weekend_settings)
+    else:
+        print(f"[main] Estágio {initial_stage} não inclui {hour}h BRT — lote fli pulado nesta execução")
+        live_reports, blocked = [], False
+
+    if blocked:
+        scrape_state = apply_block_reversion(scrape_state)
+        set_weekend_scrape_state(
+            stage=scrape_state["stage"], clean_days=scrape_state["clean_days"],
+            blocked_today=scrape_state["blocked_today"],
+        )
+        if scrape_state["changed"]:
+            send_message(build_stage_change_message(scrape_state["stage"], scrape_state["reason"]))
+
+    # Avaliação de subida só na última hora agendada do estágio do INÍCIO do
+    # dia (initial_stage — não o estágio pós-bloqueio) e só se não bloqueou
+    # em nenhum momento hoje, inclusive agora mesmo (scrape_state já reflete
+    # o apply_block_reversion acima, se aconteceu nesta mesma execução) —
+    # sem isso, um bloqueio bem na hora da avaliação subiria e cairia no
+    # mesmo ciclo.
+    if is_last_scheduled_hour(initial_stage, hour) and not scrape_state["blocked_today"]:
+        scrape_state = evaluate_stage_transition(scrape_state)
+        set_weekend_scrape_state(stage=scrape_state["stage"], clean_days=scrape_state["clean_days"])
+        if scrape_state["changed"]:
+            send_message(build_stage_change_message(scrape_state["stage"], scrape_state["reason"]))
+
     weekend_reports = dedupe_weekend_reports(cache_reports + live_reports)
     if any(wr["status"] == "error" for wr in weekend_reports):
         had_error = True
@@ -302,37 +366,39 @@ def main() -> None:
 
     notes = build_notes(reports)
 
-    if routes:
-        mode = next(iter(settings_cache.values()))["notification_mode"]
-        if mode == "daily_summary":
-            blocks = [build_route_block(r) for r in reports if r["status"] == "ok"]
-            for r in reports:
-                if r["status"] == "no_data":
-                    blocks.append(
-                        f"✈️ <b>{r['route']['origin']} → {r['route']['destination']}</b> — sem dados na fonte hoje"
-                    )
-            send_message(build_summary_message(blocks, notes))
-        else:
-            for r in reports:
-                if r["status"] == "ok" and r["should_alert"]:
-                    send_message(build_alert_message(r))
-                    insert_alert_log(r["route"]["id"], r["price"], r.get("reason"))
-            if notes:
-                send_message("\n".join(notes))
-    elif notes:
-        send_message("\n".join(notes))
+    if primary_run:
+        if routes:
+            mode = next(iter(settings_cache.values()))["notification_mode"]
+            if mode == "daily_summary":
+                blocks = [build_route_block(r) for r in reports if r["status"] == "ok"]
+                for r in reports:
+                    if r["status"] == "no_data":
+                        blocks.append(
+                            f"✈️ <b>{r['route']['origin']} → {r['route']['destination']}</b> — sem dados na fonte hoje"
+                        )
+                send_message(build_summary_message(blocks, notes))
+            else:
+                for r in reports:
+                    if r["status"] == "ok" and r["should_alert"]:
+                        send_message(build_alert_message(r))
+                        insert_alert_log(r["route"]["id"], r["price"], r.get("reason"))
+                if notes:
+                    send_message("\n".join(notes))
+        elif notes:
+            send_message("\n".join(notes))
 
     # Pernas de fim de semana: notificação sempre imediata quando bate teto ou
-    # oportunidade — independe do notification_mode das rotas flexíveis
-    # (é o próprio ponto do alerta de teto: avisar na hora). Resumo semanal
-    # curado só às segundas-feiras, cadência própria.
+    # oportunidade, em toda execução (é o próprio ponto de rodar mais vezes
+    # por dia) — independe do notification_mode das rotas flexíveis e de
+    # primary_run. Resumo semanal curado só às segundas-feiras, só na
+    # execução primária (senão mandaria 3x no mesmo dia).
     for wr in weekend_reports:
         if wr["status"] == "ok" and wr["should_alert"]:
             comparison = build_package_comparison(wr, weekend_settings)
             send_message(build_weekend_alert_message(wr, comparison))
             insert_weekend_alert_log(wr["leg"]["id"], wr["price"], wr.get("reason"))
 
-    if date.today().weekday() == 0:  # segunda-feira
+    if primary_run and date.today().weekday() == 0:  # segunda-feira
         total, purchased = get_weekend_leg_counts()
         send_message(build_weekly_weekend_summary(weekend_reports, total, purchased))
 

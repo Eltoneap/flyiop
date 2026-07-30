@@ -179,18 +179,20 @@ def build_package_comparison(leg_report: dict, settings: dict) -> dict | None:
     return None
 
 
-def run_daily_batch(settings: dict) -> list[dict]:
+def run_daily_batch(settings: dict) -> tuple[list[dict], bool]:
     """Lote diário de consulta ao vivo. Kill-switch primeiro; depois seleção
     (janela + rotação); depois laço sequencial e espaçado com detector de
-    bloqueio — para o lote e avisa no Telegram se disparar."""
+    bloqueio — para o lote e avisa no Telegram se disparar. Devolve
+    (reports, blocked) — Parte 10 (28/07/2026): o chamador (main.py) usa
+    `blocked` pra derrubar o estágio de frequência automática na hora."""
     if not settings.get("fast_flights_enabled", True):
         print("[live-check] kill-switch desligado (fast_flights_enabled=false) — lote não roda hoje")
-        return []
+        return [], False
 
     batch = select_batch(settings)
     if not batch:
         print("[live-check] nenhuma perna elegível hoje (janela de 6 meses vazia)")
-        return []
+        return [], False
 
     reports: list[dict] = []
     consecutive_failures = 0
@@ -250,4 +252,4 @@ def run_daily_batch(settings: dict) -> list[dict]:
             send_message(build_block_recovered_message(streak_days))
             set_weekend_block_streak(0, None)
 
-    return reports
+    return reports, blocked

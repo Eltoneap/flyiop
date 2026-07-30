@@ -305,3 +305,17 @@ def build_block_alert_message(diag: dict) -> str:
 def build_block_recovered_message(streak_days: int) -> str:
     dias = f"{streak_days} dia{'s' if streak_days != 1 else ''}"
     return f"✅ <b>Consulta ao vivo normalizada</b> — voltou a funcionar depois de {dias} sem sucesso."
+
+
+STAGE_EXECUTIONS_PER_DAY = {0: 1, 1: 2, 2: 3}
+
+
+def build_stage_change_message(new_stage: int, reason: str) -> str:
+    """Parte 10 (28/07/2026): toda mudança de estágio do escalonamento
+    automático de frequência avisa no Telegram — subida ou queda, com o
+    motivo, pra nunca ser uma mudança silenciosa."""
+    execucoes = STAGE_EXECUTIONS_PER_DAY[new_stage]
+    direction = "🔺 Frequência subiu" if new_stage > 0 else "🔻 Frequência caiu"
+    return (
+        f"{direction} <b>pro Estágio {new_stage}</b> ({execucoes}x/dia) — motivo: {reason}."
+    )

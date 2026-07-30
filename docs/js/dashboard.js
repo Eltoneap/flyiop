@@ -233,11 +233,13 @@ async function renderSaude(settings) {
     { count: count7d },
     { data: lastRunRows },
     { data: blockedRows },
+    { data: scrapeStateRows },
   ] = await Promise.all([
     supabase.from('weekend_leg_run_log').select('id', { count: 'exact', head: true }).gte('ran_at', since24h),
     supabase.from('weekend_leg_run_log').select('id', { count: 'exact', head: true }).gte('ran_at', since7d),
     supabase.from('weekend_leg_run_log').select('ran_at').order('ran_at', { ascending: false }).limit(1),
     supabase.from('bot_state').select('value').eq('key', 'weekend_batch_blocked_at').limit(1),
+    supabase.from('bot_state').select('key, value').in('key', ['weekend_scrape_stage', 'weekend_scrape_clean_days']),
   ]);
 
   const lastRun = lastRunRows && lastRunRows[0] ? new Date(lastRunRows[0].ran_at) : null;
@@ -250,11 +252,22 @@ async function renderSaude(settings) {
 
   const liveActive = settings.fast_flights_enabled !== false;
 
+  // Escalonamento automático de frequência (Parte 10, 28/07/2026) — stage
+  // 0/1/2 vem de bot_state, texto local em vez de importar telegram_notifier.
+  const scrapeStateByKey = Object.fromEntries((scrapeStateRows || []).map((r) => [r.key, r.value]));
+  const stage = Number(scrapeStateByKey.weekend_scrape_stage ?? 0);
+  const cleanDays = Number(scrapeStateByKey.weekend_scrape_clean_days ?? 0);
+  const EXECUTIONS_PER_STAGE = { 0: 1, 1: 2, 2: 3 };
+  const stageLine = stage >= 2
+    ? `Frequência de scraping: Estágio 2 (3x/dia) · teto automático atingido`
+    : `Frequência de scraping: Estágio ${stage} (${EXECUTIONS_PER_STAGE[stage]}x/dia) · ${cleanDays} de 5 dias limpos pro próximo degrau`;
+
   section.innerHTML = `
     <h2>Saúde do sistema</h2>
     <p class="price-meta">Última execução do robô: ${lastRunText}</p>
     <p class="price-meta">Pernas checadas: ${count24h ?? 0} nas últimas 24h · ${count7d ?? 0} nos últimos 7 dias</p>
     <p class="price-meta">Consulta de preço ao vivo: <span class="badge ${liveActive ? 'good' : 'neutral'}">${liveActive ? 'ativa' : 'desligada'}</span></p>
+    <p class="price-meta">${stageLine}</p>
     ${blockedRecent
       ? `<p class="price-meta"><span class="badge warn">⚠️ bloqueio detectado</span> em ${blockedAt.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</p>`
       : '<p class="price-meta">Sem bloqueios recentes.</p>'}

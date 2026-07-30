@@ -209,15 +209,17 @@ class RunDailyBatchTest(unittest.TestCase):
         settings = {**SETTINGS, "fast_flights_enabled": False}
         with patch("live_check.select_batch") as mock_select, \
              patch("live_check.check_and_evaluate_leg") as mock_check:
-            reports = live_check.run_daily_batch(settings)
+            reports, blocked = live_check.run_daily_batch(settings)
         self.assertEqual(reports, [])
+        self.assertFalse(blocked)
         mock_select.assert_not_called()
         mock_check.assert_not_called()
 
     def test_empty_batch_returns_empty(self):
         with patch("live_check.select_batch", return_value=[]):
-            reports = live_check.run_daily_batch(SETTINGS)
+            reports, blocked = live_check.run_daily_batch(SETTINGS)
         self.assertEqual(reports, [])
+        self.assertFalse(blocked)
 
     @patch("live_check.time.sleep", return_value=None)
     def test_all_success_processes_whole_batch_no_alert(self, _sleep):
@@ -227,8 +229,9 @@ class RunDailyBatchTest(unittest.TestCase):
              patch("live_check.check_and_evaluate_leg", return_value=(ok_report, True)), \
              patch("live_check.get_weekend_block_streak", return_value=(0, None)), \
              patch("live_check.send_message") as mock_send:
-            reports = live_check.run_daily_batch(SETTINGS)
+            reports, blocked = live_check.run_daily_batch(SETTINGS)
         self.assertEqual(len(reports), 10)
+        self.assertFalse(blocked)
         mock_send.assert_not_called()
 
     @patch("live_check.time.sleep", return_value=None)
@@ -246,8 +249,9 @@ class RunDailyBatchTest(unittest.TestCase):
              patch("live_check.build_block_alert_message", return_value="sentinel-message") as mock_build, \
              patch("live_check.send_message") as mock_send, \
              patch("live_check.set_weekend_batch_blocked_at") as mock_blocked_at:
-            reports = live_check.run_daily_batch(SETTINGS)
+            reports, blocked = live_check.run_daily_batch(SETTINGS)
         self.assertEqual(len(reports), 9)  # parou antes do 10º
+        self.assertTrue(blocked)
         mock_send.assert_called_once_with("sentinel-message")
         mock_blocked_at.assert_called_once()
         mock_set_streak.assert_called_once_with(1, date.today().isoformat())
@@ -268,7 +272,8 @@ class RunDailyBatchTest(unittest.TestCase):
              patch("live_check.get_weekend_block_streak", return_value=(0, None)), \
              patch("live_check.send_message") as mock_send, \
              patch("live_check.set_weekend_batch_blocked_at") as mock_blocked_at:
-            live_check.run_daily_batch(SETTINGS)
+            _, blocked = live_check.run_daily_batch(SETTINGS)
+        self.assertFalse(blocked)
         mock_send.assert_not_called()
         mock_blocked_at.assert_not_called()
 
@@ -292,8 +297,9 @@ class RunDailyBatchTest(unittest.TestCase):
              patch("live_check.build_block_alert_message", return_value="sentinel-message") as mock_build, \
              patch("live_check.send_message") as mock_send, \
              patch("live_check.set_weekend_batch_blocked_at") as mock_blocked_at:
-            reports = live_check.run_daily_batch(SETTINGS)
+            reports, blocked = live_check.run_daily_batch(SETTINGS)
         self.assertEqual(len(reports), 8)
+        self.assertTrue(blocked)
         mock_send.assert_called_once_with("sentinel-message")
         mock_blocked_at.assert_called_once()
         mock_set_streak.assert_called_once_with(1, date.today().isoformat())
@@ -311,8 +317,9 @@ class RunDailyBatchTest(unittest.TestCase):
              patch("live_check.check_and_evaluate_leg", side_effect=results), \
              patch("live_check.get_weekend_block_streak", return_value=(0, None)), \
              patch("live_check.send_message") as mock_send:
-            reports = live_check.run_daily_batch(SETTINGS)
+            reports, blocked = live_check.run_daily_batch(SETTINGS)
         self.assertEqual(len(reports), 3)
+        self.assertFalse(blocked)
         mock_send.assert_not_called()
 
     @patch("live_check.time.sleep", return_value=None)

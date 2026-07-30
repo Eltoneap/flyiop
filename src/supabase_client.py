@@ -328,3 +328,51 @@ def set_weekend_block_streak(days: int, started_at: str | None) -> None:
             _url("bot_state?key=eq.weekend_block_streak_started_at"), headers=_headers(), timeout=30,
         )
         resp3.raise_for_status()
+
+
+WEEKEND_SCRAPE_STATE_KEYS = (
+    "weekend_scrape_stage", "weekend_scrape_clean_days", "weekend_scrape_blocked_today",
+    "weekend_scrape_last_change_at", "weekend_scrape_last_change_reason",
+)
+
+
+def get_weekend_scrape_state() -> dict:
+    """Estado do escalonamento automático de frequência (Parte 10, 28/07/2026)
+    — mesmo padrão key-value de weekend_block_streak_days, sem schema fixo
+    novo. Defaults: Estágio 0, 0 dias limpos, sem bloqueio hoje."""
+    resp = requests.get(
+        _url(f"bot_state?key=in.({','.join(WEEKEND_SCRAPE_STATE_KEYS)})&select=key,value"),
+        headers=_headers(), timeout=30,
+    )
+    resp.raise_for_status()
+    rows = {r["key"]: r["value"] for r in resp.json()}
+    return {
+        "stage": int(rows.get("weekend_scrape_stage") or 0),
+        "clean_days": int(rows.get("weekend_scrape_clean_days") or 0),
+        "blocked_today": (rows.get("weekend_scrape_blocked_today") or "false") == "true",
+        "last_change_at": rows.get("weekend_scrape_last_change_at"),
+        "last_change_reason": rows.get("weekend_scrape_last_change_reason"),
+    }
+
+
+def set_weekend_scrape_state(**fields) -> None:
+    """Grava só as chaves passadas (stage/clean_days/blocked_today/
+    last_change_at/last_change_reason) — mesmo padrão merge-duplicates das
+    outras funções de bot_state."""
+    key_by_field = {
+        "stage": "weekend_scrape_stage",
+        "clean_days": "weekend_scrape_clean_days",
+        "blocked_today": "weekend_scrape_blocked_today",
+        "last_change_at": "weekend_scrape_last_change_at",
+        "last_change_reason": "weekend_scrape_last_change_reason",
+    }
+    headers = {**_headers(), "Prefer": "resolution=merge-duplicates"}
+    for field, value in fields.items():
+        if field not in key_by_field or value is None:
+            continue
+        str_value = "true" if value is True else "false" if value is False else str(value)
+        resp = requests.post(
+            _url("bot_state"), headers=headers,
+            json={"key": key_by_field[field], "value": str_value}, timeout=30,
+        )
+        resp.raise_for_status()

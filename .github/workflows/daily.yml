@@ -2,7 +2,15 @@ name: Monitor diário de passagens
 
 on:
   schedule:
+    # Janelas fixas do escalonamento automático de frequência (Parte 10,
+    # 28/07/2026) — o cron nunca é reescrito dinamicamente; cada execução
+    # decide sozinha (via scrape_schedule.py) se faz algo nessa hora,
+    # olhando o estágio atual salvo no banco. 08h é a execução primária
+    # (rotas flexíveis + cache Travelpayouts + notificações); 14h/20h só
+    # existem pro lote fli, e só rodam de fato a partir do Estágio 1/2.
     - cron: "0 11 * * *"   # 08:00 BRT
+    - cron: "0 17 * * *"   # 14:00 BRT
+    - cron: "0 23 * * *"   # 20:00 BRT
   workflow_dispatch:
   push:
     paths:
