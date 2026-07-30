@@ -13,6 +13,7 @@ Sistema pessoal que pesquisa preços de passagens diariamente, compara com metas
 - Cada perna tem teto de preço editável (default R$ 200, pendente de calibração com dados reais de ida vs. volta), status (monitorando/comprada) e campo de observações livre (localizador, horário) preenchido depois da compra.
 - Quando uma perna dispara alerta, o robô busca a perna irmã do mesmo fim de semana e compara "avulso" (soma das duas pernas) vs. "pacote" (ida+volta junto, 1 consulta round-trip extra ao fast-flights) — decisão de compra sempre fica com o usuário.
 - Painel web: `docs/compras.html` — cards por fim de semana, abas Ativos/Comprados, teto por perna (individual ou aplicar a todos os não comprados), progresso (X de 132 pernas / Y de 66 fins de semana completos).
+- **Janela de compra real: só a partir do fim de semana de 29/01/2027** (decisão de 28/07/2026). Fins de semana de set/2026 a jan/2027 são monitorados de propósito mas nunca serão comprados — servem para construir histórico de preço, testar as ferramentas e observar a curva de preço completa (até ~180 dias de antecedência) sem a compra interromper a série; não devem ser desativados, despriorizados ou tirados da rotação por economia de chamadas. Métricas de progresso e orçamento do painel devem contar só a partir de 29/01/2027. Antecedência máxima de interesse para compra: 180 dias.
 
 ### 2. Rotas flexíveis (legado)
 - 2-4 rotas configuráveis (hoje: BSB→GIG, GIG→BSB, RIA→BSB), sem data fixa — menor preço nos próximos ~6 meses.

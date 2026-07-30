@@ -133,10 +133,15 @@ def get_last_alert(route_id: str) -> dict | None:
 
 
 def get_monitoring_weekends() -> list[dict]:
-    """Weekends cuja ida não passou — auto-expiração é este filtro
-    (outbound_date >= hoje), não um status separado gravado por cron."""
+    """Weekends com pelo menos uma perna possivelmente ainda válida —
+    filtro por `return_monday` (a data mais tardia possível do weekend, D+1
+    de margem), não por `outbound_date`: expirar pela ida cortava a perna de
+    volta 2-3 dias antes da própria data dela (Parte 9, 28/07/2026). A
+    expiração fina por perna (ida vs. volta, cada uma com sua própria data)
+    acontece depois, em `get_active_legs` (weekends.py)."""
+    cutoff = (date.today() - timedelta(days=1)).isoformat()
     params = {
-        "outbound_date": f"gte.{date.today().isoformat()}",
+        "return_monday": f"gte.{cutoff}",
         "select": "id,outbound_date,return_sunday,return_monday",
         "order": "outbound_date.asc",
     }
@@ -179,10 +184,12 @@ def update_weekend_leg(leg_id: str, **fields) -> None:
 
 
 def insert_weekend_leg_price(leg_id: str, price: float, airport: str | None, variant: str | None,
-                             source: str, transfers: int | None) -> None:
+                             source: str, transfers: int | None,
+                             airline: str | None = None, departure_time: str | None = None) -> None:
     payload = {
         "leg_id": leg_id, "price": price, "airport": airport, "variant": variant,
         "source": source, "transfers": transfers,
+        "airline": airline, "departure_time": departure_time,
     }
     resp = requests.post(_url("weekend_leg_price_history"), headers=_headers(), json=payload, timeout=30)
     resp.raise_for_status()

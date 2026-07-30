@@ -14,6 +14,11 @@ const DEFAULT_SETTINGS = {
 
 const URGENCY_WINDOW_DAYS = 60;
 const BLOCK_RECENT_HOURS = 48;
+// Primeiro fim de semana alvo de compra real (decisão de 28/07/2026, ver
+// CLAUDE.md/STATE.md) — fins de semana antes disso são monitorados de
+// propósito (histórico/teste), mas não contam nas métricas de progresso e
+// orçamento abaixo.
+const BUYING_CUTOFF_DATE = '2027-01-29';
 
 function formatDateBr(iso) {
   if (!iso) return '?';
@@ -97,18 +102,30 @@ function renderUrgencia(weekends) {
 
 function renderProgresso(allLegs, weekends) {
   const section = document.getElementById('progresso');
-  const purchasedLegs = allLegs.filter((l) => l.status === 'purchased').length;
-  const completeWeekends = weekends.filter(isWeekendComplete).length;
-  const pct = allLegs.length ? Math.round((purchasedLegs / allLegs.length) * 100) : 0;
+  const inScopeWeekends = weekends.filter((w) => w.outbound_date >= BUYING_CUTOFF_DATE);
+  const inScopeLegs = inScopeWeekends.flatMap((w) => w.weekend_legs || []);
+  const purchasedLegs = inScopeLegs.filter((l) => l.status === 'purchased').length;
+  const completeWeekends = inScopeWeekends.filter(isWeekendComplete).length;
+  const pct = inScopeLegs.length ? Math.round((purchasedLegs / inScopeLegs.length) * 100) : 0;
+  const earlyLegsCount = allLegs.length - inScopeLegs.length;
 
   section.innerHTML = `
     <h2>Progresso</h2>
-    <p class="price-meta">${purchasedLegs} de ${allLegs.length} pernas compradas · ${completeWeekends} de ${weekends.length} fins de semana completos</p>
+    <p class="price-meta">${purchasedLegs} de ${inScopeLegs.length} pernas compradas · ${completeWeekends} de ${inScopeWeekends.length} fins de semana completos</p>
     <div class="progress-bar"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+    ${earlyLegsCount > 0 ? `<p class="price-meta">+ ${earlyLegsCount} pernas em construção de histórico (set/2026–jan/2027) não entram nesse número — continuam sendo monitoradas normalmente.</p>` : ''}
   `;
 }
 
 // ---------- (d) Melhores oportunidades ----------
+
+function opportunityItemHtml(leg, weekendById, priceNote) {
+  const weekend = weekendById[leg.weekend_id];
+  const label = leg.direction === 'outbound' ? 'Ida' : 'Volta';
+  const dateLabel = weekend ? formatDateBrShort(weekend.outbound_date) : '';
+  const sourceLabel = leg.current_source ? ` · <span class="price-meta">${leg.current_source}</span>` : '';
+  return `<li><a href="compras.html#weekend-${leg.weekend_id}"><span>${dateLabel} · ${label}</span><span>R$ ${Number(leg.current_price).toFixed(2)} (${priceNote})${sourceLabel}</span></a></li>`;
+}
 
 function renderOportunidades(allLegs, weekendById) {
   const section = document.getElementById('oportunidades');
@@ -117,54 +134,90 @@ function renderOportunidades(allLegs, weekendById) {
     .map((l) => ({
       leg: l,
       distPct: (Number(l.current_price) - Number(l.price_ceiling)) / Number(l.price_ceiling) * 100,
-    }))
-    .sort((a, b) => a.distPct - b.distPct)
-    .slice(0, 5);
+    }));
 
   if (!candidates.length) {
     section.innerHTML = `<h2>Melhores oportunidades</h2><p class="price-meta">Nenhuma perna com preço registrado ainda.</p>`;
     return;
   }
 
+  // Duas listas sem sobreposição (Parte 9, 28/07/2026): "Abaixo do teto" é
+  // ação (preço já bom pra comprar); "Mais baratas no momento" é só
+  // informação (preço mais baixo disponível, mesmo que ainda acima do
+  // teto) — antes as duas coisas apareciam misturadas sob "oportunidades".
+  const belowCeiling = candidates
+    .filter((c) => c.distPct <= 0)
+    .sort((a, b) => a.distPct - b.distPct)
+    .slice(0, 5);
+  const aboveCeiling = candidates
+    .filter((c) => c.distPct > 0)
+    .sort((a, b) => Number(a.leg.current_price) - Number(b.leg.current_price))
+    .slice(0, 5);
+
+  const belowHtml = belowCeiling.length
+    ? `<ul class="link-list">${belowCeiling.map(({ leg, distPct }) => opportunityItemHtml(leg, weekendById, `${Math.abs(distPct).toFixed(0)}% abaixo do teto`)).join('')}</ul>`
+    : `<p class="price-meta">Nenhuma perna abaixo do teto agora.</p>`;
+
+  const aboveHtml = aboveCeiling.length
+    ? `<ul class="link-list">${aboveCeiling.map(({ leg, distPct }) => opportunityItemHtml(leg, weekendById, `${Math.abs(distPct).toFixed(0)}% acima do teto`)).join('')}</ul>`
+    : `<p class="price-meta">Nenhuma outra perna com preço registrado.</p>`;
+
   section.innerHTML = `
     <h2>Melhores oportunidades</h2>
-    <ul class="link-list">
-      ${candidates.map(({ leg, distPct }) => {
-        const weekend = weekendById[leg.weekend_id];
-        const label = leg.direction === 'outbound' ? 'Ida' : 'Volta';
-        const dateLabel = weekend ? formatDateBrShort(weekend.outbound_date) : '';
-        const sign = distPct <= 0 ? 'abaixo' : 'acima';
-        return `<li><a href="compras.html#weekend-${leg.weekend_id}"><span>${dateLabel} · ${label}</span><span>R$ ${Number(leg.current_price).toFixed(2)} (${Math.abs(distPct).toFixed(0)}% ${sign} do teto)</span></a></li>`;
-      }).join('')}
-    </ul>
+    <h3>Abaixo do teto</h3>
+    ${belowHtml}
+    <h3>Mais baratas no momento</h3>
+    ${aboveHtml}
   `;
 }
 
 // ---------- (e) Orçamento ----------
 
-function renderOrcamento(allLegs) {
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function renderOrcamento(weekends) {
   const section = document.getElementById('orcamento');
-  const purchased = allLegs.filter((l) => l.status === 'purchased');
+  const inScopeLegs = weekends
+    .filter((w) => w.outbound_date >= BUYING_CUTOFF_DATE)
+    .flatMap((w) => w.weekend_legs || []);
+
+  const purchased = inScopeLegs.filter((l) => l.status === 'purchased');
   const withPaid = purchased.filter((l) => l.paid_price != null);
 
   if (!withPaid.length) {
     section.innerHTML = `
       <h2>Orçamento</h2>
-      <p class="price-meta">Nenhum valor pago registrado ainda — preencha em Compras ao marcar uma perna como comprada.</p>
+      <p class="price-meta">Nenhum valor pago registrado ainda (a partir de ${formatDateBrShort(BUYING_CUTOFF_DATE)}) — preencha em Compras ao marcar uma perna como comprada.</p>
     `;
     return;
   }
 
   const totalPaid = withPaid.reduce((sum, l) => sum + Number(l.paid_price), 0);
-  const avg = totalPaid / withPaid.length;
-  const remaining = allLegs.length - purchased.length;
-  const estimate = totalPaid + avg * remaining;
+  const remaining = inScopeLegs.length - purchased.length;
+
+  // Mediana do preço monitorado hoje nas pernas ainda não compradas, não
+  // mais a média do que já foi pago — com poucas compras reais essa média
+  // fica instável demais pra projetar (Parte 9, 28/07/2026).
+  const monitoringPrices = inScopeLegs
+    .filter((l) => l.status === 'monitoring' && l.current_price != null)
+    .map((l) => Number(l.current_price));
+
+  let estimateLine = 'Sem preços suficientes nas pernas restantes ainda pra estimar o total.';
+  if (remaining > 0 && monitoringPrices.length) {
+    const medianPrice = median(monitoringPrices);
+    const estimate = totalPaid + medianPrice * remaining;
+    estimateLine = `Estimativa se as ${remaining} pernas restantes saírem na mediana atual (R$ ${medianPrice.toFixed(2)}): <strong>R$ ${estimate.toFixed(2)}</strong> — é estimativa, não projeção real.`;
+  }
 
   section.innerHTML = `
     <h2>Orçamento</h2>
     <p class="stat-big">R$ ${totalPaid.toFixed(2)}</p>
-    <p class="price-meta">gasto até agora · média R$ ${avg.toFixed(2)}/perna (com base em ${withPaid.length} perna${withPaid.length === 1 ? '' : 's'} com valor registrado)</p>
-    <p class="price-meta">Estimativa se as ${remaining} pernas restantes saírem na média: <strong>R$ ${estimate.toFixed(2)}</strong> — é estimativa, não projeção real.</p>
+    <p class="price-meta">gasto até agora, a partir de ${formatDateBrShort(BUYING_CUTOFF_DATE)} (com base em ${withPaid.length} perna${withPaid.length === 1 ? '' : 's'} com valor registrado)</p>
+    <p class="price-meta">${estimateLine}</p>
   `;
 }
 
@@ -442,7 +495,7 @@ if (session) {
   renderUrgencia(allWeekends);
   renderProgresso(allLegs, allWeekends);
   renderOportunidades(allLegs, weekendById);
-  renderOrcamento(allLegs);
+  renderOrcamento(allWeekends);
   await renderSaude(settings);
   renderFeriados(allWeekends);
   await renderLegacyRoutes(session);

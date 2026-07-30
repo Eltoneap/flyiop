@@ -287,6 +287,19 @@ section h2 {
   margin: 0 0 16px;
 }
 
+section h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 16px 0 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+section h3:first-of-type {
+  margin-top: 0;
+}
+
 .link-list {
   list-style: none;
   padding: 0;

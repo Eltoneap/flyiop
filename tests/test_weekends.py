@@ -7,7 +7,7 @@ Uso: python -m unittest tests/test_weekends.py -v  (a partir da raiz do repo)
 import os
 import sys
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -17,6 +17,10 @@ import weekends  # noqa: E402
 
 def iso_days_ago(days: float) -> str:
     return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
+def days_from_today(n: int) -> str:
+    return (date.today() + timedelta(days=n)).isoformat()
 
 
 WEEKEND = {"outbound_date": "2026-09-04", "return_sunday": "2026-09-06", "return_monday": "2026-09-07"}
@@ -102,6 +106,50 @@ class GetActiveLegsTest(unittest.TestCase):
             legs = weekends.get_active_legs()
         self.assertEqual(legs, [])
 
+    def test_outbound_expires_independently_while_return_still_valid(self):
+        # Parte 9 (28/07/2026): a sexta já passou de D+1, mas domingo/segunda
+        # ainda não — antes, o weekend inteiro saía junto (bug real).
+        weekend_row = {
+            "id": "wknd-1",
+            "outbound_date": days_from_today(-2),
+            "return_sunday": days_from_today(0),
+            "return_monday": days_from_today(1),
+        }
+        outbound = {"id": "leg-out-1", "weekend_id": "wknd-1", "direction": "outbound", "price_ceiling": 200}
+        ret = {"id": "leg-ret-1", "weekend_id": "wknd-1", "direction": "return", "price_ceiling": 200}
+        with patch("weekends.get_monitoring_weekends", return_value=[weekend_row]), \
+             patch("weekends.get_monitoring_legs", return_value=[outbound, ret]):
+            legs = weekends.get_active_legs()
+        ids = [leg["id"] for leg in legs]
+        self.assertNotIn("leg-out-1", ids)
+        self.assertIn("leg-ret-1", ids)
+
+    def test_outbound_still_checked_through_d_plus_1(self):
+        weekend_row = {
+            "id": "wknd-1",
+            "outbound_date": days_from_today(-1),
+            "return_sunday": days_from_today(1),
+            "return_monday": days_from_today(2),
+        }
+        outbound = {"id": "leg-out-1", "weekend_id": "wknd-1", "direction": "outbound", "price_ceiling": 200}
+        with patch("weekends.get_monitoring_weekends", return_value=[weekend_row]), \
+             patch("weekends.get_monitoring_legs", return_value=[outbound]):
+            legs = weekends.get_active_legs()
+        self.assertEqual([leg["id"] for leg in legs], ["leg-out-1"])
+
+    def test_return_expires_d_plus_1_after_return_monday(self):
+        weekend_row = {
+            "id": "wknd-1",
+            "outbound_date": days_from_today(-5),
+            "return_sunday": days_from_today(-3),
+            "return_monday": days_from_today(-2),
+        }
+        ret = {"id": "leg-ret-1", "weekend_id": "wknd-1", "direction": "return", "price_ceiling": 200}
+        with patch("weekends.get_monitoring_weekends", return_value=[weekend_row]), \
+             patch("weekends.get_monitoring_legs", return_value=[ret]):
+            legs = weekends.get_active_legs()
+        self.assertEqual(legs, [])
+
 
 class ProcessWeekendLegTest(unittest.TestCase):
     def run_process(self, month_cache, history_prices=None, leg=None, settings=None, last_alert=None):
@@ -124,7 +172,7 @@ class ProcessWeekendLegTest(unittest.TestCase):
         self.assertEqual(report["price"], 280.0)
         self.assertEqual(report["airport"], "SDU")
         self.assertIsNone(report["variant"])
-        mock_insert.assert_called_once_with("leg-out-1", 280.0, "SDU", None, "cache", 0)
+        mock_insert.assert_called_once_with("leg-out-1", 280.0, "SDU", None, "cache", 0, None, None)
         mock_run_log.assert_called_once_with("leg-out-1", "ok", price=280.0, source="cache")
 
     def test_return_cheapest_variant_and_airport_wins(self):

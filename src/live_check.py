@@ -88,7 +88,13 @@ def check_live_price(origin: str, destination: str, travel_date: str) -> dict | 
         return None
 
     best = min(priced, key=lambda r: r.price)
-    return {"price": float(best.price), "transfers": best.stops}
+    departure_time = best.legs[0].departure_datetime.isoformat() if best.legs else None
+    return {
+        "price": float(best.price),
+        "transfers": best.stops,
+        "airline": best.primary_airline_name,
+        "departure_time": departure_time,
+    }
 
 
 def leg_travel_date(leg: dict) -> str:
@@ -151,7 +157,8 @@ def check_and_evaluate_leg(leg: dict, settings: dict) -> tuple[dict, bool]:
         return {"leg": leg, "status": "no_data"}, False
 
     report = evaluate_and_record_leg_price(
-        leg, settings, result["price"], used_airport, variant, result.get("transfers"), "live"
+        leg, settings, result["price"], used_airport, variant, result.get("transfers"), "live",
+        result.get("airline"), result.get("departure_time"),
     )
     update_weekend_leg(leg["id"], last_live_check_at=now_iso)
     return report, True

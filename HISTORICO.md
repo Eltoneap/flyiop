@@ -182,3 +182,24 @@ Sequência do item 10. Plan Mode dedicada de novo (o plano original já estava a
 **Verificação:** harness estático temporário (removido antes do commit) cobrindo 6 casos em viewport 390px — campo com alteração pendente, campo recém-salvo, card 2/2 com total pago cheio, com total parcial, sem total, e clique expandindo o card colapsado (toggle real via JS, testado com `javascript_tool` clicando no `.card-done-head` e conferindo a classe `is-collapsed`). Screenshots enviadas e validadas pelo usuário antes do push, incluindo conferência explícita do caso de total parcial (R$240, só a perna com valor preenchido). Sem testes automatizados cobrindo essas classes.
 
 Com isso, o redesign visual da aba Compras (Blocos A e B) está concluído e no ar.
+
+---
+
+## 12. Expiração por perna, dados de voo (fli) e Dashboard pós-corte, 28/07/2026
+
+Sequência direta da investigação somente-leitura do mesmo dia (achado do bug de expiração e dos itens de melhoria do Dashboard). Plan Mode dedicada, aprovada com dois ajustes do usuário (ordem de execução da migração em destaque; listas de oportunidades com 5 itens cada, não split de um top-5 único).
+
+**Corrigido — expiração por perna (bug real):** `get_monitoring_weekends()` (`supabase_client.py`) filtrava pela data de ida do weekend inteiro (`outbound_date`), cortando a perna de volta da rotação 2-3 dias antes da própria data dela (ela é domingo/segunda, o filtro usava sexta). Agora `get_monitoring_weekends()` filtra por `return_monday` (o limite superior seguro do weekend) e `get_active_legs()` (`weekends.py`) ganhou expiração fina por perna via `leg_expiry_date()` — ida expira pela própria `outbound_date`, volta pelo `return_monday` (cobre domingo e segunda mesmo sem `current_variant` decidido). **Decisão: expira em D+1**, não D0 — o robô roda 1x/dia às 08:00 BRT; D0 puro arriscaria perder a checagem do próprio dia do voo por atraso de execução ou o voo já ter partido de manhã. D+1 dá 1 dia de folga por perna, custo irrelevante numa janela de ~180 dias.
+
+**Adicionado — companhia aérea e horário (fli):** a `fli` já devolvia `primary_airline_name` e `legs[0].departure_datetime` (confirmado no pacote pinado), descartados até então. Novas colunas `airline`/`departure_time` em `weekend_leg_price_history` e `current_airline`/`current_departure_time` em `weekend_legs` (`sql/parte9_dados_voo_e_expiracao.sql`) — só a fonte `live` (fli) preenche; `cache` (Travelpayouts) fica `null`, sem backfill do que já foi perdido antes. **Ordem de execução obrigatória: o SQL rodou no Supabase antes do deploy do código** — o insert quebraria em produção se as colunas não existissem ainda.
+
+**Adicionado — Dashboard pós-corte de 29/01/2027** (data já registrada em `CLAUDE.md`/`STATE.md` como primeiro fim de semana alvo de compra real):
+- `renderProgresso`: contador de pernas/fins de semana passa a considerar só `outbound_date >= 2027-01-29`. **Decisão de layout: nota de uma linha na própria seção**, não seção nova nem ocultação — o corte é só de métrica, as pernas de set/2026-jan/2027 continuam visíveis em Compras e a nota deixa isso explícito sem competir com o número principal.
+- `renderOrcamento`: escopado ao mesmo corte; projeção dos restantes trocou a base de "média do que já foi pago" (instável com poucas compras reais) pra **mediana do `current_price`** das pernas ainda não compradas pós-corte — mais amostras, mais estável.
+- `renderOportunidades`: virou duas listas de até 5 itens cada, sem sobreposição — "Abaixo do teto" (ação, ordenada pela distância ao teto) e "Mais baratas no momento" (informação, as demais candidatas acima do teto, ordenadas por preço absoluto) — antes misturava as duas coisas sob um rótulo só. Cada item passa a mostrar `current_source` discreto ao lado do preço.
+
+**Entregue no chat (não executado por mim):** 4 consultas SQL somente-leitura pro usuário rodar no Supabase — contagem/histórico de `weekend_leg_price_history`, linhas brutas das voltas de R$283 (out/nov), registros `status='purchased'`, e status de `weekend_block_streak`/`weekend_batch_blocked_at`.
+
+**Verificação:** 136 testes locais passando (`unittest discover`), incluindo os novos casos de expiração independente por perna (ida expira mesmo com volta ainda válida e vice-versa, ida seguindo checada até D+1) e de extração de `airline`/`departure_time` da `fli` (incluindo caso defensivo sem `legs`). `median()` e a divisão das duas listas de oportunidades verificadas isoladamente com dados sintéticos no console do navegador (sem depender de login). **Sem verificação visual end-to-end no Dashboard com dados reais** — exige login do usuário na sessão, que não tentei obter/preencher; a lógica está coberta por teste, mas a conferência visual final (nota de corte, mediana, duas listas) fica pro usuário no próximo acesso.
+
+---

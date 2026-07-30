@@ -7,7 +7,7 @@ Uso: python -m unittest tests/test_live_check.py -v  (a partir da raiz do repo)
 import os
 import sys
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -22,8 +22,10 @@ from telegram_notifier import (  # noqa: E402
 )
 
 
-def fake_result(price, stops: int = 0):
-    return SimpleNamespace(price=price, stops=stops)
+def fake_result(price, stops: int = 0, airline: str = "LATAM", legs=None):
+    if legs is None:
+        legs = [SimpleNamespace(departure_datetime=datetime(2026, 9, 4, 8, 30))]
+    return SimpleNamespace(price=price, stops=stops, primary_airline_name=airline, legs=legs)
 
 
 def days_from_today(n: int) -> str:
@@ -60,6 +62,16 @@ class CheckLivePriceTest(unittest.TestCase):
         result = live_check.check_live_price("GIG", "BSB", "2026-09-04")
         self.assertEqual(result["price"], 350.0)
         self.assertEqual(result["transfers"], 0)
+        self.assertEqual(result["airline"], "LATAM")
+        self.assertEqual(result["departure_time"], "2026-09-04T08:30:00")
+
+    @patch("live_check.SearchFlights")
+    def test_no_legs_means_no_departure_time(self, mock_cls):
+        # defensivo: se a fli algum dia devolver um resultado sem legs,
+        # não deve quebrar a extração — só fica sem horário.
+        mock_cls.return_value.search.return_value = [fake_result(350.0, legs=[])]
+        result = live_check.check_live_price("GIG", "BSB", "2026-09-04")
+        self.assertIsNone(result["departure_time"])
 
     @patch("live_check.SearchFlights")
     def test_none_price_entries_are_ignored(self, mock_cls):
@@ -144,13 +156,13 @@ class CheckAndEvaluateLegTest(unittest.TestCase):
     @patch("live_check.evaluate_and_record_leg_price")
     @patch("live_check.check_live_price")
     def test_gig_success_never_tries_sdu(self, mock_check, mock_evaluate, mock_update):
-        mock_check.return_value = {"price": 300.0, "transfers": 0}
+        mock_check.return_value = {"price": 300.0, "transfers": 0, "airline": "GOL", "departure_time": "2026-09-04T07:00:00"}
         mock_evaluate.return_value = {"leg": OUTBOUND_LEG, "status": "ok", "should_alert": False}
         report, ok = live_check.check_and_evaluate_leg(OUTBOUND_LEG, SETTINGS)
         self.assertTrue(ok)
         mock_check.assert_called_once_with("GIG", "BSB", OUTBOUND_LEG["outbound_date"])
         mock_evaluate.assert_called_once_with(
-            OUTBOUND_LEG, SETTINGS, 300.0, "GIG", None, 0, "live"
+            OUTBOUND_LEG, SETTINGS, 300.0, "GIG", None, 0, "live", "GOL", "2026-09-04T07:00:00"
         )
 
     @patch("live_check.time.sleep", return_value=None)
@@ -158,14 +170,14 @@ class CheckAndEvaluateLegTest(unittest.TestCase):
     @patch("live_check.evaluate_and_record_leg_price")
     @patch("live_check.check_live_price")
     def test_falls_back_to_sdu_when_gig_empty(self, mock_check, mock_evaluate, mock_update, _sleep):
-        mock_check.side_effect = [None, {"price": 280.0, "transfers": 1}]
+        mock_check.side_effect = [None, {"price": 280.0, "transfers": 1, "airline": "Azul", "departure_time": None}]
         mock_evaluate.return_value = {"leg": OUTBOUND_LEG, "status": "ok", "should_alert": False}
         report, ok = live_check.check_and_evaluate_leg(OUTBOUND_LEG, SETTINGS)
         self.assertTrue(ok)
         self.assertEqual(mock_check.call_args_list[0].args, ("GIG", "BSB", OUTBOUND_LEG["outbound_date"]))
         self.assertEqual(mock_check.call_args_list[1].args, ("SDU", "BSB", OUTBOUND_LEG["outbound_date"]))
         mock_evaluate.assert_called_once_with(
-            OUTBOUND_LEG, SETTINGS, 280.0, "SDU", None, 1, "live"
+            OUTBOUND_LEG, SETTINGS, 280.0, "SDU", None, 1, "live", "Azul", None
         )
 
     @patch("live_check.time.sleep", return_value=None)
