@@ -63,3 +63,17 @@ planejamento antes de rodar. Nunca encadear etapas sozinho.
    de mensagem com nome+valor; mantém o mesmo `TELEGRAM_CHAT_ID` (grupo).
 7. Criar conta do segundo usuário no Supabase Auth — **por último**, só
    depois de tudo testado. Regra dura: nenhuma conta nova antes disso.
+
+---
+
+## Pendência fora do escopo desta iniciativa (registrada 30/07/2026)
+
+`CLAUDE.md` linha 14 descreve a comparação de preço "avulso vs. pacote"
+(ida+volta casado) como funcionalidade ativa, mas `STATE.md` (seção
+"Decisões vivas") registra que essa comparação está **suspensa** — não
+existe hoje fonte que faça round-trip de forma sequencial (`fli` só faz via
+paralelismo, o que fere a regra de scraping). Achado durante a revisão de
+consistência de 30/07/2026, ao corrigir a troca `fast-flights`→`fli` nessa
+mesma linha (só a nomenclatura foi corrigida, não o conteúdo). Não
+corrigido agora — decisão de escopo, não desta iniciativa. Retomar em
+ciclo de planejamento próprio.
