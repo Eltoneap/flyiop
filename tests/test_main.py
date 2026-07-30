@@ -1,9 +1,16 @@
 """Teste local da orquestração de main() — Parte 10 (28/07/2026), escalonamento
 automático de frequência de scraping. Cobre especificamente o cenário mais
-perigoso apontado na revisão do plano: bloqueio detectado exatamente na
-última hora agendada do estágio atual (o mesmo instante em que a subida de
+perigoso apontado na revisão do plano: bloqueio detectado exatamente no
+último lote esperado do estágio atual (o mesmo instante em que a subida de
 estágio seria avaliada) — o resultado final tem que ser sempre Estágio 0,
 nunca uma subida no mesmo ciclo em que acabou de cair.
+
+Correção de 30/07/2026: "último lote esperado do dia" deixou de ser "hora
+bate com a última da lista do estágio" (bug real em produção — atraso de
+cron do GitHub Actions caía fora de todos os horários e zerava a execução)
+e passou a ser "quantos lotes já rodaram hoje" — os testes abaixo simulam
+isso via `batches_run_today`/`last_batch_run_date` no estado, não mais via
+`current_brt_hour`.
 
 Usa as funções REAIS de scrape_schedule.py (não mockadas) — só I/O
 (Supabase, fli, Telegram) é mockado — pra exercitar a ordem de verdade do
@@ -20,25 +27,26 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import main  # noqa: E402
 
+TODAY = "2026-07-30"
 
-class BlockAtLastScheduledHourTest(unittest.TestCase):
-    def test_block_at_last_scheduled_hour_never_escalates_same_cycle(self):
-        # Estágio 2 já no teto automático, última hora agendada = 20h BRT,
-        # 4 dias limpos acumulados (1 a menos pro degrau seguinte — mas
-        # Estágio 2 já é o teto, então não subiria de qualquer forma; o
-        # ponto do teste é a ORDEM, não o número de estágios disponíveis).
-        # Reforça com Estágio 1 -> repetir a mesma asserção também cobre
-        # "não sobe pro 2 na mesma execução em que caiu pro 0".
+
+class BlockAtLastExpectedBatchTest(unittest.TestCase):
+    def test_block_at_last_expected_batch_never_escalates_same_cycle(self):
+        # Estágio 1 (2 lotes/dia), primária já rodou hoje, 1 dos 2 lotes já
+        # rodou hoje — esta execução é a 2ª (última esperada). 4 dias limpos
+        # acumulados (1 a menos pro degrau seguinte).
         scrape_state = {
             "stage": 1, "clean_days": 4, "blocked_today": False,
             "last_change_at": None, "last_change_reason": None,
+            "last_primary_run_date": TODAY,
+            "last_batch_run_date": TODAY, "batches_run_today": 1,
         }
 
         with patch("main.get_routes", return_value=[]), \
              patch("main.get_system_config", return_value=None), \
              patch("main.process_all_weekend_legs", return_value=[]), \
              patch("main.run_daily_batch", return_value=([], True)), \
-             patch("main.current_brt_hour", return_value=20), \
+             patch("main.current_brt_date", return_value=TODAY), \
              patch("main.get_weekend_scrape_state", return_value=scrape_state), \
              patch("main.set_weekend_scrape_state") as mock_set_state, \
              patch("main.date") as mock_date, \
@@ -58,21 +66,23 @@ class BlockAtLastScheduledHourTest(unittest.TestCase):
         stage_change_sends = [c.args[0] for c in mock_send.call_args_list if c.args[0].startswith("stage=")]
         self.assertEqual(stage_change_sends, ["stage=0"])
 
-    def test_no_block_at_last_scheduled_hour_does_escalate(self):
+    def test_no_block_at_last_expected_batch_does_escalate(self):
         # Controle: sem bloqueio, mesmo cenário (Estágio 1, 4 dias limpos,
-        # última hora agendada) tem que subir pro Estágio 2 normalmente —
+        # último lote esperado) tem que subir pro Estágio 2 normalmente —
         # confirma que o teste acima falha por causa do bloqueio, não por
         # algum outro bug que sempre impede a subida.
         scrape_state = {
             "stage": 1, "clean_days": 4, "blocked_today": False,
             "last_change_at": None, "last_change_reason": None,
+            "last_primary_run_date": TODAY,
+            "last_batch_run_date": TODAY, "batches_run_today": 1,
         }
 
         with patch("main.get_routes", return_value=[]), \
              patch("main.get_system_config", return_value=None), \
              patch("main.process_all_weekend_legs", return_value=[]), \
              patch("main.run_daily_batch", return_value=([], False)), \
-             patch("main.current_brt_hour", return_value=20), \
+             patch("main.current_brt_date", return_value=TODAY), \
              patch("main.get_weekend_scrape_state", return_value=scrape_state), \
              patch("main.set_weekend_scrape_state") as mock_set_state, \
              patch("main.date") as mock_date, \
@@ -85,6 +95,81 @@ class BlockAtLastScheduledHourTest(unittest.TestCase):
         self.assertEqual(stage_calls[-1], 2)
         stage_change_sends = [c.args[0] for c in mock_send.call_args_list if c.args[0].startswith("stage=")]
         self.assertEqual(stage_change_sends, ["stage=2"])
+
+
+class DelayedScheduleDoesNotNoOpTest(unittest.TestCase):
+    """Reprodução direta do incidente de 30/07/2026 (runs #41/#42): a run
+    dispara numa hora BRT que não bate com nenhum horário "esperado" (cron
+    atrasado). Antes da correção isso zerava rotas, cache e lote fli
+    silencialmente; agora só importa se já rodou hoje ou não."""
+
+    def test_first_run_of_the_day_is_primary_and_runs_batch_no_matter_the_hour(self):
+        scrape_state = {
+            "stage": 0, "clean_days": 0, "blocked_today": False,
+            "last_change_at": None, "last_change_reason": None,
+            "last_primary_run_date": None,
+            "last_batch_run_date": None, "batches_run_today": 0,
+        }
+        route = {"id": "rota-1", "user_id": "user-1", "origin": "BSB", "destination": "GIG"}
+
+        with patch("main.get_routes", return_value=[route]), \
+             patch("main.get_settings", return_value={"notification_mode": "daily_summary"}), \
+             patch("main.get_system_config", return_value=None), \
+             patch("main.process_route") as mock_process_route, \
+             patch("main.process_all_weekend_legs", return_value=[]) as mock_cache, \
+             patch("main.run_daily_batch", return_value=([], False)) as mock_batch, \
+             patch("main.current_brt_date", return_value=TODAY), \
+             patch("main.get_weekend_scrape_state", return_value=scrape_state), \
+             patch("main.set_weekend_scrape_state"), \
+             patch("main.date") as mock_date, \
+             patch("main.send_message"), \
+             patch("main.build_summary_message", return_value="resumo"):
+            mock_process_route.return_value = {"route": route, "status": "no_data", "streak": 0}
+            mock_date.today.return_value.weekday.return_value = 2
+            main.main()
+
+        # Mesmo caindo numa "hora errada" (não simulamos hour nenhum — é
+        # justamente o ponto: não importa mais), rotas, cache e lote fli
+        # rodam normalmente na primeira execução do dia.
+        mock_process_route.assert_called_once()
+        mock_cache.assert_called_once()
+        mock_batch.assert_called_once()
+
+
+class DuplicateFireSameDayIsIdempotentTest(unittest.TestCase):
+    """Cenário (c) pedido na correção: se o Actions disparar a mesma janela
+    (ou qualquer janela) duas vezes no mesmo dia, a segunda chamada não pode
+    reprocessar rotas nem rodar lote fli de novo além da cota do estágio."""
+
+    def test_second_call_same_day_skips_primary_and_batch_already_done(self):
+        route = {"id": "rota-1", "user_id": "user-1", "origin": "BSB", "destination": "GIG"}
+        # Estado como ficaria gravado depois de uma primeira execução bem
+        # sucedida hoje: primária já rodou, 1 lote (cota do Estágio 0) já rodou.
+        scrape_state_after_first_run = {
+            "stage": 0, "clean_days": 0, "blocked_today": False,
+            "last_change_at": None, "last_change_reason": None,
+            "last_primary_run_date": TODAY,
+            "last_batch_run_date": TODAY, "batches_run_today": 1,
+        }
+
+        with patch("main.get_routes", return_value=[route]), \
+             patch("main.get_settings", return_value={"notification_mode": "alert_only"}), \
+             patch("main.get_system_config", return_value=None), \
+             patch("main.process_route") as mock_process_route, \
+             patch("main.process_all_weekend_legs") as mock_cache, \
+             patch("main.run_daily_batch") as mock_batch, \
+             patch("main.current_brt_date", return_value=TODAY), \
+             patch("main.get_weekend_scrape_state", return_value=scrape_state_after_first_run), \
+             patch("main.set_weekend_scrape_state"), \
+             patch("main.date") as mock_date, \
+             patch("main.send_message") as mock_send:
+            mock_date.today.return_value.weekday.return_value = 2
+            main.main()
+
+        mock_process_route.assert_not_called()
+        mock_cache.assert_not_called()
+        mock_batch.assert_not_called()
+        mock_send.assert_not_called()
 
 
 if __name__ == "__main__":

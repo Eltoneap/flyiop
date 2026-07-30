@@ -354,13 +354,20 @@ def set_weekend_block_streak(days: int, started_at: str | None) -> None:
 WEEKEND_SCRAPE_STATE_KEYS = (
     "weekend_scrape_stage", "weekend_scrape_clean_days", "weekend_scrape_blocked_today",
     "weekend_scrape_last_change_at", "weekend_scrape_last_change_reason",
+    "weekend_scrape_last_primary_run_date", "weekend_scrape_last_batch_run_date",
+    "weekend_scrape_batches_run_today",
 )
 
 
 def get_weekend_scrape_state() -> dict:
     """Estado do escalonamento automático de frequência (Parte 10, 28/07/2026)
     — mesmo padrão key-value de weekend_block_streak_days, sem schema fixo
-    novo. Defaults: Estágio 0, 0 dias limpos, sem bloqueio hoje."""
+    novo. Defaults: Estágio 0, 0 dias limpos, sem bloqueio hoje.
+
+    `last_primary_run_date`/`last_batch_run_date`/`batches_run_today`
+    (correção de 30/07/2026, ver scrape_schedule.py): substituem a hora BRT
+    exata como critério de "isso já rodou hoje" — sobrevivem a atraso de
+    disparo do cron do GitHub Actions."""
     resp = requests.get(
         _url(f"bot_state?key=in.({','.join(WEEKEND_SCRAPE_STATE_KEYS)})&select=key,value"),
         headers=_headers(), timeout=30,
@@ -373,19 +380,26 @@ def get_weekend_scrape_state() -> dict:
         "blocked_today": (rows.get("weekend_scrape_blocked_today") or "false") == "true",
         "last_change_at": rows.get("weekend_scrape_last_change_at"),
         "last_change_reason": rows.get("weekend_scrape_last_change_reason"),
+        "last_primary_run_date": rows.get("weekend_scrape_last_primary_run_date"),
+        "last_batch_run_date": rows.get("weekend_scrape_last_batch_run_date"),
+        "batches_run_today": int(rows.get("weekend_scrape_batches_run_today") or 0),
     }
 
 
 def set_weekend_scrape_state(**fields) -> None:
     """Grava só as chaves passadas (stage/clean_days/blocked_today/
-    last_change_at/last_change_reason) — mesmo padrão merge-duplicates das
-    outras funções de bot_state."""
+    last_change_at/last_change_reason/last_primary_run_date/
+    last_batch_run_date/batches_run_today) — mesmo padrão merge-duplicates
+    das outras funções de bot_state."""
     key_by_field = {
         "stage": "weekend_scrape_stage",
         "clean_days": "weekend_scrape_clean_days",
         "blocked_today": "weekend_scrape_blocked_today",
         "last_change_at": "weekend_scrape_last_change_at",
         "last_change_reason": "weekend_scrape_last_change_reason",
+        "last_primary_run_date": "weekend_scrape_last_primary_run_date",
+        "last_batch_run_date": "weekend_scrape_last_batch_run_date",
+        "batches_run_today": "weekend_scrape_batches_run_today",
     }
     headers = {**_headers(), "Prefer": "resolution=merge-duplicates"}
     for field, value in fields.items():

@@ -40,10 +40,12 @@ from telegram_notifier import (
 from live_check import build_package_comparison, run_daily_batch
 from scrape_schedule import (
     apply_block_reversion,
-    current_brt_hour,
+    current_brt_date,
     evaluate_stage_transition,
-    is_last_scheduled_hour,
+    is_last_expected_batch,
     is_primary_run,
+    record_batch_run,
+    record_primary_run,
     should_run_live_batch,
 )
 from travelpayouts_client import get_prices_for_dates
@@ -273,15 +275,25 @@ def build_notes(reports: list[dict]) -> list[str]:
 
 
 def main() -> None:
-    # Parte 10 (28/07/2026): daily.yml roda 3x/dia (janelas fixas em cron),
-    # mas só a execução primária (08h BRT) faz rotas flexíveis + cache
+    # Parte 10 (28/07/2026): daily.yml roda até 3x/dia (janelas fixas em
+    # cron), mas só a execução primária faz rotas flexíveis + cache
     # Travelpayouts das pernas de fim de semana + notificações de rotas —
     # as execuções extras do estágio de frequência automática só rodam o
     # lote fli. Sem isso, subir o estágio triplicaria consumo da
     # Travelpayouts sem necessidade (ela não tem detector de bloqueio nem
     # é o gargalo que motivou o escalonamento).
-    hour = current_brt_hour()
-    primary_run = is_primary_run(hour)
+    #
+    # Correção de 30/07/2026 (bug real em produção — ver scrape_schedule.py):
+    # "primária" e "lote fli esperado hoje" não são mais decididos por
+    # igualdade exata de hora BRT contra o cron (um atraso de disparo do
+    # GitHub Actions bastava pra zerar a execução inteira, silenciosamente).
+    # Agora é por estado gravado em bot_state: a primeira execução do dia,
+    # não importa a que hora chega, é a primária; o lote fli roda até
+    # completar a cota do estágio atual, contada por execuções reais.
+    today = current_brt_date()
+    scrape_state = get_weekend_scrape_state()
+    initial_stage = scrape_state["stage"]  # decide a cota do dia — não muda com bloqueio nesta execução
+    primary_run = is_primary_run(scrape_state, today)
 
     routes = get_routes()
     system_config = get_system_config() or DEFAULT_SYSTEM_CONFIG
@@ -308,35 +320,44 @@ def main() -> None:
                     print(f"[{label}] falha também ao gravar run_log")
                 reports.append({"route": route, "status": "error"})
     else:
-        print(f"[main] execução extra de estágio ({hour}h BRT) — pulando rotas flexíveis e cache Travelpayouts")
+        print(f"[main] execução extra do dia ({today}) — pulando rotas flexíveis e cache Travelpayouts")
 
     # settings do primeiro usuário definem tudo (app é single-user por design).
     # Sem rotas flexíveis cadastradas, cai no default — as pernas de fim de
     # semana não podem ficar reféns de existir alguma rota flexível.
     weekend_settings = next(iter(settings_cache.values()), None) or {**DEFAULT_SETTINGS, **system_config}
 
-    scrape_state = get_weekend_scrape_state()
-    initial_stage = scrape_state["stage"]  # decide o "agendado hoje" — não muda com bloqueio nesta execução
-
     if primary_run:
         # Novo dia de contagem começando — sempre reseta (idempotente se já
-        # estava False). Persistido na hora: cada horário é um processo novo,
-        # não dá pra confiar em estado só em memória entre execuções.
+        # estava False). Persistido na hora: cada execução é um processo
+        # novo, não dá pra confiar em estado só em memória entre execuções.
         scrape_state["blocked_today"] = False
-        set_weekend_scrape_state(blocked_today=False)
+        scrape_state = record_primary_run(scrape_state, today)
+        set_weekend_scrape_state(blocked_today=False, last_primary_run_date=today)
         # Cache (Travelpayouts) — conferidor secundário desde a Parte 3
         # (23/07/2026: só 2/132 pernas bateram, insuficiente pra decidir sozinho).
         cache_reports = process_all_weekend_legs(weekend_settings)
     else:
         cache_reports = []
 
-    if should_run_live_batch(initial_stage, hour):
+    if should_run_live_batch(initial_stage, scrape_state, today):
+        # Calculado ANTES de rodar o lote (usa a contagem pré-execução) —
+        # "esse lote, se rodar, completa a cota do dia?".
+        is_last_batch_of_day = is_last_expected_batch(initial_stage, scrape_state, today)
         # Live (fli) — fonte primária: quando encontra preço, sobrescreve
         # current_price/current_source da perna naquele dia.
         live_reports, blocked = run_daily_batch(weekend_settings)
+        scrape_state = record_batch_run(scrape_state, today)
+        set_weekend_scrape_state(
+            last_batch_run_date=today, batches_run_today=scrape_state["batches_run_today"],
+        )
     else:
-        print(f"[main] Estágio {initial_stage} não inclui {hour}h BRT — lote fli pulado nesta execução")
+        print(
+            f"[main] Estágio {initial_stage} já rodou os lotes fli esperados hoje ({today}) "
+            "— pulado nesta execução"
+        )
         live_reports, blocked = [], False
+        is_last_batch_of_day = False
 
     if blocked:
         scrape_state = apply_block_reversion(scrape_state)
@@ -347,13 +368,13 @@ def main() -> None:
         if scrape_state["changed"]:
             send_message(build_stage_change_message(scrape_state["stage"], scrape_state["reason"]))
 
-    # Avaliação de subida só na última hora agendada do estágio do INÍCIO do
-    # dia (initial_stage — não o estágio pós-bloqueio) e só se não bloqueou
-    # em nenhum momento hoje, inclusive agora mesmo (scrape_state já reflete
-    # o apply_block_reversion acima, se aconteceu nesta mesma execução) —
-    # sem isso, um bloqueio bem na hora da avaliação subiria e cairia no
-    # mesmo ciclo.
-    if is_last_scheduled_hour(initial_stage, hour) and not scrape_state["blocked_today"]:
+    # Avaliação de subida só depois do último lote esperado do dia pro
+    # estágio do INÍCIO do dia (initial_stage — não o estágio pós-bloqueio) e
+    # só se não bloqueou em nenhum momento hoje, inclusive agora mesmo
+    # (scrape_state já reflete o apply_block_reversion acima, se aconteceu
+    # nesta mesma execução) — sem isso, um bloqueio bem no lote que decidiria
+    # a subida subiria e cairia no mesmo ciclo.
+    if is_last_batch_of_day and not scrape_state["blocked_today"]:
         scrape_state = evaluate_stage_transition(scrape_state)
         set_weekend_scrape_state(stage=scrape_state["stage"], clean_days=scrape_state["clean_days"])
         if scrape_state["changed"]:

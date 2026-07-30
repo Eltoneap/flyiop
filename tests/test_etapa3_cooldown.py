@@ -19,11 +19,16 @@ def iso_days_ago(days: float) -> str:
 
 
 # Parte 10 (28/07/2026): estado padrão do escalonamento automático de
-# frequência pra testes que não são sobre isso — Estágio 0, sem bloqueio.
+# frequência pra testes que não são sobre isso — Estágio 0, sem bloqueio,
+# nada rodado ainda hoje (primária e lote fli rodam normalmente).
 SCRAPE_STATE_STAGE_0 = {
     "stage": 0, "clean_days": 0, "blocked_today": False,
     "last_change_at": None, "last_change_reason": None,
+    "last_primary_run_date": None,
+    "last_batch_run_date": None, "batches_run_today": 0,
 }
+
+TODAY = "2026-07-30"
 
 
 class CooldownBlocksAlertTest(unittest.TestCase):
@@ -125,7 +130,7 @@ class AlertLogWiringTest(unittest.TestCase):
              patch("main.process_route", return_value=report), \
              patch("main.process_all_weekend_legs", return_value=[]), \
              patch("main.run_daily_batch", return_value=([], False)), \
-             patch("main.current_brt_hour", return_value=8), \
+             patch("main.current_brt_date", return_value=TODAY), \
              patch("main.get_weekend_scrape_state", return_value=SCRAPE_STATE_STAGE_0), \
              patch("main.set_weekend_scrape_state"), \
              patch("main.date") as mock_date, \
@@ -150,7 +155,7 @@ class AlertLogWiringTest(unittest.TestCase):
              patch("main.process_route", return_value=report), \
              patch("main.process_all_weekend_legs", return_value=[]), \
              patch("main.run_daily_batch", return_value=([], False)), \
-             patch("main.current_brt_hour", return_value=8), \
+             patch("main.current_brt_date", return_value=TODAY), \
              patch("main.get_weekend_scrape_state", return_value=SCRAPE_STATE_STAGE_0), \
              patch("main.set_weekend_scrape_state"), \
              patch("main.date") as mock_date, \
@@ -173,7 +178,7 @@ class AlertLogWiringTest(unittest.TestCase):
              patch("main.get_system_config", return_value=None), \
              patch("main.process_all_weekend_legs", return_value=[weekend_report]), \
              patch("main.run_daily_batch", return_value=([], False)), \
-             patch("main.current_brt_hour", return_value=8), \
+             patch("main.current_brt_date", return_value=TODAY), \
              patch("main.get_weekend_scrape_state", return_value=SCRAPE_STATE_STAGE_0), \
              patch("main.set_weekend_scrape_state"), \
              patch("main.date") as mock_date, \
