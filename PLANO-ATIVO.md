@@ -70,7 +70,9 @@ do diagnóstico de 31/07. Como a Etapa 4 da iniciativa multi-usuário
 resolver; se passar batido, a cegueira é reconstruída e multiplicada por
 dois usuários. Escopo sugerido: tabela simples de auditoria (perna, usuário,
 teto anterior, teto novo, timestamp). **Revisar no chat de planejamento
-antes da Etapa 4.**
+antes da Etapa 4** — esta pendência é sobre o *conteúdo* da Etapa 4, não uma
+dependência do teste do item (a): Etapa 4 pode começar em paralelo ao teste
+(correção de sequenciamento de 31/07/2026, ver `STATE.md` seção 3/4).
 
 ### (e) PERGUNTAS ABERTAS do diagnóstico de 31/07 (ainda sem resposta)
 
@@ -145,8 +147,33 @@ planejamento antes de rodar. Nunca encadear etapas sozinho.
    somente-leitura no navegador; redesenho de RLS de update.
 6. Telegram: cooldown/dedup de `alert_log` por (perna × usuário); composição
    de mensagem com nome+valor; mantém o mesmo `TELEGRAM_CHAT_ID` (grupo).
+   **Depende do teste do caminho de alerta de perna** (ver "Diagnóstico:
+   caminho de alerta de perna de fim de semana" abaixo) — sem confirmação de
+   que o alerta dispara em produção, não faz sentido construir
+   cooldown/dedup por usuário em cima dele.
 7. Criar conta do segundo usuário no Supabase Auth — **por último**, só
    depois de tudo testado. Regra dura: nenhuma conta nova antes disso.
+
+**Correção de sequenciamento (31/07/2026):** as Etapas 4 e 5 são modelo de
+dados e interface — valem independente de o alerta de perna funcionar (é o
+que o segundo usuário precisa; ele não usa Telegram) — e podem começar em
+paralelo ao teste do caminho de alerta. Só a Etapa 6 depende desse teste.
+Formulação anterior (que tratava o teste como pré-requisito das Etapas 4/5)
+foi revisada e está incorreta.
+
+**Pedido de antecipar a Etapa 7 (criação da conta do segundo usuário):
+avaliado e recusado em 31/07/2026.** Motivo: `price_ceiling`/`status`/
+`notes`/`paid_price` ainda são globais e a RLS de `weekend_legs` é genérica
+hoje — qualquer autenticado sobrescreve o dado do outro, sem auditoria de
+teto pra reconstruir depois (ver pendência (d) do diagnóstico abaixo). A
+regra dura (conta nova só na Etapa 7, por último) permanece. Alternativa
+considerada e descartada: travar `weekend_legs` como somente-leitura via
+RLS temporária até a Etapa 4/5 ficarem prontas — descartada por mexer em
+política de segurança em produção, risco de falha silenciosa ao salvar no
+frontend, e por ser trabalho descartável (a RLS temporária seria jogada
+fora assim que a Etapa 5 entregasse a versão definitiva). Enquanto isso, a
+necessidade real do segundo usuário ("ver preço e saber quando comprar") é
+atendida manualmente pelo usuário principal.
 
 ---
 
