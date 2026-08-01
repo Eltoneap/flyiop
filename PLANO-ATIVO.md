@@ -1,6 +1,6 @@
 # Plano Ativo — FlyIop
 
-_Atualizado em 31/07/2026. Contém só o que está em execução ou pendente de aprovação/implementação. Tudo que já foi entregue (com data e decisões tomadas) está em `HISTORICO.md` — referencie por lá em vez de reproduzir aqui._
+_Atualizado em 01/08/2026. Contém só o que está em execução ou pendente de aprovação/implementação. Tudo que já foi entregue (com data e decisões tomadas) está em `HISTORICO.md` — referencie por lá em vez de reproduzir aqui._
 
 **Regra de apresentação (24/07/2026):** ao apresentar um plano ou atualização no chat, mostrar só a seção nova/alterada, nunca o arquivo inteiro. Para contexto, referenciar a seção pelo nome (ex.: "ver Parte 8 no HISTORICO.md") em vez de reproduzir. O arquivo completo fica no disco; o chat recebe só o delta. (Ver também `PROTOCOLO-DE-TRABALHO.md`.)
 
@@ -20,26 +20,37 @@ era artefato de comparar preço histórico contra o teto de HOJE, não contra o
 teto vigente na época do check — `weekend_legs.price_ceiling` não tem
 histórico/auditoria (ver pendência (d) abaixo).
 
-### (a) TESTE EM CURSO
+### (a) ✅ CONCLUÍDO (01/08/2026) — caminho de alerta de perna confirmado em produção
 
-Teto elevado manualmente a R$ 2000 em 5 pernas do topo da fila de rotação
-(`b4f28800`, `f2bfcf96`, `4a15353d`, `5fd70bb7`, `9c455da7`) e a R$ 500 em
-`c3c514ac` — todas com preço observado ~R$ 308-309, bem abaixo de qualquer um
-dos dois tetos. Resultado esperado na execução de 01/08/2026: ou chega alerta
-de perna no Telegram, ou o caminho está de fato quebrado, com o mapa de busca
-já pronto (arquivo:linha de cada portão, ver histórico da sessão de
-diagnóstico). **Depois do teste, devolver os tetos aos valores normais.**
+Execução de 01/08/2026 gravou 13 alertas de perna em `alert_log` (7 de teto
+fixo, incluindo `e4142357` — perna com teto R$500 não registrada no teste
+original de 31/07 — e 6 de oportunidade, primeira confirmação desse caminho
+em produção). Tetos das 7 pernas devolvidos a R$ 250; `select count(*) from
+weekend_legs where price_ceiling <> 250` retornou 0. Detalhe completo em
+`HISTORICO.md`, item 16. A Etapa 6 da iniciativa multi-usuário (abaixo)
+agora pode ser desbloqueada — sujeita à regra de revisão explícita no chat
+de planejamento antes de rodar.
 
-### (b) PENDÊNCIA — gatilho `push` no workflow
+### (b) ✅ RESOLVIDO (01/08/2026) — gatilho `push` removido do workflow
 
-`.github/workflows/daily.yml` tem `on: push` com filtro de paths (`src/**`,
-`requirements.txt`, `daily.yml`). Qualquer commit nesses caminhos roda o
-caminho primário completo contra PRODUÇÃO: consome as 20 chamadas de
-scraping do dia, grava no Supabase, dispara Telegram, e grava
-`last_primary_run_date` — podendo fazer a execução agendada do dia cair em
-modo lote-só. Recomendação do chat de planejamento: remover `push`, manter
-só `schedule` + `workflow_dispatch`. **Decisão adiada para depois do
-resultado do teste de 01/08 (item a).**
+`.github/workflows/daily.yml` tinha `on: push` com filtro de paths
+(`src/**`, `requirements.txt`, `daily.yml`), rodando o caminho primário
+completo contra PRODUÇÃO a cada commit nesses caminhos. Removido em Plan
+Mode (01/08/2026), mantendo só `schedule` + `workflow_dispatch`.
+Investigação em código antes da remoção confirmou: a última execução via
+push (mesmo dia, depois da primária das 08:55 e do lote `fli` já
+completos) foi um no-op seguro — `is_primary_run` e `should_run_live_batch`
+ambos False por cota do dia já atingida, sem chamada extra de scraping,
+sem risco pra execução agendada de 02/08 (`batches_run_today` zera por
+data, `_batches_run_today` em `src/scrape_schedule.py`). Nenhum outro
+workflow ou teste depende do gatilho push. **Efeito colateral aceito:**
+o padrão de "confirmação orgânica em produção" via push após mudanças em
+`src/**` (usado em sessões passadas — ver `HISTORICO.md` linha 135 e item
+15) deixa de existir; confirmar mudanças futuras em produção exige
+`workflow_dispatch` manual ou esperar a próxima janela agendada (até
+24h). `README.md` ainda descreve esse gatilho como "teste real
+automático" (linha 52) — desatualizado, ver pendência (iii) acima; não
+corrigido nesta mudança (fora de escopo, documentação separada).
 
 ### (c) PENDÊNCIA — desenho do alerta (reavaliação fora da coleta)
 
@@ -188,3 +199,31 @@ consistência de 30/07/2026, ao corrigir a troca `fast-flights`→`fli` nessa
 mesma linha (só a nomenclatura foi corrigida, não o conteúdo). Não
 corrigido agora — decisão de escopo, não desta iniciativa. Retomar em
 ciclo de planejamento próprio.
+
+`CLAUDE.md` referencia `ROADMAP-AUDITORIA.md` duas vezes como fonte das
+regras de scraping (item A5) e do histórico de escopo. Verificado em
+01/08/2026: o arquivo **existe** no repositório (`ROADMAP-AUDITORIA.md`,
+raiz do repo). Sem risco — a regra dura de scraping não perdeu seu arquivo
+de origem. Não corrigido agora — decisão de escopo, não desta iniciativa.
+
+`CLAUDE.md` descreve o teto default por perna como R$ 200 (seção "Fins de
+semana RIO↔BSB", "default R$ 200, pendente de calibração"). O valor real em
+uso em produção é **R$ 250** (ver `STATE.md`, seção 3 item 3, e a
+confirmação de 01/08/2026 em `select count(*) from weekend_legs where
+price_ceiling <> 250` retornando 0, registrada acima em "(a)"). `CLAUDE.md`
+ficou desatualizado nesse número. Não corrigido agora — decisão de escopo,
+não desta iniciativa.
+
+`README.md` tem duas descrições desatualizadas, verificadas em 01/08/2026
+(linhas 3, 11 e 52 do arquivo):
+- Descreve a busca de preço como "via Travelpayouts" (linhas 3 e 11). A
+  fonte primária é a `fli` desde 24/07/2026; Travelpayouts é cache
+  secundário — ver `CLAUDE.md` e `STATE.md`, "Decisões vivas".
+- Descreve o gatilho `push` do `daily.yml` como funcionalidade proposital
+  ("roda também a cada push em `src/` (teste real automático)", linha 52).
+  Conflita diretamente com a pendência (b) registrada acima (seção
+  "Diagnóstico: caminho de alerta de perna de fim de semana"), que propõe
+  **remover** esse gatilho por rodar o caminho primário completo contra
+  produção (consome scraping do dia, grava no Supabase, dispara Telegram)
+  a cada commit em `src/**`. Não corrigido agora — decisão de escopo, não
+  desta iniciativa.
