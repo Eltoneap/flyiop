@@ -46,3 +46,14 @@ update system_config set fast_flights_daily_batch_size = 20, updated_at = now();
 ```
 Lote acima de 20 pernas/dia é decisão de chat de planejamento, não operação
 de rotina — não subir sozinho sem essa revisão.
+
+## Consultar estágio do escalonamento automático (lote fli)
+
+Ver estágio atual:
+```sql
+select value from bot_state where key = 'weekend_scrape_stage';
+```
+
+Nota: stage NÃO fica em `system_config` (só `suspicious_below_avg_pct`,
+`fast_flights_enabled`, `fast_flights_daily_batch_size`) — fica em
+`bot_state`, chave `weekend_scrape_stage`.
