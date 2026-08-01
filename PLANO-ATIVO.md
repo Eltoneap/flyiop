@@ -1,8 +1,92 @@
 # Plano Ativo — FlyIop
 
-_Atualizado em 24/07/2026. Contém só o que está em execução ou pendente de aprovação/implementação. Tudo que já foi entregue (com data e decisões tomadas) está em `HISTORICO.md` — referencie por lá em vez de reproduzir aqui._
+_Atualizado em 31/07/2026. Contém só o que está em execução ou pendente de aprovação/implementação. Tudo que já foi entregue (com data e decisões tomadas) está em `HISTORICO.md` — referencie por lá em vez de reproduzir aqui._
 
 **Regra de apresentação (24/07/2026):** ao apresentar um plano ou atualização no chat, mostrar só a seção nova/alterada, nunca o arquivo inteiro. Para contexto, referenciar a seção pelo nome (ex.: "ver Parte 8 no HISTORICO.md") em vez de reproduzir. O arquivo completo fica no disco; o chat recebe só o delta. (Ver também `PROTOCOLO-DE-TRABALHO.md`.)
+
+---
+
+## Diagnóstico: caminho de alerta de perna de fim de semana (31/07/2026)
+
+`alert_log` tem 0 registros com `leg_id` desde que a coluna existe
+(23/07/2026): o caminho de alerta de PERNA de fim de semana nunca disparou em
+produção. Sessão de diagnóstico somente-leitura de 31/07/2026 não encontrou
+defeito estrutural — `should_alert` é calculado corretamente, `is_good_price`
+funciona, cooldown não bloqueia o primeiro disparo, `insert_weekend_alert_log`
+roda logo após o envio sem try/except engolindo erro, `weekend_leg_run_log`
+não registra nenhum `outcome = 'error'` nos checks investigados. A aparência
+inicial de "oportunidades perdidas" (preços históricos abaixo do teto atual)
+era artefato de comparar preço histórico contra o teto de HOJE, não contra o
+teto vigente na época do check — `weekend_legs.price_ceiling` não tem
+histórico/auditoria (ver pendência (d) abaixo).
+
+### (a) TESTE EM CURSO
+
+Teto elevado manualmente a R$ 2000 em 5 pernas do topo da fila de rotação
+(`b4f28800`, `f2bfcf96`, `4a15353d`, `5fd70bb7`, `9c455da7`) e a R$ 500 em
+`c3c514ac` — todas com preço observado ~R$ 308-309, bem abaixo de qualquer um
+dos dois tetos. Resultado esperado na execução de 01/08/2026: ou chega alerta
+de perna no Telegram, ou o caminho está de fato quebrado, com o mapa de busca
+já pronto (arquivo:linha de cada portão, ver histórico da sessão de
+diagnóstico). **Depois do teste, devolver os tetos aos valores normais.**
+
+### (b) PENDÊNCIA — gatilho `push` no workflow
+
+`.github/workflows/daily.yml` tem `on: push` com filtro de paths (`src/**`,
+`requirements.txt`, `daily.yml`). Qualquer commit nesses caminhos roda o
+caminho primário completo contra PRODUÇÃO: consome as 20 chamadas de
+scraping do dia, grava no Supabase, dispara Telegram, e grava
+`last_primary_run_date` — podendo fazer a execução agendada do dia cair em
+modo lote-só. Recomendação do chat de planejamento: remover `push`, manter
+só `schedule` + `workflow_dispatch`. **Decisão adiada para depois do
+resultado do teste de 01/08 (item a).**
+
+### (c) PENDÊNCIA — desenho do alerta (reavaliação fora da coleta)
+
+`should_alert` só é calculado no momento em que a perna é checada. O robô
+nunca reavalia um `current_price` já salvo contra um teto novo. Consequência:
+editar o teto no site não tem efeito nenhum no Telegram até a perna voltar
+na rotação (hoje ~3 dias, ver item 1 do `STATE.md`). Isso afeta diretamente
+a recalibração do teto padrão (`STATE.md`, seção 3): baixar o teto não muda
+comportamento de alerta até cada perna dar a volta, sem sinal disso em lugar
+nenhum. Nunca foi decisão explícita — é herança do código.
+
+Opções levantadas:
+- (a) reavaliar todas as pernas ao fim de cada execução primária, custo zero
+  de chamadas extras, precisa de trava de frescor.
+- (b) editar o teto empurra a perna pro topo da fila de rotação.
+- (c) não mexer e documentar o atraso como comportamento esperado.
+
+Inclinação do chat de planejamento: opção (a). **Decisão adiada para depois
+de 01/08 (item a).**
+
+### (d) PENDÊNCIA — `price_ceiling` não tem auditoria (entra na Etapa 4)
+
+`weekend_legs.price_ceiling` é sobrescrito a cada edição, sem registro do
+valor anterior nem de quando mudou. Consequência: o sistema não consegue
+responder "perdi alguma oportunidade?" — foi exatamente o que travou parte
+do diagnóstico de 31/07. Como a Etapa 4 da iniciativa multi-usuário
+(abaixo) vai criar `weekend_leg_user_state` do zero, é o momento de
+resolver; se passar batido, a cegueira é reconstruída e multiplicada por
+dois usuários. Escopo sugerido: tabela simples de auditoria (perna, usuário,
+teto anterior, teto novo, timestamp). **Revisar no chat de planejamento
+antes da Etapa 4.**
+
+### (e) PERGUNTAS ABERTAS do diagnóstico de 31/07 (ainda sem resposta)
+
+- Por que a perna `b4f28800` (return, voo 31/01/2027, `last_live_check_at`
+  null, status monitoring) não foi a primeira do lote de 31/07, se a
+  ordenação é "nulos/mais antigos primeiro"? (Resposta parcial já obtida
+  para o caso específico investigado nessa sessão — a perna citada em outro
+  ponto da conversa ficou fora por cair fora da janela de 183 dias, não por
+  ordenação — mas vale confirmar se `b4f28800` tem o mesmo padrão.)
+- Cache × live: uma perna registrou preço estável por dias via cache e depois
+  um valor bem diferente no mesmo dia. Divergência entre fontes ou movimento
+  real de preço?
+- O alerta de perna pode disparar em cima de preço de CACHE (até 48h de
+  atraso)? A mensagem diferencia a fonte, como fazem as rotas flexíveis? Uma
+  mesma perna pode ser avaliada duas vezes no mesmo dia (passada de cache +
+  lote fli)? `weekend_leg_run_log` sugere que sim.
 
 ---
 

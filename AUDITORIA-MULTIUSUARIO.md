@@ -1,5 +1,12 @@
 # Auditoria: suporte a segundo usuário (camada de decisão pessoal)
 
+> **Arquivo de trabalho, não é fonte da verdade.** Fotografia do estado do
+> sistema na data de cada seção; não é atualizado quando o sistema muda. Em
+> caso de divergência, `STATE.md` e `PLANO-ATIVO.md` prevalecem. (Aviso
+> acrescentado em 31/07/2026, depois que a seção 2 abaixo — desatualizada
+> desde a correção da policy de `alert_log` em 29/07 — quase levou um
+> diagnóstico de produção pro caminho errado.)
+
 Data: 29/07/2026. Só investigação — nenhum arquivo de código/schema foi alterado.
 
 **Limitação de método:** não há acesso direto ao Postgres do Supabase nesta sessão
@@ -58,19 +65,24 @@ perna, precisa virar 1 valor por (perna × usuário).
 | `routes` | não rastreada — mas `sql/etapa3_cooldown.sql` referencia `routes.user_id`, então provavelmente `user_id = auth.uid()` já existe | não confirmada | não confirmada | — |
 | `price_history`, `run_log` (rotas flexíveis) | não rastreada — provavelmente aberta a qualquer autenticado (mesmo padrão dos outros "\*_select_authenticated") | — | — | — |
 
-**Achado importante — `alert_log` está quebrada para pernas de fim de semana.**
-A policy de select (`sql/etapa3_cooldown.sql:17-21`) só cobre `route_id in (select
-id from routes where user_id = auth.uid())`. Quando `pernas_desacopladas.sql`
-introduziu `leg_id` como alternativa a `route_id` (linha 97-99: `check (route_id is
-not null or leg_id is not null)`), **nenhuma migration atualizou a policy de select**
-para incluir `leg_id is not null`. Resultado: linhas de `alert_log` geradas por
-`insert_weekend_alert_log` (via `leg_id`, sem `route_id`) não são visíveis a
-nenhum usuário autenticado sob RLS — `route_id in (select ...)` nunca é verdadeiro
-quando `route_id` é `NULL`. Isso não impede o robô de gravar (ele usa service_role,
-que ignora RLS), mas qualquer feature futura do frontend que tente ler alertas de
-fim de semana direto de `alert_log` vai ver a tabela vazia. **Não é um problema
-introduzido pela mudança multi-usuário — já existe hoje**, mas relevante porque
-qualquer redesenho de RLS para multi-usuário vai mexer nessa mesma tabela.
+**Achado histórico (29/07/2026), já corrigido — ver nota abaixo.**
+Na data desta seção, a policy de select (`sql/etapa3_cooldown.sql:17-21`) só
+cobria `route_id in (select id from routes where user_id = auth.uid())`.
+Quando `pernas_desacopladas.sql` introduziu `leg_id` como alternativa a
+`route_id` (linha 97-99: `check (route_id is not null or leg_id is not
+null)`), nenhuma migration tinha atualizado a policy de select ainda para
+incluir `leg_id is not null`. Resultado na época: linhas de `alert_log`
+geradas por `insert_weekend_alert_log` (via `leg_id`, sem `route_id`) não
+eram visíveis a nenhum usuário autenticado sob RLS. Isso nunca impediu o
+robô de gravar (sempre usa service_role, que ignora RLS).
+
+> **Correção confirmada em produção (verificado 31/07/2026 via
+> `select * from pg_policies where tablename = 'alert_log'`):** a policy
+> real hoje é `alert_log_select_own_routes_or_any_leg`, cobrindo
+> `route_id is not null and route_id in (...)` **ou** `leg_id is not null
+> and auth.uid() is not null` — aplicada na Etapa 2 (29/07/2026, ver
+> `PLANO-ATIVO.md`). O achado acima descreve o estado **antes** da correção;
+> mantido como registro histórico da investigação, não como estado atual.
 
 **Padrão geral observado:** quase todas as policies de "select" são
 `auth.uid() is not null` — ou seja, **qualquer usuário autenticado enxerga e
@@ -184,8 +196,8 @@ Isso é exatamente o esperado de um app single-user com RLS "genérica" (a barre
   pode editar qualquer linha" — hoje não há sequer isolamento por linha,
   então qualquer segundo usuário já pode mexer nos dados do primeiro assim
   que logar, mesmo sem a mudança de schema.
-- `alert_log`: policy de select desatualizada (não cobre `leg_id`) — vale
-  corrigir junto, já que qualquer redesenho de RLS vai tocar essa tabela.
+- ~~`alert_log`: policy de select desatualizada (não cobre `leg_id`)~~ —
+  **corrigida em produção em 29/07/2026** (ver seção 2, nota de 31/07).
 - Telegram: precisa de tabela `user_id ↔ chat_id` e lógica de roteamento de
   mensagem por decisão pessoal (ex: só notificar quem ainda não comprou
   aquela perna). Hoje é 100% hardcoded a um chat.
@@ -204,9 +216,8 @@ Isso é exatamente o esperado de um app single-user com RLS "genérica" (a barre
   status de compra, mesmas notas). Isso é o oposto do que a "camada de
   decisão pessoal" pretende — é o primeiro coisa a resolver, antes mesmo de
   pensar em UI.
-- **`alert_log` select policy quebrada para `leg_id`** (achado colateral,
-  independente da tarefa multi-usuário, mas na mesma tabela que qualquer
-  redesenho vai mexer).
+- ~~**`alert_log` select policy quebrada para `leg_id`**~~ — **corrigida em
+  produção em 29/07/2026** (ver seção 2, nota de 31/07).
 - Schema de tabelas pré-`sql/` (`routes`, `settings`, `price_history`,
   `run_log`) não está versionado — antes de migrar, vale rodar
   `pg_dump --schema-only` (ou o equivalente no dashboard) pra ter certeza do
