@@ -151,9 +151,12 @@ planejamento antes de rodar. Nunca encadear etapas sozinho.
    Etapa 3b (remoção), só depois de alguns dias de produção estável.
    Detalhe/histórico da decisão em `AUDITORIA-MULTIUSUARIO.md`.
 4. Tabela de decisão pessoal (`weekend_leg_user_state`: teto/status/notas/
-   valor pago por usuário) + migrar dados atuais em 3 degraus (criar e
-   copiar → frontend passa a usar → só depois remover colunas antigas de
-   `weekend_legs`).
+   valor pago por usuário) + migrar dados atuais em 3 degraus:
+   - **4.1** — criar a estrutura nova e copiar os dados, sem que nada passe a
+     lê-la (detalhe abaixo, seção "Etapa 4.1"). Aprovada em 01/08/2026.
+   - **4.2** — frontend e robô passam a ler/escrever a estrutura nova
+     (pendências nomeadas abaixo, na seção da 4.1).
+   - **4.3** — só depois, remover as colunas antigas de `weekend_legs`.
 5. Frontend: Compras/Dashboard por usuário logado; `weekend_legs` vira
    somente-leitura no navegador; redesenho de RLS de update.
 6. Telegram: cooldown/dedup de `alert_log` por (perna × usuário); composição
@@ -164,6 +167,14 @@ planejamento antes de rodar. Nunca encadear etapas sozinho.
    cooldown/dedup por usuário em cima dele.
 7. Criar conta do segundo usuário no Supabase Auth — **por último**, só
    depois de tudo testado. Regra dura: nenhuma conta nova antes disso.
+   **Segunda regra dura (01/08/2026, Etapa 4.1):** criar a linha de
+   `settings` do usuário é parte obrigatória de criar a conta, no mesmo
+   ato. A view `weekend_leg_effective` usa `settings` como registro de
+   usuários; conta sem linha em `settings` não aparece na view — nenhuma
+   perna, nenhum alerta, painel vazio, e **sem erro em lugar nenhum**.
+   O teste real de isolamento entre as duas contas (o que os blocos E e F
+   da verificação da 4.1 só conseguem simular) é a primeira coisa a fazer
+   depois de criar a conta, antes de ela receber qualquer dado.
 
 **Correção de sequenciamento (31/07/2026):** as Etapas 4 e 5 são modelo de
 dados e interface — valem independente de o alerta de perna funcionar (é o
@@ -185,6 +196,83 @@ frontend, e por ser trabalho descartável (a RLS temporária seria jogada
 fora assim que a Etapa 5 entregasse a versão definitiva). Enquanto isso, a
 necessidade real do segundo usuário ("ver preço e saber quando comprar") é
 atendida manualmente pelo usuário principal.
+
+---
+
+## Etapa 4.1 — estrutura de decisão pessoal por perna (aprovada 01/08/2026)
+
+Implementada como **dois arquivos em `sql/`, para rodar manualmente no SQL
+Editor** (mesmo fluxo de `system_config.sql`). Nada em `src/` ou `docs/js/` foi
+tocado: ao fim da 4.1 o sistema tem que se comportar exatamente como antes.
+
+- `sql/etapa4_1_estado_por_usuario.sql` — guardas, `settings.weekend_default_ceiling`
+  (250), `weekend_leg_user_state` (modelo preguiçoso, RLS per-user),
+  `weekend_leg_ceiling_audit` (append-only, alimentada por trigger),
+  `weekend_leg_effective` (view com `security_invoker = true`), cópia dos dados.
+- `sql/etapa4_1_verificacao.sql` — somente leitura. Blocos A/B/C rodam antes e
+  depois e têm que sair idênticos; E é o teste negativo de isolamento e F o
+  positivo (com o uuid real), ambos em transação com `rollback`.
+
+Passo 0 rodado em 01/08/2026: Postgres 17.6, `settings` com 1 linha
+(`c72bf50e-16f7-48fd-9c86-7b49dea1551e`), `settings_pkey = PRIMARY KEY (user_id)`
+— duplicata de `settings` é impossível por construção.
+
+**Ordem de execução (manual):** verificação (A/B/C) → script da 4.1 →
+verificação inteira (A a G) → comparar.
+
+### Pendências nomeadas da Etapa 4.2
+
+1. **Re-sync do estado antes de virar a leitura.** A cópia da 4.1 é uma
+   fotografia. A partir dela, todo `paid_price`/nota/compra novo continua indo
+   para `weekend_legs` (mundo antigo) e não para `weekend_leg_user_state`.
+   Quanto maior o intervalo 4.1 → 4.2, mais desatualizada a cópia. O Bloco 7b é
+   re-rodável, mas `on conflict do nothing` **não atualiza** linha já criada — o
+   re-sync da 4.2 precisa de lógica própria.
+2. **Teto editado no painel entre a 4.1 e a 4.2 vira caso especial do re-sync.**
+   O guarda 1c do script exige todas as pernas em 250 no momento de rodar, e a
+   4.1 por isso não copia teto. Se um teto for editado no painel depois disso,
+   ele vai para a coluna velha (`weekend_legs.price_ceiling`), a auditoria nova
+   não enxerga (a trigger é na tabela nova), e o re-sync da 4.2 tem que saber
+   transformar aquele valor em **override explícito** em
+   `weekend_leg_user_state.price_ceiling` — e registrar isso na auditoria com
+   origem própria. Se passar batido, o ajuste manual some na virada.
+3. **`docs/js/compras.js`** — ler de `weekend_leg_effective`, escrever em
+   `weekend_leg_user_state` (upsert por `leg_id`, sem mandar `user_id`, que tem
+   `default auth.uid()`), remover `DEFAULT_CEILING = 200`.
+4. **Botão "aplicar teto a todos" muda de significado** (decisão do chat de
+   planejamento, 01/08/2026): vira "mudar meu teto padrão", editando
+   `settings.weekend_default_ceiling`, e **não sobrescreve** teto ajustado à mão
+   perna a perna. Hoje (`docs/js/compras.js:517`) ele faz `update` em massa em
+   `weekend_legs` e sobrescreve tudo — o próprio `confirm()` avisa. É mudança de
+   comportamento visível, e o texto do `confirm()` tem que mudar junto.
+5. **`docs/js/dashboard.js:50,135,188`** — mesma troca de fonte.
+6. **`src/weekends.py:164`, `src/live_check.py:123`, `src/telegram_notifier.py:169`**
+   — trocar `leg.price_ceiling or 200` pelo teto efetivo por usuário. Encosta na
+   Etapa 6 (alerta por perna × usuário); decidir na 4.2 até onde vai.
+7. **`src/main.py:328`** — hoje o fluxo de fim de semana usa as settings do
+   *primeiro* usuário que tiver rota cadastrada
+   (`next(iter(settings_cache.values()))`). Precisa virar iteração explícita por
+   usuário.
+8. **`CLAUDE.md` e os `or 200`.** A 4.1 cria a fonte de verdade nova
+   (`settings.weekend_default_ceiling` = 250) e ela convive com os quatro
+   fallbacks `or 200` no código e com o texto desatualizado do `CLAUDE.md`. Sem
+   efeito prático enquanto nada lê o novo — não pode passar batido na virada.
+
+### Limites conhecidos da 4.1 (registrados, não são pendência)
+
+- A auditoria nasce com um marco inicial (`origin = 'migracao'`), não com
+  histórico: continua impossível responder "que teto valia em 20/07/2026?".
+- Append-only vale para a API (RLS sem policy de escrita), não para quem entra
+  no SQL Editor como `postgres`, que é dono da tabela. Fechar isso exigiria
+  `force row level security`, que bloquearia a própria trigger.
+- A segurança da view é emprestada da RLS das tabelas de baixo — ela não tem
+  filtro próprio, de propósito (com `user_id = auth.uid()` embutido, o robô, que
+  roda como `service_role` com `auth.uid()` nulo, veria zero linhas). Qualquer
+  policy nova em `settings` ou `weekend_leg_user_state` exige re-rodar os blocos
+  E e F da verificação.
+- As 5 pernas com `paid_price` preenchido e `status = 'monitoring'` são anomalia
+  conhecida: copiadas como estão, sem normalizar (decisão do chat de
+  planejamento).
 
 ---
 
