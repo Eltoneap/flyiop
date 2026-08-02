@@ -330,3 +330,149 @@ antes de rodar no SQL Editor.
     só falta confirmar que insert de `routes` no frontend está de fato
     preenchendo/herdando `user_id` corretamente).
   - Criar o segundo usuário no Supabase Auth via dashboard (não exige código).
+
+---
+
+## Etapa 4.1 — baseline antes/depois (01/08/2026)
+
+Fotografia do estado do banco colhida no SQL Editor com os blocos A, B e C de
+[sql/etapa4_1_verificacao.sql](sql/etapa4_1_verificacao.sql), **antes** de rodar
+[sql/etapa4_1_estado_por_usuario.sql](sql/etapa4_1_estado_por_usuario.sql).
+
+**Os três blocos têm que sair idênticos nas duas colheitas.** É a verificação de
+que a 4.1 não mudou comportamento nenhum: A prova que a cópia de dados não
+alterou o mundo antigo, e **B e C são a prova de que a 4.1 não tocou em policy
+nem pendurou trigger em `weekend_legs`** (mexer nas policies e colunas dessa
+tabela é a Etapa 4.3/5, não esta).
+
+### ANTES — colhido em 01/08/2026, antes de rodar o script
+
+**Bloco A — `weekend_legs`**
+
+| legs | teto_250 | monitorando | com_pago | com_nota |
+|---:|---:|---:|---:|---:|
+| 132 | 132 | 132 | 5 | 0 |
+
+**Bloco B — policies de `weekend_legs`**
+
+| policyname | cmd | qual | with_check |
+|---|---|---|---|
+| `weekend_legs_select_authenticated` | SELECT | `(auth.uid() IS NOT NULL)` | null |
+| `weekend_legs_update_authenticated` | UPDATE | `(auth.uid() IS NOT NULL)` | `(auth.uid() IS NOT NULL)` |
+
+**Bloco C — triggers de `weekend_legs`**
+
+Nenhuma linha — a tabela não tem trigger própria.
+
+### DEPOIS — colhido em 01/08/2026, depois de rodar o script
+
+**Bloco A — `weekend_legs`**
+
+| legs | teto_250 | monitorando | com_pago | com_nota |
+|---:|---:|---:|---:|---:|
+| 132 | 132 | 132 | 5 | 0 |
+
+**Bloco B — policies de `weekend_legs`**
+
+| policyname | cmd | qual | with_check |
+|---|---|---|---|
+| `weekend_legs_select_authenticated` | SELECT | `(auth.uid() IS NOT NULL)` | null |
+| `weekend_legs_update_authenticated` | UPDATE | `(auth.uid() IS NOT NULL)` | `(auth.uid() IS NOT NULL)` |
+
+**Bloco C — triggers de `weekend_legs`**
+
+Nenhuma linha (`Success. No rows returned`).
+
+**Os três blocos saíram idênticos ao ANTES** — mesma contagem em A, mesmas duas
+policies em B com `qual`/`with_check` de texto idêntico, mesma ausência de
+trigger em C. É a prova de que a 4.1 não alterou o mundo antigo: não mexeu em
+policy e não pendurou trigger em `weekend_legs`.
+
+### Verificação das estruturas novas (blocos D–G) — 01/08/2026
+
+**D — estado inicial das estruturas novas** (rodado como `postgres`, que ignora
+RLS):
+
+| medida | valor |
+|---|---:|
+| `weekend_leg_user_state` | 5 linhas |
+| `weekend_leg_ceiling_audit` | 1 linha (`scope 'default'`, `origin 'migracao'`, null → 250) |
+| `weekend_leg_effective` | 132 linhas |
+| `resolvido_250` | 132 |
+| `com_teto_proprio` | 0 |
+| `com_linha_de_estado` | 5 |
+
+Confirma o **modelo preguiçoso**: ninguém tem teto próprio ainda
+(`com_teto_proprio = 0`), todas as 132 pernas resolvem o teto pelo padrão do
+usuário (`settings.weekend_default_ceiling = 250`), e só as 5 pernas com
+`paid_price` têm linha de estado.
+
+**E — teste negativo de isolamento** (uuid falso, em transação com `rollback`):
+view 0, estado 0, auditoria 0. **Sem vazamento entre usuários** — quem não é
+dono não enxerga nada, nem nas tabelas nem na view.
+
+**F — teste positivo** (`auth.uid()` real, rodado como usuário logado, em
+transação com `rollback`): view 132, estado 5, auditoria 1, `resolvido_250` 132,
+`com_pago` 5. O usuário real vê exatamente o mesmo mundo que via antes.
+
+**G — personas e carimbo de origem.** O `origin` saiu correto nas quatro
+situações, todas com `current_user = 'postgres'`:
+
+| persona | origin | auth_uid | current_user |
+|---|---|---|---|
+| SQL Editor (sem claims) | `sql_editor` | null | `postgres` |
+| app (claims de usuário logado) | `app` | `c72bf50e-…` (preservado) | `postgres` |
+| robô (`role: service_role`) | `robo` | null | `postgres` |
+| override explícito | `migracao` | null | `postgres` |
+
+Confirma **em produção** o motivo da correção 1: a origem tem que vir de
+`request.jwt.claims`, não de `current_user` — dentro de uma função
+`SECURITY DEFINER` o `current_user` é sempre o dono da função (`postgres`), nas
+quatro personas. Derivar a origem dali carimbaria toda escrita do robô e do
+painel como `sql_editor`. Note também que o `auth_uid` do painel foi
+**preservado** através do `SECURITY DEFINER`, que é o que permite a auditoria
+saber de quem foi a edição.
+
+### Pendências operacionais da 4.1
+
+- **Defeito no arquivo [sql/etapa4_1_verificacao.sql](sql/etapa4_1_verificacao.sql):
+  os blocos E e F contêm vários `select`, e o SQL Editor do Supabase só exibe o
+  resultado do ÚLTIMO comando** — os anteriores somem em silêncio, sem aviso de
+  que houve resultado descartado. O bloco E precisou ser rodado de novo como
+  consulta única para se ler os três números. **Correção pendente:** consolidar E
+  e F para devolverem uma única linha de resultado cada. Não corrigido nesta
+  passagem (a verificação já foi feita à mão); pendência registrada também no
+  `PLANO-ATIVO.md`, item 11 da Etapa 4.2.
+- **Bloco H (limpeza) pendente de execução manual.** É o `drop` da sonda
+  `flyiop_audit_selftest`, que é `SECURITY DEFINER` e **não deve permanecer no
+  banco** — existe só para o bloco G. Enquanto não for rodado, a função continua
+  em produção.
+
+### Checagem do script num Postgres real (chat de planejamento, 01/08/2026)
+
+Antes de rodar em produção, o script foi executado de ponta a ponta num
+**Postgres 16.14 descartável**, com `auth.uid()`, `auth.users` e os papéis do
+Supabase imitados. Resultado:
+
+- Rodou inteiro, sem erro de sintaxe nem de dependência.
+- **Idempotência confirmada:** duas execuções seguidas, sem duplicar nada.
+- Guardas, cópia (1 linha de auditoria + 5 de estado) e view: OK.
+- **View:** 132 pernas para o usuário logado (caso positivo) e 0 para um uuid
+  estranho (caso negativo).
+- **A correção 1 era necessária:** a sonda confirmou `current_user = 'postgres'`
+  dentro do `security definer` — derivar a origem dali carimbaria toda escrita
+  do robô como `sql_editor`. Com a derivação por `request.jwt.claims`, o
+  `origin` saiu correto nas três personas (`app` / `robo` / `sql_editor`).
+- **RLS de escrita:** insert do painel sem `user_id` funciona (pega o
+  `default auth.uid()`); insert com uuid alheio é rejeitado; `delete` na
+  auditoria dá `permission denied`.
+- **Auditoria dispara só no que deve:** editar nota não gera linha, editar teto
+  gera. A ida e volta 250 → 320 → 280 → delete produziu 3 linhas coerentes.
+- **Isolamento com DUAS contas reais** (no banco descartável): cada usuário vê
+  só os próprios tetos e valores pagos; `service_role` vê 264 linhas (132 × 2).
+
+**Ressalvas.** Rodou em PG 16, não no 17.6 da produção (`security_invoker`
+existe desde o 15 e o comportamento é o mesmo), e os papéis do Supabase foram
+imitados, não são os reais. Isso torna a checagem uma boa prova de sintaxe,
+lógica e desenho — **não** substitui o bloco F (teste positivo com o uuid real)
+rodado no banco de produção.

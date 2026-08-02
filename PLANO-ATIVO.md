@@ -1,6 +1,6 @@
 # Plano Ativo — FlyIop
 
-_Atualizado em 01/08/2026. Contém só o que está em execução ou pendente de aprovação/implementação. Tudo que já foi entregue (com data e decisões tomadas) está em `HISTORICO.md` — referencie por lá em vez de reproduzir aqui._
+_Atualizado em 02/08/2026. Contém só o que está em execução ou pendente de aprovação/implementação. Tudo que já foi entregue (com data e decisões tomadas) está em `HISTORICO.md` — referencie por lá em vez de reproduzir aqui._
 
 **Regra de apresentação (24/07/2026):** ao apresentar um plano ou atualização no chat, mostrar só a seção nova/alterada, nunca o arquivo inteiro. Para contexto, referenciar a seção pelo nome (ex.: "ver Parte 8 no HISTORICO.md") em vez de reproduzir. O arquivo completo fica no disco; o chat recebe só o delta. (Ver também `PROTOCOLO-DE-TRABALHO.md`.)
 
@@ -20,39 +20,13 @@ era artefato de comparar preço histórico contra o teto de HOJE, não contra o
 teto vigente na época do check — `weekend_legs.price_ceiling` não tem
 histórico/auditoria (ver pendência (d) abaixo).
 
-### (a) ✅ CONCLUÍDO (01/08/2026) — caminho de alerta de perna confirmado em produção
+### (a) e (b) ✅ CONCLUÍDOS (01/08/2026) — movidos para o `HISTORICO.md`
 
-Execução de 01/08/2026 gravou 13 alertas de perna em `alert_log` (7 de teto
-fixo, incluindo `e4142357` — perna com teto R$500 não registrada no teste
-original de 31/07 — e 6 de oportunidade, primeira confirmação desse caminho
-em produção). Tetos das 7 pernas devolvidos a R$ 250; `select count(*) from
-weekend_legs where price_ceiling <> 250` retornou 0. Detalhe completo em
-`HISTORICO.md`, item 16. A Etapa 6 da iniciativa multi-usuário (abaixo)
-agora pode ser desbloqueada — sujeita à regra de revisão explícita no chat
-de planejamento antes de rodar.
+Caminho de alerta de perna confirmado em produção (13 alertas gravados em
+`alert_log`) e gatilho `push` removido do `daily.yml`. Detalhe completo no
+`HISTORICO.md`, item 16.
 
-### (b) ✅ RESOLVIDO (01/08/2026) — gatilho `push` removido do workflow
-
-`.github/workflows/daily.yml` tinha `on: push` com filtro de paths
-(`src/**`, `requirements.txt`, `daily.yml`), rodando o caminho primário
-completo contra PRODUÇÃO a cada commit nesses caminhos. Removido em Plan
-Mode (01/08/2026), mantendo só `schedule` + `workflow_dispatch`.
-Investigação em código antes da remoção confirmou: a última execução via
-push (mesmo dia, depois da primária das 08:55 e do lote `fli` já
-completos) foi um no-op seguro — `is_primary_run` e `should_run_live_batch`
-ambos False por cota do dia já atingida, sem chamada extra de scraping,
-sem risco pra execução agendada de 02/08 (`batches_run_today` zera por
-data, `_batches_run_today` em `src/scrape_schedule.py`). Nenhum outro
-workflow ou teste depende do gatilho push. **Efeito colateral aceito:**
-o padrão de "confirmação orgânica em produção" via push após mudanças em
-`src/**` (usado em sessões passadas — ver `HISTORICO.md` linha 135 e item
-15) deixa de existir; confirmar mudanças futuras em produção exige
-`workflow_dispatch` manual ou esperar a próxima janela agendada (até
-24h). `README.md` ainda descreve esse gatilho como "teste real
-automático" (linha 52) — desatualizado, ver pendência (iii) acima; não
-corrigido nesta mudança (fora de escopo, documentação separada).
-
-### (c) PENDÊNCIA — desenho do alerta (reavaliação fora da coleta)
+### (c) ✅ DECIDIDA (chat de planejamento, 02/08/2026) — reavaliação fora da coleta
 
 `should_alert` só é calculado no momento em que a perna é checada. O robô
 nunca reavalia um `current_price` já salvo contra um teto novo. Consequência:
@@ -62,28 +36,34 @@ a recalibração do teto padrão (`STATE.md`, seção 3): baixar o teto não mud
 comportamento de alerta até cada perna dar a volta, sem sinal disso em lugar
 nenhum. Nunca foi decisão explícita — é herança do código.
 
-Opções levantadas:
-- (a) reavaliar todas as pernas ao fim de cada execução primária, custo zero
-  de chamadas extras, precisa de trava de frescor.
-- (b) editar o teto empurra a perna pro topo da fila de rotação.
-- (c) não mexer e documentar o atraso como comportamento esperado.
+**Decisão: opção (a), e vai para a Etapa 4.2.** A reavaliação roda **ao fim de
+cada execução primária**, **sem nenhuma chamada extra de scraping** (reavalia
+o `current_price` já salvo, não busca preço novo), com **trava de frescor**
+(preço velho demais não vira alerta). Descartadas: (b) empurrar a perna pro
+topo da fila e (c) documentar o atraso como esperado.
 
-Inclinação do chat de planejamento: opção (a). **Decisão adiada para depois
-de 01/08 (item a).**
+**Nasce DESLIGADA**, por chave em `system_config` — só é ligada depois que a
+observação do cooldown com dado real (`STATE.md`, seção 3, item 1b) confirmar
+o comportamento. Motivo: reavaliar todas as pernas a cada execução multiplica
+o número de oportunidades de alerta, e o cooldown/dedup ainda nunca operou com
+`alert_log` populada.
 
-### (d) PENDÊNCIA — `price_ceiling` não tem auditoria (entra na Etapa 4)
+### (d) ✅ RESOLVIDA na Etapa 4.1 (01/08/2026) — `price_ceiling` agora tem auditoria
 
-`weekend_legs.price_ceiling` é sobrescrito a cada edição, sem registro do
-valor anterior nem de quando mudou. Consequência: o sistema não consegue
-responder "perdi alguma oportunidade?" — foi exatamente o que travou parte
-do diagnóstico de 31/07. Como a Etapa 4 da iniciativa multi-usuário
-(abaixo) vai criar `weekend_leg_user_state` do zero, é o momento de
-resolver; se passar batido, a cegueira é reconstruída e multiplicada por
-dois usuários. Escopo sugerido: tabela simples de auditoria (perna, usuário,
-teto anterior, teto novo, timestamp). **Revisar no chat de planejamento
-antes da Etapa 4** — esta pendência é sobre o *conteúdo* da Etapa 4, não uma
-dependência do teste do item (a): Etapa 4 pode começar em paralelo ao teste
-(correção de sequenciamento de 31/07/2026, ver `STATE.md` seção 3/4).
+`weekend_legs.price_ceiling` era sobrescrito a cada edição, sem registro do
+valor anterior nem de quando mudou — o sistema não conseguia responder "perdi
+alguma oportunidade?", e foi exatamente o que travou parte do diagnóstico de
+31/07.
+
+**Resolvido:** a Etapa 4.1 criou `weekend_leg_ceiling_audit` (perna, usuário,
+teto anterior, teto novo, origem, timestamp), append-only e **alimentada por
+trigger no banco** — por ser trigger e não código de aplicação, captura
+inclusive edição feita direto no SQL Editor. Ver `HISTORICO.md`, item 17.
+
+Limite que permanece: a auditoria nasce com um marco inicial (`origin =
+'migracao'`), não com histórico retroativo — continua impossível responder
+"que teto valia em 20/07/2026?". Registrado em "Limites conhecidos da 4.1",
+abaixo.
 
 ### (e) PERGUNTAS ABERTAS do diagnóstico de 31/07 (ainda sem resposta)
 
@@ -152,10 +132,13 @@ planejamento antes de rodar. Nunca encadear etapas sozinho.
    Detalhe/histórico da decisão em `AUDITORIA-MULTIUSUARIO.md`.
 4. Tabela de decisão pessoal (`weekend_leg_user_state`: teto/status/notas/
    valor pago por usuário) + migrar dados atuais em 3 degraus:
-   - **4.1** — criar a estrutura nova e copiar os dados, sem que nada passe a
-     lê-la (detalhe abaixo, seção "Etapa 4.1"). Aprovada em 01/08/2026.
-   - **4.2** — frontend e robô passam a ler/escrever a estrutura nova
-     (pendências nomeadas abaixo, na seção da 4.1).
+   - **4.1** — ✅ **Concluída e verificada (01/08/2026).** Estrutura nova criada
+     e dados copiados, sem que nada passe a lê-la. Rodada à mão no SQL Editor e
+     verificada com os blocos A–G. Detalhe no `HISTORICO.md`, item 17;
+     tabelas da verificação em `AUDITORIA-MULTIUSUARIO.md`.
+   - **4.2** — frontend e robô passam a ler/escrever a estrutura nova.
+     **Em revisão no chat de planejamento, ainda não aprovada** — pendências
+     nomeadas abaixo, na seção "Etapa 4.2".
    - **4.3** — só depois, remover as colunas antigas de `weekend_legs`.
 5. Frontend: Compras/Dashboard por usuário logado; `weekend_legs` vira
    somente-leitura no navegador; redesenho de RLS de update.
@@ -187,8 +170,10 @@ foi revisada e está incorreta.
 avaliado e recusado em 31/07/2026.** Motivo: `price_ceiling`/`status`/
 `notes`/`paid_price` ainda são globais e a RLS de `weekend_legs` é genérica
 hoje — qualquer autenticado sobrescreve o dado do outro, sem auditoria de
-teto pra reconstruir depois (ver pendência (d) do diagnóstico abaixo). A
-regra dura (conta nova só na Etapa 7, por último) permanece. Alternativa
+teto pra reconstruir depois (pendência (d) do diagnóstico — **a parte da
+auditoria foi resolvida pela Etapa 4.1 em 01/08/2026**; as colunas globais e
+a RLS genérica de `weekend_legs` continuam como estavam, e a recusa segue de
+pé). A regra dura (conta nova só na Etapa 7, por último) permanece. Alternativa
 considerada e descartada: travar `weekend_legs` como somente-leitura via
 RLS temporária até a Etapa 4/5 ficarem prontas — descartada por mexer em
 política de segurança em produção, risco de falha silenciosa ao salvar no
@@ -199,28 +184,32 @@ atendida manualmente pelo usuário principal.
 
 ---
 
-## Etapa 4.1 — estrutura de decisão pessoal por perna (aprovada 01/08/2026)
+## Etapa 4.2 — virada de leitura (EM REVISÃO no chat de planejamento, ainda NÃO aprovada)
 
-Implementada como **dois arquivos em `sql/`, para rodar manualmente no SQL
-Editor** (mesmo fluxo de `system_config.sql`). Nada em `src/` ou `docs/js/` foi
-tocado: ao fim da 4.1 o sistema tem que se comportar exatamente como antes.
+**Etapa 4.1 concluída e verificada em 01/08/2026.** A estrutura nova
+(`weekend_leg_user_state`, `settings.weekend_default_ceiling` = 250,
+`weekend_leg_ceiling_audit`, view `weekend_leg_effective`) existe no banco de
+produção e passou pelos blocos A–G. Detalhe no `HISTORICO.md`, item 17;
+tabelas da verificação em `AUDITORIA-MULTIUSUARIO.md`. Nada lê a estrutura nova
+ainda — é o que esta etapa faz.
 
-- `sql/etapa4_1_estado_por_usuario.sql` — guardas, `settings.weekend_default_ceiling`
-  (250), `weekend_leg_user_state` (modelo preguiçoso, RLS per-user),
-  `weekend_leg_ceiling_audit` (append-only, alimentada por trigger),
-  `weekend_leg_effective` (view com `security_invoker = true`), cópia dos dados.
-- `sql/etapa4_1_verificacao.sql` — somente leitura. Blocos A/B/C rodam antes e
-  depois e têm que sair idênticos; E é o teste negativo de isolamento e F o
-  positivo (com o uuid real), ambos em transação com `rollback`.
+> ### ⚠️ REGRA DE JANELA ABERTA — vigente agora, entre a 4.1 e a 4.2
+>
+> Entre a 4.1 e a 4.2 **o estado vive em dois lugares**: o mundo antigo
+> (`weekend_legs`) continua sendo o que o painel e o robô leem e escrevem, e o
+> mundo novo (`weekend_leg_user_state`) existe mas está parado na fotografia do
+> dia da cópia.
+>
+> Consequência prática: **teto editado no painel nesse intervalo vai para a
+> coluna velha** (`weekend_legs.price_ceiling`), **a auditoria nova não
+> enxerga** (a trigger está na tabela nova), e o re-sync da 4.2 vai ter que
+> transformar aquele valor em **override explícito** em
+> `weekend_leg_user_state.price_ceiling`, com registro próprio na auditoria.
+> Se passar batido, o ajuste manual some na virada.
+>
+> **Enquanto a 4.2 não fechar: não editar teto no painel.**
 
-Passo 0 rodado em 01/08/2026: Postgres 17.6, `settings` com 1 linha
-(`c72bf50e-16f7-48fd-9c86-7b49dea1551e`), `settings_pkey = PRIMARY KEY (user_id)`
-— duplicata de `settings` é impossível por construção.
-
-**Ordem de execução (manual):** verificação (A/B/C) → script da 4.1 →
-verificação inteira (A a G) → comparar.
-
-### Pendências nomeadas da Etapa 4.2
+### Pendências nomeadas
 
 1. **Re-sync do estado antes de virar a leitura.** A cópia da 4.1 é uma
    fotografia. A partir dela, todo `paid_price`/nota/compra novo continua indo
@@ -257,6 +246,21 @@ verificação inteira (A a G) → comparar.
    (`settings.weekend_default_ceiling` = 250) e ela convive com os quatro
    fallbacks `or 200` no código e com o texto desatualizado do `CLAUDE.md`. Sem
    efeito prático enquanto nada lê o novo — não pode passar batido na virada.
+9. **Fila de scraping: `get_monitoring_legs` filtra `status = 'monitoring'` NA
+   CONSULTA.** Com dois usuários, a perna só sai da fila quando **TODOS**
+   pararem de monitorar — se um comprou e o outro não, a perna continua sendo
+   checada (é o comportamento correto: o outro ainda precisa do preço).
+   (Decisão do chat de planejamento — **não reabrir**.)
+10. **Ordenação da fila: `price_ceiling` também ordena** (`price_gap` em
+    `src/live_check.py`). Com dois tetos para a mesma perna, a ordenação usa o
+    **MENOR teto entre os usuários** — quem tem o teto mais apertado puxa a
+    perna pra cima na fila. (Decisão do chat de planejamento — **não
+    reabrir**.)
+11. **Corrigir `sql/etapa4_1_verificacao.sql`** (blocos E e F devolvendo uma
+    única linha de resultado cada) **antes** de a 4.2 depender dele para
+    re-verificação. Hoje os dois blocos têm vários `select` e o SQL Editor do
+    Supabase só exibe o resultado do último — os anteriores somem em silêncio.
+    Detalhe em `AUDITORIA-MULTIUSUARIO.md`, "Pendências operacionais da 4.1".
 
 ### Limites conhecidos da 4.1 (registrados, não são pendência)
 
@@ -309,9 +313,9 @@ não desta iniciativa.
   secundário — ver `CLAUDE.md` e `STATE.md`, "Decisões vivas".
 - Descreve o gatilho `push` do `daily.yml` como funcionalidade proposital
   ("roda também a cada push em `src/` (teste real automático)", linha 52).
-  Conflita diretamente com a pendência (b) registrada acima (seção
-  "Diagnóstico: caminho de alerta de perna de fim de semana"), que propõe
-  **remover** esse gatilho por rodar o caminho primário completo contra
-  produção (consome scraping do dia, grava no Supabase, dispara Telegram)
-  a cada commit em `src/**`. Não corrigido agora — decisão de escopo, não
-  desta iniciativa.
+  **O gatilho não existe mais** — foi removido em 01/08/2026 (item (b) do
+  diagnóstico, hoje no `HISTORICO.md`, item 16), justamente por rodar o
+  caminho primário completo contra produção (consumia scraping do dia,
+  gravava no Supabase, disparava Telegram) a cada commit em `src/**`. O
+  `README.md` ficou descrevendo funcionalidade inexistente. Não corrigido
+  agora — decisão de escopo, não desta iniciativa.
