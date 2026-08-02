@@ -57,3 +57,13 @@ select value from bot_state where key = 'weekend_scrape_stage';
 Nota: stage NÃO fica em `system_config` (só `suspicious_below_avg_pct`,
 `fast_flights_enabled`, `fast_flights_daily_batch_size`) — fica em
 `bot_state`, chave `weekend_scrape_stage`.
+
+## Ambiente local (nota, não produção)
+
+Em 02/08/2026 foi instalado `postgresql@16` via Homebrew na máquina do
+usuário (não havia Postgres local) para reproduzir a verificação da Etapa
+4.1 num cluster descartável, fora de produção. O cluster ficou em
+`scratchpad/pgdata`, parado. Desfazer, se desejado:
+```bash
+brew uninstall postgresql@16
+```

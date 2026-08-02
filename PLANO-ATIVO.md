@@ -256,11 +256,25 @@ ainda — é o que esta etapa faz.
     **MENOR teto entre os usuários** — quem tem o teto mais apertado puxa a
     perna pra cima na fila. (Decisão do chat de planejamento — **não
     reabrir**.)
-11. **Corrigir `sql/etapa4_1_verificacao.sql`** (blocos E e F devolvendo uma
-    única linha de resultado cada) **antes** de a 4.2 depender dele para
-    re-verificação. Hoje os dois blocos têm vários `select` e o SQL Editor do
-    Supabase só exibe o resultado do último — os anteriores somem em silêncio.
-    Detalhe em `AUDITORIA-MULTIUSUARIO.md`, "Pendências operacionais da 4.1".
+11. **Corrigir `sql/etapa4_1_verificacao.sql`** — cresceu além de só
+    consolidar E e F numa linha cada, depois da investigação de 02/08/2026
+    (`AUDITORIA-MULTIUSUARIO.md`, "Verificação das estruturas novas" e
+    "Lacuna de evidência no artefato de verificação"):
+    - Blocos E e F devolvendo **uma única linha de resultado cada** (hoje têm
+      vários `select`, e o SQL Editor do Supabase só exibe o resultado do
+      último — os anteriores somem em silêncio).
+    - **`auth.uid()` tem que virar COLUNA da mesma linha de resultado**, não um
+      `select` à parte — senão a guarda do teste (saber se o contexto de papel
+      foi de fato aplicado) continua sendo descartada pelo SQL Editor, mesmo
+      depois de consolidar.
+    - **O bloco F precisa de um discriminador** que separe "usuário legítimo"
+      de "dono do banco" — hoje, com uma conta só, os dois casos devolvem
+      resultado idêntico, e o bloco não prova isolamento positivo. Provavelmente
+      exige simular um **segundo `user_id`** dentro da própria transação com
+      `rollback`. Desenho a revisar no chat de planejamento — **não
+      implementar agora**.
+    - Limpar do `.sql` os resultados colados como tabelas markdown, que hoje
+      quebram o arquivo como SQL executável.
 
 ### Limites conhecidos da 4.1 (registrados, não são pendência)
 

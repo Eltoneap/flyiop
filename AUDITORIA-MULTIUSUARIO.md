@@ -407,13 +407,62 @@ Confirma o **modelo preguiçoso**: ninguém tem teto próprio ainda
 usuário (`settings.weekend_default_ceiling = 250`), e só as 5 pernas com
 `paid_price` têm linha de estado.
 
-**E — teste negativo de isolamento** (uuid falso, em transação com `rollback`):
-view 0, estado 0, auditoria 0. **Sem vazamento entre usuários** — quem não é
-dono não enxerga nada, nem nas tabelas nem na view.
+**E e F — comportamento confirmado, capacidade de prova dos blocos revisada
+(02/08/2026).** Sessão de investigação separada reproduziu fielmente o script
+e os dois blocos num Postgres 16.14 descartável (schema, RLS e papéis
+`anon`/`authenticated`/`service_role` imitando o Supabase, dados equivalentes
+aos 66 fins de semana / 132 pernas / 5 `paid_price` de produção). Resultado:
+**a estrutura se comporta corretamente** — uuid falso vê 0/0/0, uuid real vê
+132/5/1 — mas os dois blocos, como escritos hoje, têm capacidade de prova
+mais fraca do que a redação anterior desta seção afirmava. Detalhe completo:
 
-**F — teste positivo** (`auth.uid()` real, rodado como usuário logado, em
-transação com `rollback`): view 132, estado 5, auditoria 1, `resolvido_250` 132,
-`com_pago` 5. O usuário real vê exatamente o mesmo mundo que via antes.
+- **Bloco E — o registro de produção é sólido, com uma ressalva.** O único
+  resultado colado no arquivo (`audit_deve_ser_zero = 0`) **não poderia** ter
+  vindo de um `select` rodado fora do contexto de papel simulado — rodado
+  isolado, sem o `begin`/`set local role`, o mesmo `select` devolve **1**, não
+  0 (reproduzido no banco descartável). Nesse ponto específico, o `0`
+  registrado prova o que diz provar.
+  **Ressalva:** se o `set local request.jwt.claims` falhar mas o `set local
+  role authenticated` funcionar, `auth.uid()` vem NULL e o resultado também
+  sai 0/0/0 — **idêntico ao pass legítimo**. A única evidência que separaria
+  os dois casos é o `select auth.uid() as uid_falso` da linha 114, que é
+  justamente o comando que o SQL Editor descarta por não ser o último do
+  bloco. Não é possível descartar esse cenário com o artefato hoje disponível
+  (ver "Lacuna de evidência", abaixo).
+- **Bloco F não discrimina.** Reproduzido no banco descartável, o bloco F
+  rodado no contexto correto (claims do usuário real) e o mesmo `select`
+  rodado isolado, como dono do banco, **devolvem resultado idêntico** —
+  132/5/1, igual ao próprio bloco D. Motivo estrutural, não falha de
+  execução: com uma única conta no banco, "o que o dono do banco enxerga" e
+  "o que o usuário legítimo enxerga" coincidem em todas as contagens. O
+  bloco F, como está, **não é hoje prova de isolamento positivo** — é
+  redundante com o D.
+- **Conclusão a registrar:** não há indício de vazamento entre usuários — o
+  que está fraco é o instrumento de medição, não o comportamento observado.
+  O teste real de isolamento só é possível com **duas contas**, o que reforça
+  (não contradiz) a regra dura da Etapa 7: o primeiro ato depois de criar a
+  segunda conta é testar isolamento de verdade.
+
+### Lacuna de evidência no artefato de verificação
+
+`sql/etapa4_1_verificacao.sql` tem, hoje, apenas resultados **parciais**
+colados como tabelas markdown — reflexo direto do defeito descrito em
+"Pendências operacionais da 4.1" (SQL Editor só exibe o resultado do último
+`select` de cada bloco colado):
+
+- **Bloco E:** só `audit_deve_ser_zero`. `view_deve_ser_zero`,
+  `estado_deve_ser_zero` e `uid_falso` não têm resultado colado no arquivo.
+- **Bloco F:** só `uid_real`, `audit_deve_ser_1` e a linha `132 | 5`
+  (`resolvido_250 | com_pago`). `view_deve_ser_132` e `estado_deve_ser_5` não
+  têm resultado colado no arquivo.
+
+Os demais números citados nesta seção (view 0/estado 0 no E; view 132/estado 5
+no F) vieram do relato do usuário durante a sessão em que a verificação foi
+rodada, não do artefato — e **não são reconstituíveis a partir do
+repositório** hoje. Registrado como lacuna conhecida; os números não foram
+removidos porque não há motivo para desconfiar deles especificamente (o
+comportamento reproduzido no banco descartável bate com o que foi relatado),
+só não há como provar a partir do arquivo sozinho.
 
 **G — personas e carimbo de origem.** O `origin` saiu correto nas quatro
 situações, todas com `current_user = 'postgres'`:
@@ -443,10 +492,12 @@ saber de quem foi a edição.
   e F para devolverem uma única linha de resultado cada. Não corrigido nesta
   passagem (a verificação já foi feita à mão); pendência registrada também no
   `PLANO-ATIVO.md`, item 11 da Etapa 4.2.
-- **Bloco H (limpeza) pendente de execução manual.** É o `drop` da sonda
-  `flyiop_audit_selftest`, que é `SECURITY DEFINER` e **não deve permanecer no
-  banco** — existe só para o bloco G. Enquanto não for rodado, a função continua
-  em produção.
+- **Bloco H — ✅ CONCLUÍDO em 02/08/2026.** `drop function flyiop_audit_selftest()`
+  rodado sem `cascade` (nada dependia da função — confirma o que o comentário do
+  bloco já previa: as triggers usam `flyiop_audit_origin()`, que fica). Confirmação
+  numa consulta única, depois do drop: `sondas_restantes = 0`, `estado = 5`,
+  `auditoria = 1`, `view_efetiva = 132` — a sonda saiu do banco e nada mais foi
+  afetado.
 
 ### Checagem do script num Postgres real (chat de planejamento, 01/08/2026)
 
