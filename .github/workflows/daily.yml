@@ -2,12 +2,12 @@ name: Monitor diário de passagens
 
 on:
   schedule:
-    # Temporariamente só 1x/dia (decisão de 29/07/2026): primeira execução
-    # em produção de Parte 9/10/Etapa 3 desde o push que os introduziu.
-    # As janelas de 14h/20h BRT do escalonamento automático (Parte 10,
-    # scrape_schedule.py) voltam manualmente depois de confirmar que esta
-    # rodada passou limpa — ver STATE.md.
+    # 2x/dia (decisão de 03/08/2026): restaurado após rodada limpa de 1x/dia.
+    # Janela de 14h BRT avaliada e descartada — 3x geraria recheque duplicado
+    # de parte da fila; 2x já cobre quase toda ela (~43 pernas elegíveis,
+    # 40 slots em 2x). Ver STATE.md.
     - cron: "0 11 * * *"   # 08:00 BRT
+    - cron: "0 23 * * *"   # 20:00 BRT
   workflow_dispatch:
 
 jobs:
