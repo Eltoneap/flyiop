@@ -209,22 +209,61 @@ ainda — é o que esta etapa faz.
 >
 > **Enquanto a 4.2 não fechar: não editar teto no painel.**
 
+**Medição da janela aberta (03/08/2026, chat de planejamento).** Consulta
+somente leitura em produção, comparando `weekend_legs` (mundo antigo) com a
+fotografia da 4.1 em `weekend_leg_user_state`:
+
+```
+tetos_divergentes_janela_aberta:    0
+compras_novas_sem_linha_de_estado:  0
+linhas_existentes_ja_divergentes:   0
+total_linhas_de_estado_hoje:        5
+total_compradas_mundo_antigo:       0
+total_com_valor_pago_mundo_antigo:  5
+```
+
+Confirma que a regra de janela aberta segurou 100% até agora — zero teto
+editado no painel desde a 4.1 — e que zero compras/edições novas aconteceram
+no intervalo (as 5 linhas de estado continuam idênticas à fotografia).
+**Ressalva: isso não elimina o risco em princípio, só descreve o estado
+observado nesta data** — o re-sync continua necessário, porque o intervalo
+entre agora e a execução real da 4.2 pode gerar divergência nova.
+
 ### Pendências nomeadas
 
-1. **Re-sync do estado antes de virar a leitura.** A cópia da 4.1 é uma
-   fotografia. A partir dela, todo `paid_price`/nota/compra novo continua indo
-   para `weekend_legs` (mundo antigo) e não para `weekend_leg_user_state`.
-   Quanto maior o intervalo 4.1 → 4.2, mais desatualizada a cópia. O Bloco 7b é
-   re-rodável, mas `on conflict do nothing` **não atualiza** linha já criada — o
-   re-sync da 4.2 precisa de lógica própria.
-2. **Teto editado no painel entre a 4.1 e a 4.2 vira caso especial do re-sync.**
+1. **Re-sync do estado antes de virar a leitura — desenhada (03/08/2026),
+   aguardando implementação.** A cópia da 4.1 é uma fotografia. A partir dela,
+   todo `paid_price`/nota/compra novo continua indo para `weekend_legs` (mundo
+   antigo) e não para `weekend_leg_user_state`. Quanto maior o intervalo 4.1 →
+   4.2, mais desatualizada a cópia. O Bloco 7b é re-rodável, mas
+   `on conflict do nothing` **não atualiza** linha já criada — o re-sync da 4.2
+   precisa de lógica própria. Desenho decidido:
+   - Trocar `on conflict do nothing` por
+     `on conflict (leg_id, user_id) do update`, escrevendo
+     `status`/`notes`/`paid_price`/`purchased_at` de `weekend_legs`, só quando
+     o valor mudou (evitar linha de auditoria falsa em campo que não é teto).
+   - Idempotência obrigatória: rodar duas vezes seguidas não pode gerar
+     segunda linha de auditoria se nada mudou entre as rodadas (mesmo padrão
+     já verificado na 4.1).
+   - Decisão de timing: o script é genérico e re-rodável, mas só deve ser
+     executado de fato imediatamente antes do deploy que vira a leitura — não
+     antes.
+2. **Teto editado no painel entre a 4.1 e a 4.2 vira caso especial do
+   re-sync — desenhada (03/08/2026), aguardando implementação.**
    O guarda 1c do script exige todas as pernas em 250 no momento de rodar, e a
    4.1 por isso não copia teto. Se um teto for editado no painel depois disso,
    ele vai para a coluna velha (`weekend_legs.price_ceiling`), a auditoria nova
    não enxerga (a trigger é na tabela nova), e o re-sync da 4.2 tem que saber
    transformar aquele valor em **override explícito** em
    `weekend_leg_user_state.price_ceiling` — e registrar isso na auditoria com
-   origem própria. Se passar batido, o ajuste manual some na virada.
+   origem própria. Se passar batido, o ajuste manual some na virada. Desenho
+   decidido:
+   - Toda perna onde `weekend_legs.price_ceiling <> 250` no momento em que o
+     re-sync rodar de fato (calculado na hora da execução, não hardcoded a
+     partir da medição de 03/08/2026, que deu zero divergências) recebe esse
+     valor em `weekend_leg_user_state.price_ceiling`, com origem própria na
+     auditoria: `origin = 'resync_override'` (distinta de `'migracao'` e de
+     `'app'`).
 3. **`docs/js/compras.js`** — ler de `weekend_leg_effective`, escrever em
    `weekend_leg_user_state` (upsert por `leg_id`, sem mandar `user_id`, que tem
    `default auth.uid()`), remover `DEFAULT_CEILING = 200`.
