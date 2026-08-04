@@ -282,9 +282,14 @@ entre agora e a execução real da 4.2 pode gerar divergência nova.
      valor em `weekend_leg_user_state.price_ceiling`, com origem própria na
      auditoria: `origin = 'resync_override'` (distinta de `'migracao'` e de
      `'app'`).
-3. **`docs/js/compras.js`** — ler de `weekend_leg_effective`, escrever em
-   `weekend_leg_user_state` (upsert por `leg_id`, sem mandar `user_id`, que tem
-   `default auth.uid()`), remover `DEFAULT_CEILING = 200`.
+3. ✅ **Concluída, commitada e enviada (03/08/2026).** **`docs/js/compras.js`**
+   — ler de `weekend_leg_effective`, escrever em `weekend_leg_user_state`
+   (upsert por `leg_id`, sem mandar `user_id`, que tem `default auth.uid()`),
+   remover `DEFAULT_CEILING = 200`. Commits `531f34f` (implementação) e
+   `9436bc0` (correção de um `return` ilegal fora de escopo de função,
+   achado na verificação manual no site publicado). `origin/main == HEAD`
+   confirmado após o push. Verificação manual completa (5 passos) realizada
+   no site publicado, com login real.
 
    **Decisão 1 (chat de planejamento, 03/08/2026) — regra de "Salvar" do teto
    por perna:** ao clicar Salvar, o valor do campo naquele momento sempre vira
@@ -297,12 +302,13 @@ entre agora e a execução real da 4.2 pode gerar divergência nova.
    padrão é ação separada, fora do escopo desta rodada — ver item 12 abaixo.
    A view já expõe `ceiling_is_explicit` (`st.price_ceiling IS NOT NULL`),
    pronta para alimentar essa ação futura sem consulta extra.
-4. **Botão "aplicar teto a todos" muda de significado** (decisão do chat de
-   planejamento, 01/08/2026): vira "mudar meu teto padrão", editando
-   `settings.weekend_default_ceiling`, e **não sobrescreve** teto ajustado à mão
-   perna a perna. Hoje (`docs/js/compras.js:517`) ele faz `update` em massa em
-   `weekend_legs` e sobrescreve tudo — o próprio `confirm()` avisa. É mudança de
-   comportamento visível, e o texto do `confirm()` tem que mudar junto.
+4. ✅ **Concluída, commitada e enviada (03/08/2026).** **Botão "aplicar teto a
+   todos" muda de significado** (decisão do chat de planejamento, 01/08/2026):
+   virou "Salvar meu teto padrão", editando `settings.weekend_default_ceiling`,
+   e **não sobrescreve** teto ajustado à mão perna a perna — o `update` em
+   massa antigo em `weekend_legs` (`docs/js/compras.js:517`) foi substituído,
+   sem filtro por status, e o texto do `confirm()` mudou junto. Mesmos commits
+   da pendência 3 (`531f34f`, `9436bc0`).
 5. **`docs/js/dashboard.js:50,135,188`** — mesma troca de fonte.
 6. **`src/weekends.py:164`, `src/live_check.py:123`, `src/telegram_notifier.py:169`**
    — trocar `leg.price_ceiling or 200` pelo teto efetivo por usuário. Encosta na
