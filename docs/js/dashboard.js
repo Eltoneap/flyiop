@@ -493,19 +493,47 @@ async function renderLegacyRoutes(session) {
 
 // ---------- Bootstrap ----------
 
-const session = await requireAuth();
-if (session) {
+// Corpo em função (e não solto no escopo do módulo) porque o tratamento de
+// erro abaixo usa `return` — no top-level de um módulo isso é "Illegal return
+// statement" no navegador (mesmo bug corrigido em compras.js, commit 9436bc0).
+async function initPage(session) {
   wireLogout('logout');
 
-  const [{ data: weekends }, { data: settingsRows }, systemConfigResult] = await Promise.all([
-    supabase.from('weekends').select('*, weekend_legs(*)').order('outbound_date', { ascending: true }),
+  // Teto/status/notas/valor pago são estado por usuário desde a Etapa 4.1 —
+  // vêm de weekend_leg_effective, não mais do embed weekend_legs(*), que lê as
+  // colunas globais antigas (mesma fonte que compras.js usa desde a 4.2).
+  const [
+    { data: weekends, error: wErr },
+    { data: legRows, error: lErr },
+    { data: settingsRows },
+    systemConfigResult,
+  ] = await Promise.all([
+    supabase.from('weekends').select('*').order('outbound_date', { ascending: true }),
+    supabase.from('weekend_leg_effective').select('*'),
     supabase.from('settings').select('*').eq('user_id', session.user.id).limit(1),
     supabase.from('system_config').select('fast_flights_enabled').limit(1)
       .then((res) => res, (err) => ({ data: null, error: err })),
   ]);
 
+  if (wErr) {
+    alert('Erro ao carregar fins de semana: ' + wErr.message);
+    return;
+  }
+  if (lErr) {
+    alert('Erro ao carregar tetos e status: ' + lErr.message);
+    return;
+  }
+
   const settings = settingsRows && settingsRows[0] ? settingsRows[0] : DEFAULT_SETTINGS;
-  const allWeekends = weekends || [];
+
+  // Sem normalizar leg_id -> id (o que compras.js precisa fazer): nenhuma
+  // função deste arquivo referencia leg.id.
+  const legsByWeekend = {};
+  for (const row of legRows || []) {
+    (legsByWeekend[row.weekend_id] ??= []).push(row);
+  }
+
+  const allWeekends = (weekends || []).map((w) => ({ ...w, weekend_legs: legsByWeekend[w.id] || [] }));
   const allLegs = allWeekends.flatMap((w) => w.weekend_legs || []);
   const weekendById = Object.fromEntries(allWeekends.map((w) => [w.id, w]));
 
@@ -525,4 +553,9 @@ if (session) {
   await renderSaude(liveActive);
   renderFeriados(allWeekends);
   await renderLegacyRoutes(session);
+}
+
+const session = await requireAuth();
+if (session) {
+  await initPage(session);
 }
