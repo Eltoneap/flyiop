@@ -29,15 +29,16 @@
       <h2>Teto padrão</h2>
       <div class="form-grid">
         <div>
-          <label>Aplicar a todas as pernas em monitoramento (R$)</label>
-          <input type="number" step="1" min="1" id="default-ceiling-input" placeholder="200">
+          <label>Meu teto padrão (R$)</label>
+          <input type="number" step="1" min="1" id="default-ceiling-input">
         </div>
         <div>
           <label>&nbsp;</label>
-          <button type="button" id="apply-ceiling-btn">Aplicar a todas</button>
+          <button type="button" id="apply-ceiling-btn">Salvar meu teto padrão</button>
         </div>
       </div>
-      <p class="field-note">Sobrescreve o teto individual de toda perna ainda não comprada — inclusive as que você já ajustou manualmente (ex.: datas de feriado com teto mais alto). Não toca nas pernas já compradas.</p>
+      <p class="field-note">Vale para toda perna sem ajuste próprio. Pernas onde você já definiu um teto específico (perna a perna) continuam com esse valor, sem mudança.</p>
+      <p class="field-note">Alterações de teto aqui ainda não afetam os alertas do Telegram — isso chega na Etapa 6.</p>
     </section>
 
     <div class="tabs">

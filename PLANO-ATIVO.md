@@ -209,6 +209,24 @@ ainda — é o que esta etapa faz.
 >
 > **Enquanto a 4.2 não fechar: não editar teto no painel.**
 
+> ### ⚠️ JANELA ABERTA 2 — painel novo × Telegram velho (decisão 03/08/2026)
+>
+> A pendência 3/4 vira só o **painel**: passa a ler/escrever
+> `weekend_leg_effective` / `weekend_leg_user_state`. O robô e o Telegram
+> (`src/weekends.py`, `live_check.py`, `telegram_notifier.py` — pendência 6,
+> ainda não implementada) continuam lendo `weekend_legs.price_ceiling`
+> diretamente. Consequência: **teto editado no painel deixa de ter qualquer
+> efeito nos alertas do Telegram** até a Etapa 6 entrar.
+>
+> **Decisão: sem shadow-write.** Não gravar o teto nos dois lugares ao mesmo
+> tempo para remendar esse intervalo — isso reintroduziria o problema que a
+> Etapa 4 existe para resolver (`weekend_legs.price_ceiling` é 1 valor global,
+> não comporta dois usuários com tetos diferentes). O painel mostra um aviso
+> de UI simples perto do campo de teto (sem lógica nova) enquanto durar.
+>
+> **Fecha sozinha quando a Etapa 6 entrar** (o robô passar a ler o teto
+> efetivo por usuário) — não antes.
+
 **Medição da janela aberta (03/08/2026, chat de planejamento).** Consulta
 somente leitura em produção, comparando `weekend_legs` (mundo antigo) com a
 fotografia da 4.1 em `weekend_leg_user_state`:
@@ -267,6 +285,18 @@ entre agora e a execução real da 4.2 pode gerar divergência nova.
 3. **`docs/js/compras.js`** — ler de `weekend_leg_effective`, escrever em
    `weekend_leg_user_state` (upsert por `leg_id`, sem mandar `user_id`, que tem
    `default auth.uid()`), remover `DEFAULT_CEILING = 200`.
+
+   **Decisão 1 (chat de planejamento, 03/08/2026) — regra de "Salvar" do teto
+   por perna:** ao clicar Salvar, o valor do campo naquele momento sempre vira
+   override explícito em `weekend_leg_user_state.price_ceiling` — mesmo que
+   numericamente coincida com o teto padrão atual do usuário. Não detectar
+   "é igual ao padrão, então não é override de verdade": comportamento
+   escondido, difícil de prever/debugar, e quebraria no dia em que o padrão
+   mudasse (override deixaria de ser fixo, passaria a seguir o padrão novo
+   por coincidência de número). Reverter um override e voltar a seguir o
+   padrão é ação separada, fora do escopo desta rodada — ver item 12 abaixo.
+   A view já expõe `ceiling_is_explicit` (`st.price_ceiling IS NOT NULL`),
+   pronta para alimentar essa ação futura sem consulta extra.
 4. **Botão "aplicar teto a todos" muda de significado** (decisão do chat de
    planejamento, 01/08/2026): vira "mudar meu teto padrão", editando
    `settings.weekend_default_ceiling`, e **não sobrescreve** teto ajustado à mão
@@ -314,6 +344,13 @@ entre agora e a execução real da 4.2 pode gerar divergência nova.
       implementar agora**.
     - Limpar do `.sql` os resultados colados como tabelas markdown, que hoje
       quebram o arquivo como SQL executável.
+12. **Backlog — "limpar override" por perna** (registrado 03/08/2026, fora do
+    escopo da pendência 3/4). Ação para remover a linha específica de
+    `weekend_leg_user_state` (ou zerar `price_ceiling` para NULL) e a perna
+    voltar a seguir o teto padrão do usuário automaticamente. A coluna
+    `ceiling_is_explicit` da view já existe e está pronta para indicar quando
+    esse controle deve aparecer — só falta desenhar a UI (ex.: botão
+    "voltar ao padrão" ao lado do teto quando `ceiling_is_explicit = true`).
 
 ### Limites conhecidos da 4.1 (registrados, não são pendência)
 

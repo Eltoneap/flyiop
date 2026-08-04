@@ -2,8 +2,6 @@ import { supabase } from './supabase-client.js';
 import { requireAuth, wireLogout } from './auth-guard.js';
 import { weekendTags } from './holidays.js';
 
-const DEFAULT_CEILING = 200;
-
 const VALID_FILTERS = ['todas', 'abaixo-do-teto', 'sem-preco', 'feriado-alta-temporada', 'proximos-60-dias'];
 const URGENCY_WINDOW_DAYS = 60;
 
@@ -47,8 +45,10 @@ function legLabel(leg, weekend) {
   return { title: 'Volta (dom/seg)', date: null }; // ainda não sabemos qual variante é mais barata
 }
 
-async function updateLeg(legId, fields) {
-  const { error } = await supabase.from('weekend_legs').update(fields).eq('id', legId);
+async function updateLegState(legId, fields) {
+  const { error } = await supabase
+    .from('weekend_leg_user_state')
+    .upsert({ leg_id: legId, ...fields }, { onConflict: 'leg_id,user_id' });
   return error;
 }
 
@@ -87,13 +87,13 @@ function legPurchaseLink(leg, weekend) {
 // pernas compradas têm sua própria exibição (ver isPurchased abaixo).
 function legPriceState(leg) {
   if (leg.current_price == null) return 'none';
-  const ceiling = Number(leg.price_ceiling ?? DEFAULT_CEILING);
+  const ceiling = Number(leg.price_ceiling);
   return Number(leg.current_price) <= ceiling ? 'below' : 'above';
 }
 
 function legStatusBadge(leg, priceState) {
   if (leg.status === 'purchased') return { cls: 'bought', text: '✓ Comprada' };
-  const ceiling = Number(leg.price_ceiling ?? DEFAULT_CEILING);
+  const ceiling = Number(leg.price_ceiling);
   if (priceState === 'below') {
     const diff = Math.round(ceiling - Number(leg.current_price));
     return { cls: 'deal', text: `↓ R$ ${diff} abaixo do teto` };
@@ -157,7 +157,7 @@ function renderLegRow(leg, weekend) {
     </div>
     <div class="leg-row-controls">
       <label class="leg-ceiling-label">
-        teto R$ <input type="number" step="1" min="0" value="${leg.price_ceiling ?? DEFAULT_CEILING}" class="leg-ceiling-input field-filled">
+        teto R$ <input type="number" step="1" min="0" value="${leg.price_ceiling}" class="leg-ceiling-input field-filled">
         <span class="save-check leg-ceiling-check">✓</span>
       </label>
       <button type="button" class="small leg-ceiling-save">Salvar</button>
@@ -213,7 +213,7 @@ function renderLegRow(leg, weekend) {
       alert('Informe um teto válido.');
       return;
     }
-    const error = await updateLeg(leg.id, { price_ceiling: value });
+    const error = await updateLegState(leg.id, { price_ceiling: value });
     if (error) {
       alert('Erro ao salvar teto: ' + error.message);
       return;
@@ -231,7 +231,7 @@ function renderLegRow(leg, weekend) {
     if (notesSaved) return;
     notesSaved = true;
     markFieldState(notesBtn, notesCheck, notesInput, true, !!notesInput.value.trim());
-    const error = await updateLeg(leg.id, { notes: notesInput.value.trim() || null });
+    const error = await updateLegState(leg.id, { notes: notesInput.value.trim() || null });
     if (error) {
       alert('Erro ao salvar observações: ' + error.message);
       notesSaved = false;
@@ -259,7 +259,7 @@ function renderLegRow(leg, weekend) {
       paidSaved = true;
       markFieldState(paidBtn, paidCheck, paidInput, true, paidInput.value !== '');
       const value = paidInput.value === '' ? null : Number(paidInput.value);
-      const error = await updateLeg(leg.id, { paid_price: value });
+      const error = await updateLegState(leg.id, { paid_price: value });
       if (error) {
         alert('Erro ao salvar valor pago: ' + error.message);
         paidSaved = false;
@@ -279,7 +279,7 @@ function renderLegRow(leg, weekend) {
 
   row.querySelector('.leg-action').addEventListener('click', async () => {
     const nextStatus = isPurchased ? 'monitoring' : 'purchased';
-    const error = await updateLeg(leg.id, {
+    const error = await updateLegState(leg.id, {
       status: nextStatus,
       purchased_at: isPurchased ? null : new Date().toISOString(),
     });
@@ -438,16 +438,38 @@ function updateProgress() {
   document.getElementById('progress-weekends').textContent = `${completeWeekends} de ${allWeekends.length} fins de semana completos`;
 }
 
+// weekend_leg_effective (view da Etapa 4.1/4.2) expõe a perna como `leg_id`,
+// não `id` — normaliza aqui para o resto do arquivo continuar assumindo
+// leg.id (renderLegRow, legLabel, updateLegState, etc.) sem outra mudança.
+function normalizeLegRow(row) {
+  return { ...row, id: row.leg_id };
+}
+
 async function loadWeekends() {
-  const { data, error } = await supabase
+  const { data: weekends, error: wErr } = await supabase
     .from('weekends')
-    .select('*, weekend_legs(*)')
+    .select('*')
     .order('outbound_date', { ascending: true });
-  if (error) {
-    alert('Erro ao carregar fins de semana: ' + error.message);
+  if (wErr) {
+    alert('Erro ao carregar fins de semana: ' + wErr.message);
     return;
   }
-  allWeekends = data || [];
+
+  const { data: legRows, error: lErr } = await supabase
+    .from('weekend_leg_effective')
+    .select('*');
+  if (lErr) {
+    alert('Erro ao carregar tetos e status: ' + lErr.message);
+    return;
+  }
+
+  const legsByWeekend = {};
+  for (const row of legRows || []) {
+    const leg = normalizeLegRow(row);
+    (legsByWeekend[leg.weekend_id] ??= []).push(leg);
+  }
+
+  allWeekends = (weekends || []).map((w) => ({ ...w, weekend_legs: legsByWeekend[w.id] || [] }));
   renderWeekends();
 }
 
@@ -499,28 +521,38 @@ if (session) {
 
   await loadWeekends();
 
+  const { data: settingsRows, error: sErr } = await supabase
+    .from('settings')
+    .select('weekend_default_ceiling')
+    .eq('user_id', session.user.id)
+    .limit(1);
+  if (sErr) {
+    alert('Erro ao carregar teto padrão: ' + sErr.message);
+    return;
+  }
+  document.getElementById('default-ceiling-input').value = settingsRows?.[0]?.weekend_default_ceiling ?? '';
+
   document.getElementById('apply-ceiling-btn').addEventListener('click', async () => {
     const value = Number(document.getElementById('default-ceiling-input').value);
     if (!value || value <= 0) {
-      alert('Informe um teto válido antes de aplicar.');
+      alert('Informe um teto válido.');
       return;
     }
     const confirmed = confirm(
-      `Isso vai sobrescrever o teto de TODAS as pernas ainda não compradas para R$ ${value} — ` +
-      `inclusive as que você já ajustou manualmente (ex.: datas de feriado com teto mais alto). ` +
-      `Pernas já compradas não são afetadas. Confirma?`
+      `Isso vai mudar seu teto padrão para R$ ${value}. Pernas sem ajuste próprio passam a usar ` +
+      `esse valor automaticamente; pernas onde você já definiu um teto específico continuam com o ` +
+      `valor próprio, sem mudança. Confirma?`
     );
     if (!confirmed) return;
 
     const { error } = await supabase
-      .from('weekend_legs')
-      .update({ price_ceiling: value })
-      .eq('status', 'monitoring');
+      .from('settings')
+      .upsert({ user_id: session.user.id, weekend_default_ceiling: value });
     if (error) {
-      alert('Erro ao aplicar teto padrão: ' + error.message);
+      alert('Erro ao salvar teto padrão: ' + error.message);
       return;
     }
-    showFlash('Teto padrão aplicado a todas as pernas em monitoramento.');
+    showFlash('Teto padrão salvo.');
     await loadWeekends();
   });
 }
