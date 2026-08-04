@@ -508,8 +508,7 @@ function wireTabs() {
   });
 }
 
-const session = await requireAuth();
-if (session) {
+async function initPage(session) {
   wireLogout('logout');
   wireTabs();
   wireFilterChips();
@@ -555,4 +554,9 @@ if (session) {
     showFlash('Teto padrão salvo.');
     await loadWeekends();
   });
+}
+
+const session = await requireAuth();
+if (session) {
+  await initPage(session);
 }
