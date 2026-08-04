@@ -247,7 +247,7 @@ no intervalo (as 5 linhas de estado continuam idênticas à fotografia).
 observado nesta data** — o re-sync continua necessário, porque o intervalo
 entre agora e a execução real da 4.2 pode gerar divergência nova.
 
-### Pendências nomeadas
+### Pendências nomeadas (12 no total — 1, 2, 3, 4 e 5 concluídas; restam 6–12)
 
 1. **Re-sync do estado antes de virar a leitura — desenhada (03/08/2026),
    aguardando implementação.** A cópia da 4.1 é uma fotografia. A partir dela,
@@ -309,7 +309,22 @@ entre agora e a execução real da 4.2 pode gerar divergência nova.
    massa antigo em `weekend_legs` (`docs/js/compras.js:517`) foi substituído,
    sem filtro por status, e o texto do `confirm()` mudou junto. Mesmos commits
    da pendência 3 (`531f34f`, `9436bc0`).
-5. **`docs/js/dashboard.js:50,135,188`** — mesma troca de fonte.
+5. ✅ **Concluída, commitada e enviada (04/08/2026).** **`docs/js/dashboard.js`**
+   — mesma troca de fonte de `compras.js` (pendências 3/4): embed
+   `weekends.select('*, weekend_legs(*)')` substituído por duas queries
+   (`weekends` + `weekend_leg_effective`), agrupadas por `weekend_id` em JS,
+   com `error` checado nas duas (antes só `weekends` era desestruturado sem
+   checar) — em caso de erro, `alert()` e interrompe, sem renderizar dado
+   parcial. Sem `normalizeLegRow` (`leg_id` → `id`): nenhuma função do arquivo
+   referencia `leg.id`. Bootstrap virou `async function initPage(session)`
+   pelo mesmo motivo do commit `9436bc0` (`return` de tratamento de erro é
+   ilegal solto no escopo do módulo). Nenhuma função de render alterada.
+   Commit `05c6f97`. `origin/main == HEAD` confirmado após o push.
+   Verificação manual no site publicado, logado: teto individual salvo em
+   Compras (perna Ida 04/09, override R$ 555) refletido no Dashboard —
+   "Ação do dia" contou a perna como abaixo do teto e "Melhores
+   oportunidades → Abaixo do teto" mostrou "R$ 536,00 (3% abaixo do teto)",
+   consistente com o teto de R$ 555 salvo em Compras; console sem erros.
 6. **`src/weekends.py:164`, `src/live_check.py:123`, `src/telegram_notifier.py:169`**
    — trocar `leg.price_ceiling or 200` pelo teto efetivo por usuário. Encosta na
    Etapa 6 (alerta por perna × usuário); decidir na 4.2 até onde vai.
