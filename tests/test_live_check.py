@@ -35,14 +35,14 @@ def days_from_today(n: int) -> str:
 OUTBOUND_LEG = {
     "id": "leg-out-1", "weekend_id": "wknd-1", "direction": "outbound",
     "outbound_date": days_from_today(10), "return_sunday": days_from_today(12),
-    "return_monday": days_from_today(13), "price_ceiling": 200, "current_price": None,
+    "return_monday": days_from_today(13), "effective_ceiling": 200, "current_price": None,
     "lowest_seen": None, "last_live_check_at": None,
 }
 
 RETURN_LEG = {
     "id": "leg-ret-1", "weekend_id": "wknd-1", "direction": "return",
     "outbound_date": days_from_today(10), "return_sunday": days_from_today(12),
-    "return_monday": days_from_today(13), "price_ceiling": 200, "current_price": None,
+    "return_monday": days_from_today(13), "effective_ceiling": 200, "current_price": None,
     "lowest_seen": None, "last_live_check_at": None,
 }
 
@@ -386,7 +386,7 @@ class BuildPackageComparisonTest(unittest.TestCase):
 
 class BuildWeekendAlertMessageComparisonTest(unittest.TestCase):
     REPORT = {
-        "leg": {"id": "leg-out-1", "price_ceiling": 200}, "status": "ok", "direction": "outbound",
+        "leg": {"id": "leg-out-1", "effective_ceiling": 200}, "status": "ok", "direction": "outbound",
         "outbound_date": "2026-09-04", "date": "2026-09-04", "price": 150.0, "airport": "GIG",
         "variant": None, "transfers": 0, "source": "live", "reason": "abaixo da meta fixa (R$ 200)",
         "is_ceiling_hit": True,

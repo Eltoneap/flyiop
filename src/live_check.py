@@ -120,8 +120,17 @@ def select_batch(settings: dict) -> list[dict]:
         last_check = leg.get("last_live_check_at") or ""  # vazio ordena primeiro (nunca checada)
         days_until = (date.fromisoformat(leg_travel_date(leg)) - date.today()).days
         current_price = leg.get("current_price")
-        ceiling = float(leg.get("price_ceiling") or 200)
-        price_gap = abs(float(current_price) - ceiling) if current_price is not None else float("inf")
+        # Teto efetivo (Etapa 4.2, pendências 6/10): com mais de um usuário
+        # monitorando a perna, get_active_legs já resolveu pelo MENOR teto —
+        # quem tem o teto mais apertado puxa a perna pra cima na fila. None
+        # (nenhum usuário em `settings`) desempata por último, como perna sem
+        # preço: sem teto não há "perto de bater meta" pra medir.
+        ceiling = leg.get("effective_ceiling")
+        price_gap = (
+            abs(float(current_price) - float(ceiling))
+            if current_price is not None and ceiling is not None
+            else float("inf")
+        )
         return (last_check, days_until, price_gap)
 
     legs.sort(key=sort_key)

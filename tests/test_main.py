@@ -43,6 +43,7 @@ class BlockAtLastExpectedBatchTest(unittest.TestCase):
         }
 
         with patch("main.get_routes", return_value=[]), \
+             patch("main.get_all_settings", return_value=[]), \
              patch("main.get_system_config", return_value=None), \
              patch("main.process_all_weekend_legs", return_value=[]), \
              patch("main.run_daily_batch", return_value=([], True)), \
@@ -79,6 +80,7 @@ class BlockAtLastExpectedBatchTest(unittest.TestCase):
         }
 
         with patch("main.get_routes", return_value=[]), \
+             patch("main.get_all_settings", return_value=[]), \
              patch("main.get_system_config", return_value=None), \
              patch("main.process_all_weekend_legs", return_value=[]), \
              patch("main.run_daily_batch", return_value=([], False)), \
@@ -113,6 +115,7 @@ class DelayedScheduleDoesNotNoOpTest(unittest.TestCase):
         route = {"id": "rota-1", "user_id": "user-1", "origin": "BSB", "destination": "GIG"}
 
         with patch("main.get_routes", return_value=[route]), \
+             patch("main.get_all_settings", return_value=[{"user_id": "user-1", "notification_mode": "alert_only"}]), \
              patch("main.get_settings", return_value={"notification_mode": "daily_summary"}), \
              patch("main.get_system_config", return_value=None), \
              patch("main.process_route") as mock_process_route, \
@@ -153,6 +156,7 @@ class DuplicateFireSameDayIsIdempotentTest(unittest.TestCase):
         }
 
         with patch("main.get_routes", return_value=[route]), \
+             patch("main.get_all_settings", return_value=[{"user_id": "user-1", "notification_mode": "alert_only"}]), \
              patch("main.get_settings", return_value={"notification_mode": "alert_only"}), \
              patch("main.get_system_config", return_value=None), \
              patch("main.process_route") as mock_process_route, \
@@ -170,6 +174,124 @@ class DuplicateFireSameDayIsIdempotentTest(unittest.TestCase):
         mock_cache.assert_not_called()
         mock_batch.assert_not_called()
         mock_send.assert_not_called()
+
+
+SCRAPE_STATE_FRESH = {
+    "stage": 0, "clean_days": 0, "blocked_today": False,
+    "last_change_at": None, "last_change_reason": None,
+    "last_primary_run_date": None,
+    "last_batch_run_date": None, "batches_run_today": 0,
+}
+
+
+class SharedSettingsChoiceTest(unittest.TestCase):
+    """Etapa 4.2, pendência 7 (versão leve): a escolha de quem dita os limiares
+    gerais deixa de ser implícita (`next(iter(...))`, ordem de dicionário) e
+    passa a ser determinística e barulhenta — sobre TODOS os usuários com linha
+    em `settings`, não só os que têm rota flexível."""
+
+    def run_main(self, all_settings, routes=None, weekend_diag=None):
+        diag = {"degraded_no_settings": False, "multi_user_ceiling_legs": 0}
+        diag.update(weekend_diag or {})
+        with patch("main.get_routes", return_value=routes or []), \
+             patch("main.get_all_settings", return_value=all_settings), \
+             patch("main.get_settings", return_value=None), \
+             patch("main.get_system_config", return_value=None), \
+             patch("main.process_route", side_effect=lambda route, _s: {"route": route, "status": "no_data"}), \
+             patch("main.process_all_weekend_legs", return_value=[]), \
+             patch("main.run_daily_batch", return_value=([], False)), \
+             patch("main.LEG_LOAD_DIAGNOSTICS", diag), \
+             patch("main.current_brt_date", return_value=TODAY), \
+             patch("main.get_weekend_scrape_state", return_value=dict(SCRAPE_STATE_FRESH)), \
+             patch("main.set_weekend_scrape_state"), \
+             patch("main.date") as mock_date, \
+             patch("main.send_message") as mock_send:
+            mock_date.today.return_value.weekday.return_value = 2
+            main.main()
+        return mock_send
+
+    def test_settings_choice_is_the_lowest_user_id_not_dictionary_order(self):
+        # Ordem de chegada proposital: quem vem primeiro na lista NÃO é o
+        # escolhido — a escolha é por user_id, não por ordem.
+        all_settings = [
+            {"user_id": "user-z", "notification_mode": "alert_only", "weekend_opportunity_pct": 99},
+            {"user_id": "user-a", "notification_mode": "alert_only", "weekend_opportunity_pct": 15},
+        ]
+        with patch("main.get_routes", return_value=[]), \
+             patch("main.get_all_settings", return_value=all_settings), \
+             patch("main.get_system_config", return_value=None), \
+             patch("main.process_all_weekend_legs", return_value=[]) as mock_cache, \
+             patch("main.run_daily_batch", return_value=([], False)), \
+             patch("main.current_brt_date", return_value=TODAY), \
+             patch("main.get_weekend_scrape_state", return_value=dict(SCRAPE_STATE_FRESH)), \
+             patch("main.set_weekend_scrape_state"), \
+             patch("main.date") as mock_date, \
+             patch("main.send_message"):
+            mock_date.today.return_value.weekday.return_value = 2
+            main.main()
+        used_settings = mock_cache.call_args.args[0]
+        self.assertEqual(used_settings["weekend_opportunity_pct"], 15)
+
+    def test_more_than_one_user_warns_on_telegram(self):
+        all_settings = [
+            {"user_id": "user-a", "notification_mode": "alert_only"},
+            {"user_id": "user-b", "notification_mode": "alert_only"},
+        ]
+        mock_send = self.run_main(all_settings)
+        warnings = [c.args[0] for c in mock_send.call_args_list if "usuário" in c.args[0]]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("user-a", warnings[0])  # nomeia QUEM está ditando os limiares
+
+    def test_single_user_is_silent(self):
+        mock_send = self.run_main([{"user_id": "user-a", "notification_mode": "alert_only"}])
+        mock_send.assert_not_called()
+
+    def test_user_without_flexible_route_still_counts(self):
+        """O furo que a pendência 7 corrige: settings_cache vinha de `routes`,
+        então usuário só com pernas de fim de semana nunca entrava na conta e o
+        aviso jamais disparava."""
+        all_settings = [
+            {"user_id": "user-a", "notification_mode": "alert_only"},
+            {"user_id": "user-b", "notification_mode": "alert_only"},
+        ]
+        route = {"id": "rota-1", "user_id": "user-a", "origin": "BSB", "destination": "GIG"}
+        mock_send = self.run_main(all_settings, routes=[route])
+        self.assertTrue(any("usuário" in c.args[0] for c in mock_send.call_args_list))
+
+
+class WeekendDiagnosticWarningsTest(unittest.TestCase):
+    """Etapa 4.2: as duas situações provisórias que não podem seguir em
+    silêncio — sem teto efetivo, e teto de mais de um usuário na mesma perna."""
+
+    def run_main(self, diag):
+        with patch("main.get_routes", return_value=[]), \
+             patch("main.get_all_settings", return_value=[{"user_id": "user-a", "notification_mode": "alert_only"}]), \
+             patch("main.get_system_config", return_value=None), \
+             patch("main.process_all_weekend_legs", return_value=[]), \
+             patch("main.run_daily_batch", return_value=([], False)), \
+             patch("main.LEG_LOAD_DIAGNOSTICS", diag), \
+             patch("main.current_brt_date", return_value=TODAY), \
+             patch("main.get_weekend_scrape_state", return_value=dict(SCRAPE_STATE_FRESH)), \
+             patch("main.set_weekend_scrape_state"), \
+             patch("main.date") as mock_date, \
+             patch("main.send_message") as mock_send:
+            mock_date.today.return_value.weekday.return_value = 2
+            main.main()
+        return [c.args[0] for c in mock_send.call_args_list]
+
+    def test_no_effective_ceiling_warns_once(self):
+        sent = self.run_main({"degraded_no_settings": True, "multi_user_ceiling_legs": 0})
+        matches = [m for m in sent if "Teto indisponível" in m]
+        self.assertEqual(len(matches), 1)
+
+    def test_multi_user_ceiling_warns_once_with_the_count(self):
+        sent = self.run_main({"degraded_no_settings": False, "multi_user_ceiling_legs": 3})
+        matches = [m for m in sent if "mesma perna" in m]
+        self.assertEqual(len(matches), 1)
+        self.assertIn("3 pernas", matches[0])
+
+    def test_healthy_run_sends_nothing(self):
+        self.assertEqual(self.run_main({"degraded_no_settings": False, "multi_user_ceiling_legs": 0}), [])
 
 
 if __name__ == "__main__":

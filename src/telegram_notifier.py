@@ -166,12 +166,17 @@ def build_weekend_alert_message(report: dict, comparison: dict | None = None) ->
     outbound = report["outbound_date"]
     leg_date = report["date"]
     price = report["price"]
-    ceiling = float(report["leg"].get("price_ceiling") or 200)
+    # Teto efetivo por usuário (Etapa 4.2) — None quando não há nenhum usuário
+    # em `settings`; nesse caso is_ceiling_hit é sempre False (a regra de teto
+    # não roda) e a mensagem diz isso em vez de exibir um número inventado.
+    ceiling = report["leg"].get("effective_ceiling")
+    ceiling = float(ceiling) if ceiling is not None else None
+    ceiling_label = f"R$ {ceiling:.0f}" if ceiling is not None else "indisponível"
 
     if report.get("is_ceiling_hit"):
         header = (
             f"🎯 <b>{direction_label} — fim de semana {format_date_br(outbound)}: "
-            f"R$ {price:.2f} ≤ teto R$ {ceiling:.0f}</b>\n"
+            f"R$ {price:.2f} ≤ teto {ceiling_label}</b>\n"
             f"Compre e marque como comprada no painel — continua sendo monitorada até você marcar."
         )
     else:
@@ -198,7 +203,7 @@ def build_weekend_alert_message(report: dict, comparison: dict | None = None) ->
     if report.get("reason"):
         lines.append(f"📌 {report['reason']}")
 
-    lines.append(f"📊 R$ {price:.2f} · teto R$ {ceiling:.0f} · fonte: {report.get('source', 'cache')}")
+    lines.append(f"📊 R$ {price:.2f} · teto {ceiling_label} · fonte: {report.get('source', 'cache')}")
 
     if comparison and comparison.get("avulso") is not None:
         avulso = comparison["avulso"]
@@ -305,6 +310,55 @@ def build_block_alert_message(diag: dict) -> str:
 def build_block_recovered_message(streak_days: int) -> str:
     dias = f"{streak_days} dia{'s' if streak_days != 1 else ''}"
     return f"✅ <b>Consulta ao vivo normalizada</b> — voltou a funcionar depois de {dias} sem sucesso."
+
+
+# ----------------------------------------------------------------------------
+# Avisos de estado provisório da Etapa 4.2 (multiusuário parcial).
+# Os três são situações que NÃO podem seguir em silêncio: ou o dado está
+# quebrado, ou o robô está tomando uma decisão que só vale enquanto o fan-out
+# por usuário (Etapa 6) não existir. Todos saem no máximo 1x por execução.
+# ----------------------------------------------------------------------------
+
+def build_no_effective_ceiling_message() -> str:
+    """Nenhum usuário em `settings` — a view `weekend_leg_effective` volta
+    vazia e não existe teto efetivo pra comparar. É erro de dado, não caso pra
+    inventar um número: o robô segue gravando preço (o histórico é o ativo que
+    não dá pra recuperar depois) e avaliando oportunidade, mas o alerta de teto
+    fica desligado até a linha de settings existir."""
+    return (
+        "⚠️ <b>Teto indisponível — alerta de teto desligado hoje</b>\n"
+        "Nenhum usuário registrado em <code>settings</code>, então não há teto efetivo "
+        "pra comparar. Os preços continuam sendo gravados normalmente e o alerta de "
+        "oportunidade (% abaixo da média) segue valendo — só a comparação com o teto "
+        "não roda. Verifique o cadastro de configurações no painel."
+    )
+
+
+def build_multi_user_ceiling_message(leg_count: int) -> str:
+    """Mais de um usuário com teto na mesma perna. O robô usa o MENOR — regra
+    provisória da 4.2, porque o Telegram ainda é canal único."""
+    pernas = f"{leg_count} perna{'s' if leg_count != 1 else ''}"
+    return (
+        "ℹ️ <b>Mais de um usuário com teto na mesma perna</b>\n"
+        f"{pernas} com teto definido por mais de um usuário. Vale o <b>menor</b> teto "
+        "entre eles, tanto pro alerta quanto pra ordem da fila.\n"
+        "Regra provisória: enquanto o alerta não for individualizado por usuário "
+        "(Etapa 6), o Telegram é um canal só e não há como mandar o alerta de cada um."
+    )
+
+
+def build_shared_settings_message(chosen_user_id: str, total_users: int) -> str:
+    """Mais de um usuário registrado, mas os limiares gerais (oportunidade,
+    cooldown/realerta, modo de notificação) ainda vêm de um só."""
+    return (
+        "ℹ️ <b>Mais de um usuário registrado — limiares gerais vêm de um só</b>\n"
+        f"{total_users} usuários em <code>settings</code>. Os limiares gerais "
+        "(% de oportunidade, cooldown/re-alerta, modo de notificação) estão saindo das "
+        f"configurações de <code>{chosen_user_id}</code>, escolhido de forma "
+        "determinística (menor user_id).\n"
+        "O <b>teto não depende disso</b> — desde a Etapa 4.2 cada perna usa o teto "
+        "efetivo por usuário. Individualizar os demais limiares é a Etapa 6."
+    )
 
 
 STAGE_EXECUTIONS_PER_DAY = {0: 1, 1: 2, 2: 3}

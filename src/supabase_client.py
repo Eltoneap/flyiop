@@ -52,6 +52,19 @@ def get_settings(user_id: str) -> dict | None:
     return rows[0] if rows else None
 
 
+def get_all_settings() -> list[dict]:
+    """Todos os usuários registrados, ordenados por user_id — `settings` é o
+    registro de usuários do sistema (é a mesma tabela que a view
+    `weekend_leg_effective` usa no cross join). Deliberadamente NÃO derivado de
+    `routes`: usuário sem rota flexível cadastrada continua sendo usuário, e as
+    pernas de fim de semana não podem ficar reféns de existir alguma rota
+    (Etapa 4.2, pendência 7)."""
+    params = {"select": "*", "order": "user_id.asc"}
+    resp = requests.get(_url("settings"), headers=_headers(), params=params, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
 def get_system_config() -> dict | None:
     # select explícito das 3 colunas (não select=*): id/updated_at
     # contaminariam o merge com settings em main.py.
@@ -190,11 +203,39 @@ def get_weekend_legs_by_weekend(weekend_id: str) -> list[dict]:
     return resp.json()
 
 
-def get_monitoring_legs() -> list[dict]:
-    """Todas as pernas com status 'monitoring' (ida ou volta) — o filtro de
-    weekend expirado é cruzado pelo chamador com get_monitoring_weekends."""
-    params = {"status": "eq.monitoring", "select": "*"}
+def get_all_weekend_legs() -> list[dict]:
+    """Todas as pernas (ida e volta), SEM filtro de status na consulta.
+
+    Até a Etapa 4.2 esta função filtrava `status = 'monitoring'` no servidor,
+    lendo `weekend_legs.status` — coluna que o painel parou de escrever nas
+    pendências 3/4 (o estado passou a viver em `weekend_leg_user_state`). O
+    filtro de status agora é o *status efetivo por usuário*, aplicado em
+    `get_active_legs` (weekends.py) a partir de `weekend_leg_effective`.
+    `weekend_legs.status` continua vindo na linha, mas só é usado no modo
+    degradado (nenhum usuário em `settings`). O filtro de weekend expirado
+    segue cruzado pelo chamador com get_monitoring_weekends."""
+    params = {"select": "*"}
     resp = requests.get(_url("weekend_legs"), headers=_headers(), params=params, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_effective_leg_state() -> list[dict]:
+    """Estado efetivo por perna × usuário, da view `weekend_leg_effective`
+    (Etapa 4.1). Uma linha por (perna, usuário registrado em `settings`).
+
+    `price_ceiling` já vem resolvido pela view
+    (`coalesce(override_do_usuario, settings.weekend_default_ceiling)`) e
+    `status` já vem como `coalesce(estado_do_usuario, 'monitoring')` — ausência
+    de linha em `weekend_leg_user_state` significa "segue o padrão", não
+    "sem dado". Nenhum coalesce do lado da aplicação é necessário.
+
+    O robô roda como `service_role`, que bypassa RLS: aqui vêm as linhas de
+    TODOS os usuários, sem filtro (é intencional e está documentado em
+    `sql/etapa4_1_estado_por_usuario.sql`). Quem colapsa isso para uma decisão
+    por perna é `get_active_legs` (weekends.py)."""
+    params = {"select": "leg_id,user_id,price_ceiling,status"}
+    resp = requests.get(_url("weekend_leg_effective"), headers=_headers(), params=params, timeout=30)
     resp.raise_for_status()
     return resp.json()
 

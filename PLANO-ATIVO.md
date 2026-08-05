@@ -184,14 +184,22 @@ atendida manualmente pelo usuário principal.
 
 ---
 
-## Etapa 4.2 — virada de leitura (EM REVISÃO no chat de planejamento, ainda NÃO aprovada)
+## Etapa 4.2 — virada de leitura (pendências 1–10 concluídas; 11 e 12 em aberto)
 
 **Etapa 4.1 concluída e verificada em 01/08/2026.** A estrutura nova
-(`weekend_leg_user_state`, `settings.weekend_default_ceiling` = 250,
-`weekend_leg_ceiling_audit`, view `weekend_leg_effective`) existe no banco de
-produção e passou pelos blocos A–G. Detalhe no `HISTORICO.md`, item 17;
-tabelas da verificação em `AUDITORIA-MULTIUSUARIO.md`. Nada lê a estrutura nova
-ainda — é o que esta etapa faz.
+(`weekend_leg_user_state`, `settings.weekend_default_ceiling` como teto padrão
+por usuário, `weekend_leg_ceiling_audit`, view `weekend_leg_effective`) existe
+no banco de produção e passou pelos blocos A–G. Detalhe no `HISTORICO.md`,
+item 17; tabelas da verificação em `AUDITORIA-MULTIUSUARIO.md`. Nada lê a
+estrutura nova ainda — é o que esta etapa faz.
+
+> **O teto padrão é um valor vivo.** A fonte de verdade é
+> `settings.weekend_default_ceiling`, editável no painel (Compras → "Salvar meu
+> teto padrão"). Já mudou uma vez (250 → 300, em 04/08/2026) e deve mudar de
+> novo conforme a calibração com preços reais de ida vs. volta avança. Nenhum
+> texto de plano, código ou documentação deve fixar o número — sempre apontar
+> para a coluna. Números datados em registros históricos abaixo ficam como
+> estão: são fotografia do que valia naquele dia, não afirmação sobre hoje.
 
 > ### ⚠️ REGRA DE JANELA ABERTA — vigente agora, entre a 4.1 e a 4.2
 >
@@ -208,6 +216,15 @@ ainda — é o que esta etapa faz.
 > Se passar batido, o ajuste manual some na virada.
 >
 > **Enquanto a 4.2 não fechar: não editar teto no painel.**
+>
+> **✅ ENCERRADA (04/08/2026).** Confirmada por execução real do re-sync
+> (pendências 1 e 2, `sql/etapa4_2_resync.sql`) — zero teto preso na coluna
+> velha, zero campo de estado pendente de cópia. Já estava tecnicamente
+> fechada desde as pendências 3/4 (03/08/2026), quando o painel parou de
+> escrever em `weekend_legs.price_ceiling`; a execução do re-sync fecha
+> formalmente o registro histórico do intervalo. Texto acima mantido para
+> contexto de por que a regra existiu. **Não confundir com a "JANELA ABERTA 2"
+> abaixo, que segue em aberto até a Etapa 6.**
 
 > ### ⚠️ JANELA ABERTA 2 — painel novo × Telegram velho (decisão 03/08/2026)
 >
@@ -226,6 +243,30 @@ ainda — é o que esta etapa faz.
 >
 > **Fecha sozinha quando a Etapa 6 entrar** (o robô passar a ler o teto
 > efetivo por usuário) — não antes.
+>
+> **✅ PARTE DO TETO ENCERRADA (05/08/2026).** As pendências 6/7(leve)/8/9
+> fecharam a divergência de leitura: o robô e o Telegram passaram a ler
+> `weekend_leg_effective`. **Teto editado no painel volta a valer no Telegram**,
+> e perna marcada como comprada volta a sair da fila do robô. A previsão acima
+> ("fecha só na Etapa 6") estava certa sobre o fan-out e errada sobre o teto —
+> dava para separar as duas coisas, e foi o que se fez.
+>
+> **SEGUE ABERTO até a Etapa 6** (nada disso mudou nesta rodada):
+> - **Fan-out de alerta por usuário.** O Telegram é um canal único. Com dois
+>   usuários, quem receber o alerta recebe o do teto mais apertado, sem saber
+>   de quem é.
+> - **Cooldown/dedup por perna × usuário.** Hoje é por perna, global.
+> - **Mensagem com nome e valor de cada usuário.**
+> - **Limiares gerais de um usuário só** (% oportunidade, cooldown/re-alerta,
+>   modo de notificação) — escolhidos de forma determinística (menor `user_id`)
+>   e com aviso no Telegram quando há mais de um usuário, mas ainda não
+>   individualizados.
+>
+> Enquanto isso, duas regras **provisórias** governam o caso multiusuário, as
+> duas marcadas como tal no código (`weekends.resolve_effective_leg_state`):
+> vale o **menor teto** entre os usuários que ainda monitoram a perna, e a
+> perna **fica na fila enquanto pelo menos um** usuário a monitorar. Com uma
+> conta só — cenário de hoje — as duas são invisíveis.
 
 **Medição da janela aberta (03/08/2026, chat de planejamento).** Consulta
 somente leitura em produção, comparando `weekend_legs` (mundo antigo) com a
@@ -249,8 +290,17 @@ entre agora e a execução real da 4.2 pode gerar divergência nova.
 
 ### Pendências nomeadas (12 no total — 1, 2, 3, 4 e 5 concluídas; restam 6–12)
 
-1. **Re-sync do estado antes de virar a leitura — desenhada (03/08/2026),
-   aguardando implementação.** A cópia da 4.1 é uma fotografia. A partir dela,
+1. ✅ **Concluída e executada em produção (04/08/2026).** Re-sync do estado
+   antes de virar a leitura — desenhada (03/08/2026), corrigida para a regra
+   de não-sobrescrita por campo depois que as pendências 3/4 entraram antes
+   do previsto, e executada via `sql/etapa4_2_resync.sql` (mantido no
+   repositório, re-rodável). **Resultado: zero divergência** entre 01/08 e
+   04/08/2026 — pré-voo (Bloco 0) com `p1_linhas_a_inserir` e todos os
+   `p1_*_a_escrever` em 0; execução (Bloco 1) com `parte_a_linhas = 0`. Não
+   havia nada a copiar: confirma e estende a medição de 03/08/2026 registrada
+   abaixo. Desenho original mantido nesta seção como registro:
+
+   A cópia da 4.1 é uma fotografia. A partir dela,
    todo `paid_price`/nota/compra novo continua indo para `weekend_legs` (mundo
    antigo) e não para `weekend_leg_user_state`. Quanto maior o intervalo 4.1 →
    4.2, mais desatualizada a cópia. O Bloco 7b é re-rodável, mas
@@ -266,8 +316,15 @@ entre agora e a execução real da 4.2 pode gerar divergência nova.
    - Decisão de timing: o script é genérico e re-rodável, mas só deve ser
      executado de fato imediatamente antes do deploy que vira a leitura — não
      antes.
-2. **Teto editado no painel entre a 4.1 e a 4.2 vira caso especial do
-   re-sync — desenhada (03/08/2026), aguardando implementação.**
+2. ✅ **Concluída e executada em produção (04/08/2026).** Teto editado no
+   painel entre a 4.1 e a 4.2 vira caso especial do re-sync — desenhada
+   (03/08/2026) e executada junto com a pendência 1, via
+   `sql/etapa4_2_resync.sql`. **Resultado: `p2_tetos_a_escrever = 0` e
+   `parte_b_linhas = 0`** — nenhum teto ficou preso na coluna velha no
+   intervalo 01/08 → 04/08/2026; confirma a medição de 03/08/2026 (zero
+   divergências) e a estende até a data de execução. Desenho original mantido
+   nesta seção como registro:
+
    O guarda 1c do script exige todas as pernas em 250 no momento de rodar, e a
    4.1 por isso não copia teto. Se um teto for editado no painel depois disso,
    ele vai para a coluna velha (`weekend_legs.price_ceiling`), a auditoria nova
@@ -325,27 +382,70 @@ entre agora e a execução real da 4.2 pode gerar divergência nova.
    "Ação do dia" contou a perna como abaixo do teto e "Melhores
    oportunidades → Abaixo do teto" mostrou "R$ 536,00 (3% abaixo do teto)",
    consistente com o teto de R$ 555 salvo em Compras; console sem erros.
-6. **`src/weekends.py:164`, `src/live_check.py:123`, `src/telegram_notifier.py:169`**
-   — trocar `leg.price_ceiling or 200` pelo teto efetivo por usuário. Encosta na
-   Etapa 6 (alerta por perna × usuário); decidir na 4.2 até onde vai.
-7. **`src/main.py:328`** — hoje o fluxo de fim de semana usa as settings do
-   *primeiro* usuário que tiver rota cadastrada
-   (`next(iter(settings_cache.values()))`). Precisa virar iteração explícita por
-   usuário.
-8. **`CLAUDE.md` e os `or 200`.** A 4.1 cria a fonte de verdade nova
-   (`settings.weekend_default_ceiling` = 250) e ela convive com os quatro
-   fallbacks `or 200` no código e com o texto desatualizado do `CLAUDE.md`. Sem
-   efeito prático enquanto nada lê o novo — não pode passar batido na virada.
-9. **Fila de scraping: `get_monitoring_legs` filtra `status = 'monitoring'` NA
-   CONSULTA.** Com dois usuários, a perna só sai da fila quando **TODOS**
-   pararem de monitorar — se um comprou e o outro não, a perna continua sendo
-   checada (é o comportamento correto: o outro ainda precisa do preço).
-   (Decisão do chat de planejamento — **não reabrir**.)
-10. **Ordenação da fila: `price_ceiling` também ordena** (`price_gap` em
-    `src/live_check.py`). Com dois tetos para a mesma perna, a ordenação usa o
-    **MENOR teto entre os usuários** — quem tem o teto mais apertado puxa a
-    perna pra cima na fila. (Decisão do chat de planejamento — **não
-    reabrir**.)
+6. ✅ **Concluída (05/08/2026).** **Teto efetivo no robô e no Telegram.**
+   `src/weekends.py`, `live_check.py` e `telegram_notifier.py` liam
+   `weekend_legs.price_ceiling` com fallback `or 200`; passaram a ler
+   `effective_ceiling`, resolvido de `weekend_leg_effective`.
+   - **Ponto de origem único, confirmado antes de codar:** `select_batch`
+     (live_check) e `process_all_weekend_legs` (weekends) chamam ambos
+     `get_active_legs()`, que era o único chamador de `get_monitoring_legs`.
+     Anexar o teto lá alimenta os três sites — não há caminho paralelo.
+   - **`or 200` era inofensivo por acidente**, não a causa do bug em produção:
+     `weekend_legs.price_ceiling` é `not null`, então o fallback nunca
+     disparava. O bug real era ler a **coluna errada** (250 congelado desde a
+     pendência 3/4) em vez do teto efetivo. O `or 200` saiu como dívida.
+   - Eram **três** `or 200` no Python, não quatro. O quarto provavelmente era o
+     `default 200` da coluna em `sql/pernas_desacopladas.sql:36` (DDL, não
+     código de aplicação) — ou a contagem original errou.
+   - **Sem fallback numérico.** Teto ausente (nenhum usuário em `settings`) é
+     erro de dado: a regra de teto sai de cena (`target_price=None`), o preço
+     continua sendo gravado, a regra de oportunidade continua valendo, e sai um
+     aviso único no Telegram. Nunca um número inventado.
+   - MIN entre usuários **restrito a quem ainda monitora** a perna: o teto de
+     quem já comprou não deve governar o alerta de quem não comprou. Com um
+     usuário só as duas leituras coincidem.
+7. ✅ **Concluída na versão leve (05/08/2026).** **`src/main.py`** — a escolha
+   de quem dita os limiares gerais deixou de ser `next(iter(...))` (ordem de
+   dicionário) e virou determinística (menor `user_id`) e barulhenta (aviso no
+   Telegram quando há mais de um usuário, nomeando o escolhido). Vale para os
+   dois sites do mesmo padrão — o de `weekend_settings` e o de
+   `notification_mode`, que a pendência original não nomeava.
+   - **Correção de desenho feita antes de codar:** `settings_cache` era montado
+     a partir de `routes`, então a guarda "mais de um usuário" **nunca
+     dispararia** no caso real (segundo usuário não terá rota flexível). Passou
+     a ser montado de `get_all_settings()` — a mesma tabela que a view usa no
+     cross join. `routes` só complementa usuário sem linha em `settings`.
+   - **Não é o loop por usuário** — isso é a Etapa 6. Aqui só se trocou escolha
+     implícita por escolha explícita e visível.
+8. ✅ **Concluída (05/08/2026).** **Documentação do teto.** `CLAUDE.md` dizia
+   "default R$ 200" e o cabeçalho desta seção dizia "= 250"; ambos passaram a
+   apontar para `settings.weekend_default_ceiling` como fonte de verdade, **sem
+   fixar número** — o valor é vivo (250 → 300 em 04/08/2026, e deve mudar de
+   novo). Registros históricos datados ficaram como estão.
+9. ✅ **Concluída no caso atual (05/08/2026).** **Fila de scraping por status
+   efetivo.** `get_monitoring_legs` filtrava `weekend_legs.status = 'monitoring'`
+   na consulta — coluna que o painel parou de escrever nas pendências 3/4.
+   Consequência ativa em produção: **marcar perna como comprada no painel não a
+   tirava da fila do robô**, e ela seguia gerando alerta de teto. Virou
+   `get_all_weekend_legs()` (sem filtro de status) + filtro por status efetivo
+   em `get_active_legs`.
+   - Regra implementada (decisão do chat — **não reabrir**): a perna fica na
+     fila enquanto **pelo menos um** usuário tiver status efetivo
+     `'monitoring'`; sai só quando **todos** decidirem outra coisa. Ausência de
+     linha em `weekend_leg_user_state` conta como `'monitoring'` — a view já faz
+     `coalesce(st.status, 'monitoring')`, então nenhum coalesce foi preciso na
+     aplicação.
+   - **Modo degradado:** view vazia (nenhum usuário em `settings`) faz a fila
+     cair no `weekend_legs.status` antigo, com aviso. Nunca esvazia a fila em
+     silêncio.
+10. ✅ **Concluída junto com a 6 (05/08/2026).** **Ordenação da fila:
+    `price_ceiling` também ordena** (`price_gap` em `src/live_check.py`). Com
+    dois tetos para a mesma perna, a ordenação usa o **MENOR teto entre os
+    usuários** — quem tem o teto mais apertado puxa a perna pra cima na fila.
+    (Decisão do chat de planejamento — **não reabrir**.) Implementada no mesmo
+    ponto da pendência 6: `resolve_effective_leg_state` já entrega o MIN, e o
+    `sort_key` só consome. Perna sem teto efetivo desempata por último
+    (`inf`), como perna sem preço.
 11. **Corrigir `sql/etapa4_1_verificacao.sql`** — cresceu além de só
     consolidar E e F numa linha cada, depois da investigação de 02/08/2026
     (`AUDITORIA-MULTIUSUARIO.md`, "Verificação das estruturas novas" e
@@ -409,13 +509,13 @@ regras de scraping (item A5) e do histórico de escopo. Verificado em
 raiz do repo). Sem risco — a regra dura de scraping não perdeu seu arquivo
 de origem. Não corrigido agora — decisão de escopo, não desta iniciativa.
 
-`CLAUDE.md` descreve o teto default por perna como R$ 200 (seção "Fins de
-semana RIO↔BSB", "default R$ 200, pendente de calibração"). O valor real em
-uso em produção é **R$ 250** (ver `STATE.md`, seção 3 item 3, e a
-confirmação de 01/08/2026 em `select count(*) from weekend_legs where
-price_ceiling <> 250` retornando 0, registrada acima em "(a)"). `CLAUDE.md`
-ficou desatualizado nesse número. Não corrigido agora — decisão de escopo,
-não desta iniciativa.
+~~`CLAUDE.md` descreve o teto default por perna como R$ 200~~ — **corrigido em
+05/08/2026** (pendência 8). Registro do que era: `CLAUDE.md` dizia "default
+R$ 200, pendente de calibração" enquanto o valor real em produção era R$ 250
+(confirmação de 01/08/2026 em `select count(*) from weekend_legs where
+price_ceiling <> 250` retornando 0, registrada acima em "(a)"), e depois R$ 300
+(04/08/2026). Fixar o número no texto foi a causa de ele desatualizar duas
+vezes; agora aponta para `settings.weekend_default_ceiling`.
 
 `README.md` tem duas descrições desatualizadas, verificadas em 01/08/2026
 (linhas 3, 11 e 52 do arquivo):

@@ -125,6 +125,7 @@ class AlertLogWiringTest(unittest.TestCase):
             "route": route, "status": "ok", "should_alert": True, "price": 520.0, "reason": "abaixo da meta",
         }
         with patch("main.get_routes", return_value=[route]), \
+             patch("main.get_all_settings", return_value=[{"user_id": "user-1", "notification_mode": "alert_only"}]), \
              patch("main.get_settings", return_value={"notification_mode": "alert_only"}), \
              patch("main.get_system_config", return_value=None), \
              patch("main.process_route", return_value=report), \
@@ -150,6 +151,7 @@ class AlertLogWiringTest(unittest.TestCase):
             "currency": "BRL", "depart_date": "2026-11-27",
         }
         with patch("main.get_routes", return_value=[route]), \
+             patch("main.get_all_settings", return_value=[{"user_id": "user-1", "notification_mode": "daily_summary"}]), \
              patch("main.get_settings", return_value={"notification_mode": "daily_summary"}), \
              patch("main.get_system_config", return_value=None), \
              patch("main.process_route", return_value=report), \
@@ -171,10 +173,11 @@ class AlertLogWiringTest(unittest.TestCase):
     def test_weekend_targets_processed_even_without_flexible_routes(self):
         """main() não pode ficar refém de existir alguma rota flexível cadastrada."""
         weekend_report = {
-            "leg": {"id": "leg-1", "price_ceiling": 200}, "status": "ok", "price": 150.0,
+            "leg": {"id": "leg-1", "effective_ceiling": 200}, "status": "ok", "price": 150.0,
             "should_alert": True, "reason": "abaixo da meta fixa (R$ 200)",
         }
         with patch("main.get_routes", return_value=[]), \
+             patch("main.get_all_settings", return_value=[]), \
              patch("main.get_system_config", return_value=None), \
              patch("main.process_all_weekend_legs", return_value=[weekend_report]), \
              patch("main.run_daily_batch", return_value=([], False)), \

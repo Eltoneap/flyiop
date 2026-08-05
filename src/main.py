@@ -14,6 +14,7 @@ from rules import (
 from supabase_client import (
     DEFAULT_SETTINGS,
     DEFAULT_SYSTEM_CONFIG,
+    get_all_settings,
     get_last_alert,
     get_price_history,
     get_recent_run_outcomes,
@@ -30,7 +31,10 @@ from supabase_client import (
 )
 from telegram_notifier import (
     build_alert_message,
+    build_multi_user_ceiling_message,
+    build_no_effective_ceiling_message,
     build_route_block,
+    build_shared_settings_message,
     build_stage_change_message,
     build_summary_message,
     build_weekend_alert_message,
@@ -49,7 +53,7 @@ from scrape_schedule import (
     should_run_live_batch,
 )
 from travelpayouts_client import get_prices_for_dates
-from weekends import process_all_weekend_legs
+from weekends import LEG_LOAD_DIAGNOSTICS, process_all_weekend_legs
 
 MONTHS_AHEAD = 6  # varre de "em cima da hora" até ~6 meses à frente; o histórico aprende sozinho qual faixa é mais barata
 REQUEST_DELAY_SECONDS = 0.3  # precaução contra possível limite de requisições da Travelpayouts
@@ -297,8 +301,16 @@ def main() -> None:
 
     routes = get_routes()
     system_config = get_system_config() or DEFAULT_SYSTEM_CONFIG
-    settings_cache: dict[str, dict] = {}
-    for route in routes:
+
+    # `settings` é o registro de usuários (mesma tabela do cross join da view
+    # weekend_leg_effective) — carregada inteira, ordenada por user_id. NÃO
+    # derivar de `routes`: usuário sem rota flexível continua sendo usuário, e
+    # antes da Etapa 4.2 era exatamente esse o furo — a escolha de settings
+    # nascia de `routes` e ignorava quem só tem pernas de fim de semana.
+    settings_cache: dict[str, dict] = {
+        row["user_id"]: {**row, **system_config} for row in get_all_settings()
+    }
+    for route in routes:  # usuário com rota mas sem linha em settings: cai no default
         user_id = route["user_id"]
         if user_id not in settings_cache:
             settings_cache[user_id] = {**(get_settings(user_id) or DEFAULT_SETTINGS), **system_config}
@@ -322,10 +334,23 @@ def main() -> None:
     else:
         print(f"[main] execução extra do dia ({today}) — pulando rotas flexíveis e cache Travelpayouts")
 
-    # settings do primeiro usuário definem tudo (app é single-user por design).
-    # Sem rotas flexíveis cadastradas, cai no default — as pernas de fim de
-    # semana não podem ficar reféns de existir alguma rota flexível.
-    weekend_settings = next(iter(settings_cache.values()), None) or {**DEFAULT_SETTINGS, **system_config}
+    # Escolha ÚNICA e determinística de quem dita os limiares gerais (%
+    # oportunidade, cooldown/re-alerta, modo de notificação): o menor user_id.
+    # Antes era `next(iter(settings_cache.values()))` — o primeiro usuário que a
+    # ordem do dicionário devolvesse, escolha implícita e instável.
+    #
+    # ⚠️ PROVISÓRIO até a Etapa 6, que troca isto por um loop de verdade por
+    # usuário. O TETO já não passa por aqui: desde a Etapa 4.2 cada perna carrega
+    # seu próprio teto efetivo (weekends.get_active_legs). O que ainda é de um
+    # usuário só são os limiares gerais — e, quando há mais de um, o Telegram
+    # avisa em vez de escolher em silêncio.
+    settings_user_id = sorted(settings_cache)[0] if settings_cache else None
+    weekend_settings = (
+        settings_cache[settings_user_id] if settings_user_id
+        else {**DEFAULT_SETTINGS, **system_config}
+    )
+    if settings_user_id:
+        print(f"[main] limiares gerais: settings de {settings_user_id} ({len(settings_cache)} usuário(s))")
 
     if primary_run:
         # Novo dia de contagem começando — sempre reseta (idempotente se já
@@ -380,6 +405,16 @@ def main() -> None:
         if scrape_state["changed"]:
             send_message(build_stage_change_message(scrape_state["stage"], scrape_state["reason"]))
 
+    # Avisos de estado provisório da Etapa 4.2 — no máximo um de cada por
+    # execução, mesmo que get_active_legs tenha rodado 2x (cache + lote fli):
+    # LEG_LOAD_DIAGNOSTICS é sobrescrito a cada carga, nunca acumulado.
+    if LEG_LOAD_DIAGNOSTICS["degraded_no_settings"]:
+        send_message(build_no_effective_ceiling_message())
+    if LEG_LOAD_DIAGNOSTICS["multi_user_ceiling_legs"]:
+        send_message(build_multi_user_ceiling_message(LEG_LOAD_DIAGNOSTICS["multi_user_ceiling_legs"]))
+    if len(settings_cache) > 1:
+        send_message(build_shared_settings_message(settings_user_id, len(settings_cache)))
+
     weekend_reports = dedupe_weekend_reports(cache_reports + live_reports)
     if any(wr["status"] == "error" for wr in weekend_reports):
         had_error = True
@@ -392,7 +427,7 @@ def main() -> None:
 
     if primary_run:
         if routes:
-            mode = next(iter(settings_cache.values()))["notification_mode"]
+            mode = weekend_settings["notification_mode"]  # mesma escolha determinística acima
             if mode == "daily_summary":
                 blocks = [build_route_block(r) for r in reports if r["status"] == "ok"]
                 for r in reports:

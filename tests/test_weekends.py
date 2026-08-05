@@ -27,12 +27,12 @@ WEEKEND = {"outbound_date": "2026-09-04", "return_sunday": "2026-09-06", "return
 
 OUTBOUND_LEG = {
     "id": "leg-out-1", "weekend_id": "wknd-1", "direction": "outbound",
-    "price_ceiling": 200, "lowest_seen": None, **WEEKEND,
+    "effective_ceiling": 200, "lowest_seen": None, **WEEKEND,
 }
 
 RETURN_LEG = {
     "id": "leg-ret-1", "weekend_id": "wknd-1", "direction": "return",
-    "price_ceiling": 200, "lowest_seen": None, **WEEKEND,
+    "effective_ceiling": 200, "lowest_seen": None, **WEEKEND,
 }
 
 SETTINGS = {
@@ -88,21 +88,32 @@ class MatchLegEntriesTest(unittest.TestCase):
         self.assertEqual(result["price"], 300.0)
 
 
+def state_rows(*leg_ids, user_id="user-a", ceiling=250, status="monitoring") -> list[dict]:
+    """Linhas de weekend_leg_effective (uma por perna × usuário) como o robô as
+    recebe: price_ceiling e status já resolvidos pela view."""
+    return [
+        {"leg_id": leg_id, "user_id": user_id, "price_ceiling": ceiling, "status": status}
+        for leg_id in leg_ids
+    ]
+
+
 class GetActiveLegsTest(unittest.TestCase):
     def test_merges_weekend_dates_onto_legs(self):
         weekend_row = {"id": "wknd-1", "outbound_date": "2026-09-04", "return_sunday": "2026-09-06", "return_monday": "2026-09-07"}
-        leg_row = {"id": "leg-out-1", "weekend_id": "wknd-1", "direction": "outbound", "price_ceiling": 200}
+        leg_row = {"id": "leg-out-1", "weekend_id": "wknd-1", "direction": "outbound"}
         with patch("weekends.get_monitoring_weekends", return_value=[weekend_row]), \
-             patch("weekends.get_monitoring_legs", return_value=[leg_row]):
+             patch("weekends.get_all_weekend_legs", return_value=[leg_row]), \
+             patch("weekends.get_effective_leg_state", return_value=state_rows("leg-out-1")):
             legs = weekends.get_active_legs()
         self.assertEqual(len(legs), 1)
         self.assertEqual(legs[0]["outbound_date"], "2026-09-04")
         self.assertEqual(legs[0]["return_sunday"], "2026-09-06")
 
     def test_leg_of_expired_weekend_is_excluded(self):
-        leg_row = {"id": "leg-out-1", "weekend_id": "wknd-passado", "direction": "outbound", "price_ceiling": 200}
+        leg_row = {"id": "leg-out-1", "weekend_id": "wknd-passado", "direction": "outbound"}
         with patch("weekends.get_monitoring_weekends", return_value=[]), \
-             patch("weekends.get_monitoring_legs", return_value=[leg_row]):
+             patch("weekends.get_all_weekend_legs", return_value=[leg_row]), \
+             patch("weekends.get_effective_leg_state", return_value=state_rows("leg-out-1")):
             legs = weekends.get_active_legs()
         self.assertEqual(legs, [])
 
@@ -115,10 +126,11 @@ class GetActiveLegsTest(unittest.TestCase):
             "return_sunday": days_from_today(0),
             "return_monday": days_from_today(1),
         }
-        outbound = {"id": "leg-out-1", "weekend_id": "wknd-1", "direction": "outbound", "price_ceiling": 200}
-        ret = {"id": "leg-ret-1", "weekend_id": "wknd-1", "direction": "return", "price_ceiling": 200}
+        outbound = {"id": "leg-out-1", "weekend_id": "wknd-1", "direction": "outbound"}
+        ret = {"id": "leg-ret-1", "weekend_id": "wknd-1", "direction": "return"}
         with patch("weekends.get_monitoring_weekends", return_value=[weekend_row]), \
-             patch("weekends.get_monitoring_legs", return_value=[outbound, ret]):
+             patch("weekends.get_all_weekend_legs", return_value=[outbound, ret]), \
+             patch("weekends.get_effective_leg_state", return_value=state_rows("leg-out-1", "leg-ret-1")):
             legs = weekends.get_active_legs()
         ids = [leg["id"] for leg in legs]
         self.assertNotIn("leg-out-1", ids)
@@ -131,9 +143,10 @@ class GetActiveLegsTest(unittest.TestCase):
             "return_sunday": days_from_today(1),
             "return_monday": days_from_today(2),
         }
-        outbound = {"id": "leg-out-1", "weekend_id": "wknd-1", "direction": "outbound", "price_ceiling": 200}
+        outbound = {"id": "leg-out-1", "weekend_id": "wknd-1", "direction": "outbound"}
         with patch("weekends.get_monitoring_weekends", return_value=[weekend_row]), \
-             patch("weekends.get_monitoring_legs", return_value=[outbound]):
+             patch("weekends.get_all_weekend_legs", return_value=[outbound]), \
+             patch("weekends.get_effective_leg_state", return_value=state_rows("leg-out-1")):
             legs = weekends.get_active_legs()
         self.assertEqual([leg["id"] for leg in legs], ["leg-out-1"])
 
@@ -144,11 +157,82 @@ class GetActiveLegsTest(unittest.TestCase):
             "return_sunday": days_from_today(-3),
             "return_monday": days_from_today(-2),
         }
-        ret = {"id": "leg-ret-1", "weekend_id": "wknd-1", "direction": "return", "price_ceiling": 200}
+        ret = {"id": "leg-ret-1", "weekend_id": "wknd-1", "direction": "return"}
         with patch("weekends.get_monitoring_weekends", return_value=[weekend_row]), \
-             patch("weekends.get_monitoring_legs", return_value=[ret]):
+             patch("weekends.get_all_weekend_legs", return_value=[ret]), \
+             patch("weekends.get_effective_leg_state", return_value=state_rows("leg-ret-1")):
             legs = weekends.get_active_legs()
         self.assertEqual(legs, [])
+
+
+class EffectiveLegStateTest(unittest.TestCase):
+    """Etapa 4.2: teto efetivo (pendência 6/10) e fila por status efetivo
+    (pendência 9), a partir de weekend_leg_effective."""
+
+    WEEKEND_ROW = {
+        "id": "wknd-1", "outbound_date": "2026-09-04",
+        "return_sunday": "2026-09-06", "return_monday": "2026-09-07",
+    }
+    LEG_ROW = {"id": "leg-out-1", "weekend_id": "wknd-1", "direction": "outbound", "status": "monitoring"}
+
+    def load(self, state, leg_rows=None):
+        with patch("weekends.get_monitoring_weekends", return_value=[self.WEEKEND_ROW]), \
+             patch("weekends.get_all_weekend_legs", return_value=leg_rows or [self.LEG_ROW]), \
+             patch("weekends.get_effective_leg_state", return_value=state):
+            return weekends.get_active_legs()
+
+    def test_single_user_ceiling_comes_from_the_view(self):
+        legs = self.load(state_rows("leg-out-1", ceiling=300))
+        self.assertEqual(legs[0]["effective_ceiling"], 300)
+
+    def test_ceiling_uses_the_lowest_between_users(self):
+        state = (state_rows("leg-out-1", user_id="user-a", ceiling=300)
+                 + state_rows("leg-out-1", user_id="user-b", ceiling=180))
+        legs = self.load(state)
+        self.assertEqual(legs[0]["effective_ceiling"], 180)
+        self.assertEqual(weekends.LEG_LOAD_DIAGNOSTICS["multi_user_ceiling_legs"], 1)
+
+    def test_purchased_user_ceiling_does_not_govern_the_alert(self):
+        # user-b já comprou: o teto apertado dele não deve mais puxar o alerta
+        # de quem continua monitorando.
+        state = (state_rows("leg-out-1", user_id="user-a", ceiling=300)
+                 + state_rows("leg-out-1", user_id="user-b", ceiling=180, status="purchased"))
+        legs = self.load(state)
+        self.assertEqual(legs[0]["effective_ceiling"], 300)
+
+    def test_leg_stays_in_queue_while_any_user_still_monitors(self):
+        state = (state_rows("leg-out-1", user_id="user-a", status="purchased")
+                 + state_rows("leg-out-1", user_id="user-b", status="monitoring"))
+        legs = self.load(state)
+        self.assertEqual([leg["id"] for leg in legs], ["leg-out-1"])
+
+    def test_leg_leaves_queue_only_when_every_user_stopped_monitoring(self):
+        state = (state_rows("leg-out-1", user_id="user-a", status="purchased")
+                 + state_rows("leg-out-1", user_id="user-b", status="purchased"))
+        self.assertEqual(self.load(state), [])
+
+    def test_missing_state_row_counts_as_monitoring(self):
+        # A view já devolve coalesce(status, 'monitoring') — silêncio segue o
+        # padrão, e o padrão é continuar monitorando.
+        legs = self.load(state_rows("leg-out-1"))
+        self.assertEqual([leg["id"] for leg in legs], ["leg-out-1"])
+
+    def test_no_settings_falls_back_to_old_status_without_inventing_ceiling(self):
+        legs = self.load([])
+        self.assertEqual([leg["id"] for leg in legs], ["leg-out-1"])
+        self.assertIsNone(legs[0]["effective_ceiling"])
+        self.assertTrue(weekends.LEG_LOAD_DIAGNOSTICS["degraded_no_settings"])
+
+    def test_no_settings_still_respects_the_old_purchased_status(self):
+        bought = {**self.LEG_ROW, "status": "purchased"}
+        self.assertEqual(self.load([], leg_rows=[bought]), [])
+
+    def test_diagnostics_are_overwritten_not_accumulated(self):
+        state = (state_rows("leg-out-1", user_id="user-a", ceiling=300)
+                 + state_rows("leg-out-1", user_id="user-b", ceiling=180))
+        self.load(state)
+        self.load(state)  # 2ª carga da mesma execução (cache + lote fli)
+        self.assertEqual(weekends.LEG_LOAD_DIAGNOSTICS["multi_user_ceiling_legs"], 1)
 
 
 class ProcessWeekendLegTest(unittest.TestCase):
