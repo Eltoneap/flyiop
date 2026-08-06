@@ -61,7 +61,7 @@ perna, precisa virar 1 valor por (perna × usuário).
 | `weekend_leg_run_log` | `auth.uid() is not null` | — | — | — |
 | `bot_state` | `auth.uid() is not null` (adicionada em `parte8_preco_pago.sql`, 24/07) | — | — | — |
 | `alert_log` | `route_id in (select id from routes where user_id = auth.uid())` | — | — | — |
-| `settings` | não rastreada em `sql/*.sql` (tabela pré-existente) — mas o comportamento do frontend (filtra sempre por `user_id = session.user.id`) sugere policy `user_id = auth.uid()` | idem | idem | — |
+| `settings` | **confirmada em produção (05/08/2026)**: policy única `Users manage their own settings [ALL]: auth.uid() = user_id`, mais FK `settings_user_id_fkey -> auth.users` | idem (a policy é `ALL`) | idem | idem |
 | `routes` | não rastreada — mas `sql/etapa3_cooldown.sql` referencia `routes.user_id`, então provavelmente `user_id = auth.uid()` já existe | não confirmada | não confirmada | — |
 | `price_history`, `run_log` (rotas flexíveis) | não rastreada — provavelmente aberta a qualquer autenticado (mesmo padrão dos outros "\*_select_authenticated") | — | — | — |
 

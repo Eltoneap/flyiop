@@ -184,7 +184,7 @@ atendida manualmente pelo usuário principal.
 
 ---
 
-## Etapa 4.2 — virada de leitura (pendências 1–10 concluídas; 11 e 12 em aberto)
+## Etapa 4.2 — virada de leitura (pendências 1–11 concluídas; 12 em aberto)
 
 **Etapa 4.1 concluída e verificada em 01/08/2026.** A estrutura nova
 (`weekend_leg_user_state`, `settings.weekend_default_ceiling` como teto padrão
@@ -288,7 +288,7 @@ no intervalo (as 5 linhas de estado continuam idênticas à fotografia).
 observado nesta data** — o re-sync continua necessário, porque o intervalo
 entre agora e a execução real da 4.2 pode gerar divergência nova.
 
-### Pendências nomeadas (12 no total — 1, 2, 3, 4 e 5 concluídas; restam 6–12)
+### Pendências nomeadas (12 no total — 1 a 11 concluídas; resta a 12, que é backlog)
 
 1. ✅ **Concluída e executada em produção (04/08/2026).** Re-sync do estado
    antes de virar a leitura — desenhada (03/08/2026), corrigida para a regra
@@ -446,25 +446,50 @@ entre agora e a execução real da 4.2 pode gerar divergência nova.
     ponto da pendência 6: `resolve_effective_leg_state` já entrega o MIN, e o
     `sort_key` só consome. Perna sem teto efetivo desempata por último
     (`inf`), como perna sem preço.
-11. **Corrigir `sql/etapa4_1_verificacao.sql`** — cresceu além de só
-    consolidar E e F numa linha cada, depois da investigação de 02/08/2026
-    (`AUDITORIA-MULTIUSUARIO.md`, "Verificação das estruturas novas" e
-    "Lacuna de evidência no artefato de verificação"):
-    - Blocos E e F devolvendo **uma única linha de resultado cada** (hoje têm
-      vários `select`, e o SQL Editor do Supabase só exibe o resultado do
-      último — os anteriores somem em silêncio).
-    - **`auth.uid()` tem que virar COLUNA da mesma linha de resultado**, não um
-      `select` à parte — senão a guarda do teste (saber se o contexto de papel
-      foi de fato aplicado) continua sendo descartada pelo SQL Editor, mesmo
-      depois de consolidar.
-    - **O bloco F precisa de um discriminador** que separe "usuário legítimo"
-      de "dono do banco" — hoje, com uma conta só, os dois casos devolvem
-      resultado idêntico, e o bloco não prova isolamento positivo. Provavelmente
-      exige simular um **segundo `user_id`** dentro da própria transação com
-      `rollback`. Desenho a revisar no chat de planejamento — **não
-      implementar agora**.
-    - Limpar do `.sql` os resultados colados como tabelas markdown, que hoje
-      quebram o arquivo como SQL executável.
+11. ✅ **Concluída (05/08/2026).** **Corrigir `sql/etapa4_1_verificacao.sql`** —
+    a pendência tinha crescido além de só consolidar E e F numa linha cada,
+    depois da investigação de 02/08/2026 (`AUDITORIA-MULTIUSUARIO.md`,
+    "Verificação das estruturas novas" e "Lacuna de evidência no artefato de
+    verificação"). Entregue: **blocos E e F substituídos e um bloco F2 novo
+    inserido entre o F e o G** (desenho aprovado no chat de planejamento).
+    Blocos A, B, C, D, G e H não foram tocados. **O arquivo não foi executado
+    nesta rodada** — a execução no SQL Editor é manual, como sempre.
+    - **Bloco E** — uma única linha de resultado, com `auth.uid()` e
+      `current_user` como **colunas-guarda** ao lado das três contagens
+      (`view_esp_0`, `estado_esp_0`, `auditoria_esp_0`). Resolve o defeito
+      original: o SQL Editor só exibe o último `select` de cada bloco, então
+      guarda em `select` separado era descartada em silêncio.
+    - **Bloco F** — mesma consolidação, mais o **discriminador que faltava**:
+      semeia dentro da própria transação uma linha de
+      `weekend_leg_ceiling_audit` com `user_id` sintético alheio
+      (`…-0002`, `new_value = 999`), antes de trocar de papel, e depois conta
+      quantas o usuário legítimo enxerga (`alienigena_esp_0`, esperado 0). Isso
+      só é possível porque `weekend_leg_ceiling_audit.user_id` **não tem FK**
+      (decisão do Bloco 4 da 4.1). As outras colunas do bloco continuam sendo
+      regressão do caminho legítimo, não prova de isolamento.
+    - **Bloco F2 (novo)** — prova em produção a RLS de **escrita** de
+      `weekend_leg_user_state`, que até aqui só tinha sido testada num Postgres
+      descartável. Par de tentativas: insert com `user_id` alheio (deve ser
+      rejeitado) e insert com `user_id` próprio (deve ser aceito), cada uma com
+      o `sqlstate` capturado. O par junto é o que separa "o `with check` compara
+      o uuid" de "está bloqueando tudo por outro motivo" — o que faria o teste
+      passar por engano. Esperado: `bloqueado 42501` (RLS) e `aceito`; um
+      `23503` no primeiro significaria que quem barrou foi a FK de
+      `weekend_leg_user_state.user_id`, não a RLS.
+    - Sub-item "limpar do `.sql` os resultados colados como tabelas markdown":
+      **já estava resolvido ANTES desta sessão** — o arquivo já estava limpo em
+      disco (restaurado ao último commit no housekeeping de 05/08, ver
+      `STATE.md`). Não é entrega desta rodada; registrado só para fechar a
+      lista.
+    - **Limite que permanece, agora com motivo técnico documentado:** o
+      isolamento de `weekend_leg_effective` e de `weekend_leg_user_state` entre
+      **duas contas reais** continua **não demonstrável até a Etapa 7**. Não é
+      lacuna vaga: a view depende de duas linhas em `settings`, e `settings.user_id`
+      tem FK para `auth.users` (`settings_user_id_fkey`, confirmado em produção
+      em 05/08/2026 — ver `AUDITORIA-MULTIUSUARIO.md`, seção 2), então não há
+      como semear um segundo dono ali sem criar conta de verdade. O bloco F2
+      cobre o que dava para cobrir com uma conta só (a RLS de escrita); o resto
+      é o primeiro ato depois de criar a segunda conta.
 12. **Backlog — "limpar override" por perna** (registrado 03/08/2026, fora do
     escopo da pendência 3/4). Ação para remover a linha específica de
     `weekend_leg_user_state` (ou zerar `price_ceiling` para NULL) e a perna

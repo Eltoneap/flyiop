@@ -79,50 +79,100 @@ from weekend_leg_effective;
 
 -- ----------------------------------------------------------------------------
 -- BLOCO E — TESTE NEGATIVO de isolamento (usuário que não é dono de nada).
---
--- Finge um usuário inexistente no nível da sessão, sem criar conta (a regra dura
--- da iniciativa é: nenhuma conta nova antes da Etapa 7). Se QUALQUER contagem
--- aqui vier > 0, a estrutura vaza dado entre usuários e a 4.1 não sobe.
+-- Consolidado numa linha só (o SQL Editor descarta tudo exceto o último select
+-- de cada bloco). uid_visto e papel_efetivo são colunas-guarda: se qualquer
+-- uma vier errada, os números ao lado não provam nada — o contexto de papel
+-- não pegou.
 -- ----------------------------------------------------------------------------
 begin;
+  set local idle_in_transaction_session_timeout = '30s';
   set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-000000000001","role":"authenticated"}';
   set local role authenticated;
 
-  select auth.uid() as uid_falso;
-  -- Esperado: 00000000-0000-0000-0000-000000000001
-  -- (se vier null, o teste abaixo não vale nada — o ambiente não aplicou o claim)
-
-  select count(*) as view_deve_ser_zero    from weekend_leg_effective;
-  select count(*) as estado_deve_ser_zero  from weekend_leg_user_state;
-  select count(*) as audit_deve_ser_zero   from weekend_leg_ceiling_audit;
-  -- Esperado: 0 | 0 | 0
+  select
+    auth.uid()                                          as uid_visto,      -- esperado: 00000000-...-0001
+    current_user                                         as papel_efetivo, -- esperado: authenticated
+    (select count(*) from weekend_leg_effective)         as view_esp_0,
+    (select count(*) from weekend_leg_user_state)        as estado_esp_0,
+    (select count(*) from weekend_leg_ceiling_audit)     as auditoria_esp_0;
 rollback;
 
 
 -- ----------------------------------------------------------------------------
--- BLOCO F — TESTE POSITIVO (usuário real, c72bf50e-…).
+-- BLOCO F — regressão do caminho legítimo + isolamento POSITIVO na auditoria.
 --
--- Simétrico ao E e igualmente obrigatório: o modo de falha clássico do
--- security_invoker é a view devolver ZERO para o usuário legítimo. Sem este
--- bloco, a 4.1 passaria em tudo e a quebra só apareceria na 4.2, com o painel
--- vazio.
+-- Com uma conta só, "o que o usuário legítimo vê" e "o que o dono do banco vê"
+-- coincidem em weekend_leg_effective e weekend_leg_user_state — não é possível
+-- provar isolamento nessas duas tabelas até existir uma segunda conta (Etapa 7),
+-- porque a view depende de duas linhas em settings, que tem FK para auth.users
+-- (confirmado 05/08/2026) — nada aqui simula um segundo dono ali de propósito.
+--
+-- A auditoria é diferente: user_id sem FK (decisão do Bloco 4 da 4.1), então dá
+-- pra semear um dono sintético dentro da própria transação. A última coluna é
+-- o único discriminador real do bloco.
 -- ----------------------------------------------------------------------------
 begin;
+  set local idle_in_transaction_session_timeout = '30s';
+
+  insert into weekend_leg_ceiling_audit
+    (scope, leg_id, user_id, old_value, new_value, new_is_explicit, origin)
+  values
+    ('default', null, '00000000-0000-0000-0000-000000000002', null, 999, true, 'sql_editor');
+
   set local request.jwt.claims = '{"sub":"c72bf50e-16f7-48fd-9c86-7b49dea1551e","role":"authenticated"}';
   set local role authenticated;
 
-  select auth.uid() as uid_real;
-  -- Esperado: c72bf50e-16f7-48fd-9c86-7b49dea1551e
+  select
+    auth.uid()                                           as uid_visto,       -- esperado: c72bf50e-...
+    current_user                                          as papel_efetivo,   -- esperado: authenticated
+    (select count(*) from weekend_leg_effective)          as view_esp_132,
+    (select count(*) from weekend_leg_user_state)         as estado_esp_5,
+    (select count(*) from weekend_leg_ceiling_audit
+       where new_value = 999)                             as alienigena_esp_0; -- discriminador real
+rollback;
 
-  select count(*) as view_deve_ser_132   from weekend_leg_effective;
-  select count(*) as estado_deve_ser_5   from weekend_leg_user_state;
-  select count(*) as audit_deve_ser_1    from weekend_leg_ceiling_audit;
-  -- Esperado: 132 | 5 | 1
 
-  select count(*) filter (where price_ceiling = 250) as resolvido_250,
-         count(paid_price)                           as com_pago
-  from weekend_leg_effective;
-  -- Esperado: 132 | 5  (o teto padrão do usuário resolveu para todas as pernas)
+-- ----------------------------------------------------------------------------
+-- BLOCO F2 — a RLS de ESCRITA de weekend_leg_user_state bloqueia mesmo em
+-- produção (só testado antes num Postgres descartável, nunca no banco real).
+--
+-- Tenta inserir uma linha com user_id ALHEIO (deve ser rejeitado) e uma com
+-- user_id PRÓPRIO (deve ser aceito) — o par junto é o que prova que o
+-- "with check (user_id = auth.uid())" está de fato comparando o uuid, e não
+-- só bloqueando tudo por outro motivo (o que faria o teste passar por engano).
+-- ----------------------------------------------------------------------------
+begin;
+  set local idle_in_transaction_session_timeout = '30s';
+  set local request.jwt.claims = '{"sub":"c72bf50e-16f7-48fd-9c86-7b49dea1551e","role":"authenticated"}';
+  set local role authenticated;
+
+  do $$
+  declare v_leg uuid; v_alheio text; v_proprio text;
+  begin
+    select l.id into v_leg from weekend_legs l
+     where not exists (select 1 from weekend_leg_user_state s where s.leg_id = l.id)
+     limit 1;
+
+    begin
+      insert into weekend_leg_user_state (leg_id, user_id)
+      values (v_leg, '00000000-0000-0000-0000-000000000002');
+      v_alheio := 'PASSOU — FALHA';
+    exception when others then v_alheio := 'bloqueado ' || sqlstate; end;
+
+    begin
+      insert into weekend_leg_user_state (leg_id, user_id) values (v_leg, auth.uid());
+      v_proprio := 'aceito';
+    exception when others then v_proprio := 'BLOQUEADO ' || sqlstate || ' — FALHA'; end;
+
+    perform set_config('flyiop.probe_alheio', v_alheio, true);
+    perform set_config('flyiop.probe_proprio', v_proprio, true);
+  end $$;
+
+  select
+    auth.uid()                                     as uid_visto,
+    current_user                                    as papel_efetivo,
+    current_setting('flyiop.probe_alheio',  true)  as escrita_alheia_esp_bloqueada,
+    current_setting('flyiop.probe_proprio', true)  as escrita_propria_esp_aceita;
 rollback;
 
 
