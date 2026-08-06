@@ -437,6 +437,15 @@ mais fraca do que a redação anterior desta seção afirmava. Detalhe completo:
   "o que o usuário legítimo enxerga" coincidem em todas as contagens. O
   bloco F, como está, **não é hoje prova de isolamento positivo** — é
   redundante com o D.
+
+  **✅ FECHADO (05/08/2026).** O bloco F foi reescrito (commit `f50e55a`)
+  para semear um `user_id` alienígena em `weekend_leg_ceiling_audit` dentro
+  da própria transação e contar quantas linhas o usuário legítimo enxerga —
+  isso é possível porque essa tabela não tem FK em `user_id`. Rodado em
+  produção: `alienigena_esp_0 = 0`. Deixa de ser redundante com o D: agora
+  há um caso onde "dono do banco" e "usuário legítimo" divergem
+  estruturalmente, e o bloco prova que o usuário legítimo não vê o
+  alienígena.
 - **Conclusão a registrar:** não há indício de vazamento entre usuários — o
   que está fraco é o instrumento de medição, não o comportamento observado.
   O teste real de isolamento só é possível com **duas contas**, o que reforça
@@ -463,6 +472,19 @@ repositório** hoje. Registrado como lacuna conhecida; os números não foram
 removidos porque não há motivo para desconfiar deles especificamente (o
 comportamento reproduzido no banco descartável bate com o que foi relatado),
 só não há como provar a partir do arquivo sozinho.
+
+**✅ LACUNA FECHADA (05/08/2026).** Com os blocos E/F/F2 reescritos (commit
+`f50e55a`) para devolver uma única linha de resultado cada, os números deixam
+de depender do que o SQL Editor descarta ou do relato da sessão. Rodado em
+produção: Bloco E — `uid_visto=00000000-...-0001`,
+`papel_efetivo=authenticated`, `view_esp_0=0`, `estado_esp_0=0`,
+`auditoria_esp_0=0`. Bloco F — `uid_visto=c72bf50e-...`,
+`papel_efetivo=authenticated`, `view_esp_132=132`, `estado_esp_5=5`,
+`alienigena_esp_0=0`. Bloco F2 (novo) —
+`escrita_alheia_esp_bloqueada="bloqueado 42501"`,
+`escrita_propria_esp_aceita="aceito"`. Os números batem exatamente com o que
+a seção acima registrava por relato — a lacuna nunca escondeu um
+comportamento diferente, só a capacidade de prová-lo a partir do arquivo.
 
 **G — personas e carimbo de origem.** O `origin` saiu correto nas quatro
 situações, todas com `current_user = 'postgres'`:
@@ -492,6 +514,12 @@ saber de quem foi a edição.
   e F para devolverem uma única linha de resultado cada. Não corrigido nesta
   passagem (a verificação já foi feita à mão); pendência registrada também no
   `PLANO-ATIVO.md`, item 11 da Etapa 4.2.
+
+  **✅ RESOLVIDO (commit `f50e55a`, verificado em produção 05/08/2026).**
+  Blocos E e F reescritos numa linha de resultado cada, com `auth.uid()` como
+  coluna-guarda; bloco F2 novo adicionado. Rodados em produção no SQL
+  Editor: os três bateram com o esperado (ver "Lacuna de evidência",
+  fechamento acima, e `PLANO-ATIVO.md`, pendência 11).
 - **Bloco H — ✅ CONCLUÍDO em 02/08/2026.** `drop function flyiop_audit_selftest()`
   rodado sem `cascade` (nada dependia da função — confirma o que o comentário do
   bloco já previa: as triggers usam `flyiop_audit_origin()`, que fica). Confirmação

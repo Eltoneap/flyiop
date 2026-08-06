@@ -490,6 +490,9 @@ entre agora e a execução real da 4.2 pode gerar divergência nova.
       como semear um segundo dono ali sem criar conta de verdade. O bloco F2
       cobre o que dava para cobrir com uma conta só (a RLS de escrita); o resto
       é o primeiro ato depois de criar a segunda conta.
+    - **✅ Prova de produção (05/08/2026):** os três blocos (E, F, F2) rodaram
+      no SQL Editor em produção e bateram exatamente com o esperado — ver
+      `STATE.md`, entrada de sessão de 05/08/2026, para os números completos.
 12. **Backlog — "limpar override" por perna** (registrado 03/08/2026, fora do
     escopo da pendência 3/4). Ação para remover a linha específica de
     `weekend_leg_user_state` (ou zerar `price_ceiling` para NULL) e a perna

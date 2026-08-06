@@ -1,19 +1,20 @@
 -- ============================================================================
 -- Etapa 4.1 — verificação.
 --
--- Blocos A a G: SOMENTE LEITURA (nenhum insert/update/delete; nenhum create;
--- os blocos com transação terminam em rollback). Podem rodar antes do script
--- principal sem criar objeto nenhum no banco.
--- Bloco H: LIMPEZA — é a ÚNICA parte deste arquivo que altera o banco. Roda
--- separado, depois de conferir o Bloco G.
+-- Blocos A a G: SOMENTE LEITURA quanto ao que sobrevive (nenhum create; todo
+-- bloco com transação termina em rollback — nada persiste). Os blocos F e F2
+-- fazem insert transitório dentro da própria transação, só para testar
+-- isolamento/RLS; o rollback desfaz tudo antes do commit.
+-- Bloco H: LIMPEZA — é a ÚNICA parte deste arquivo que altera o banco de
+-- forma persistente. Roda separado, depois de conferir o Bloco G.
 --
 -- Como usar:
 --  1) Rodar os blocos A, B e C ANTES de sql/etapa4_1_estado_por_usuario.sql e
 --     guardar o resultado. (D a G ainda não funcionam: os objetos não existem.)
 --  2) Rodar o script da 4.1.
 --  3) Rodar A a G e comparar: A, B e C têm que sair IDÊNTICOS ao passo 1 — é a
---     prova de que a etapa não mudou comportamento. D, E, F e G são os blocos
---     que só fazem sentido depois.
+--     prova de que a etapa não mudou comportamento. D, E, F, F2 e G são os
+--     blocos que só fazem sentido depois.
 --  4) Conferido o G, rodar o Bloco H para tirar a sonda do banco.
 -- ============================================================================
 
