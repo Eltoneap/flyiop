@@ -244,12 +244,21 @@ estrutura nova ainda — é o que esta etapa faz.
 > **Fecha sozinha quando a Etapa 6 entrar** (o robô passar a ler o teto
 > efetivo por usuário) — não antes.
 >
-> **✅ PARTE DO TETO ENCERRADA (05/08/2026).** As pendências 6/7(leve)/8/9
-> fecharam a divergência de leitura: o robô e o Telegram passaram a ler
-> `weekend_leg_effective`. **Teto editado no painel volta a valer no Telegram**,
-> e perna marcada como comprada volta a sair da fila do robô. A previsão acima
-> ("fecha só na Etapa 6") estava certa sobre o fan-out e errada sobre o teto —
-> dava para separar as duas coisas, e foi o que se fez.
+> **✅ PARTE DO TETO ENCERRADA (05/08/2026, com prova de produção em
+> 06/08/2026).** As pendências 6/7(leve)/8/9 fecharam a divergência de
+> leitura: o robô e o Telegram passaram a ler `weekend_leg_effective`. **Teto
+> editado no painel volta a valer no Telegram**, e perna marcada como comprada
+> volta a sair da fila do robô. A previsão acima ("fecha só na Etapa 6") estava
+> certa sobre o fan-out e errada sobre o teto — dava para separar as duas
+> coisas, e foi o que se fez.
+>
+> A leitura funcionava desde 05/08, mas o valor lido ainda era R$250 — a
+> recalibração para R$300 (04/08) não tinha persistido no banco. Corrigido
+> manualmente em 05/08 (novo save, confirmado por `weekend_leg_ceiling_audit`).
+> **Prova final em 06/08/2026:** execução real do robô, não pulada por cota
+> diária ("20/20 pernas checadas, 20 com preço"), registrou as 22 ocorrências
+> de teto no log todas em R$300, nenhuma em R$250. Fecha de vez esta parte —
+> não só o caminho de leitura, mas o valor que ele lê em produção.
 >
 > **SEGUE ABERTO até a Etapa 6** (nada disso mudou nesta rodada):
 > - **Fan-out de alerta por usuário.** O Telegram é um canal único. Com dois
@@ -404,6 +413,10 @@ entre agora e a execução real da 4.2 pode gerar divergência nova.
    - MIN entre usuários **restrito a quem ainda monitora** a perna: o teto de
      quem já comprou não deve governar o alerta de quem não comprou. Com um
      usuário só as duas leituras coincidem.
+   - **Verificada em produção em 06/08/2026** (execução real, não pulada por
+     cota diária): 22 ocorrências de teto no log da execução, todas em R$300 —
+     ver "Janela Aberta 2" acima para o incidente de gravação que atrasou essa
+     prova (04→05/08) e o detalhe completo.
 7. ✅ **Concluída na versão leve (05/08/2026).** **`src/main.py`** — a escolha
    de quem dita os limiares gerais deixou de ser `next(iter(...))` (ordem de
    dicionário) e virou determinística (menor `user_id`) e barulhenta (aviso no
