@@ -599,11 +599,42 @@ cada passo futuro é discutido quando chegar a vez dele.
    espelhada, guarda de regressão contra reintroduzir o filtro); a fixture
    `LEG_ROW` perdeu a chave `status`, que só existia por causa desse filtro.
    189 testes passando.
-2. **Janela de observação até a próxima segunda-feira.** O caminho corrigido
-   na pendência 13 (`get_weekend_leg_counts`, resumo semanal) só roda de fato
-   às segundas — o `DROP` espera essa prova de produção. As colunas ficam no
-   banco até lá, como rede de segurança.
-3. **Backup + `DROP` das 5 colunas.** À mão no SQL Editor, backup antes.
+2. ⏸️ **DESACOPLADO do `DROP` (06/08/2026, chat de planejamento).** Era descrito
+   aqui como pré-requisito técnico: esperar a segunda-feira para ver o
+   `get_weekend_leg_counts` corrigido (pendência 13 da 4.2, commit `b22a569`)
+   rodar de verdade, mantendo as 5 colunas antigas como rede de segurança até
+   lá. **Não é mais pré-requisito.** Motivo: o código corrigido lê
+   `weekend_leg_effective` e não toca mais nas colunas antigas — mantê-las de
+   pé não sustenta rollback nenhum do caminho corrigido. A rota de volta real
+   é o backup da Parte A do Passo 3. Segue como **pendência de fechamento de
+   registro, não bloqueante**, e a Etapa 4.3 corre em paralelo a ela.
+   **Ação combinada: a partir de segunda-feira 10/08/2026 o usuário traz o
+   resultado real da mensagem de resumo semanal do Telegram** (contagem de
+   pernas compradas — esperado: 0, sem erro) **e o resultado é registrado
+   neste item.**
+   - Resultado de 10/08/2026: _(aguardando)_
+3. **Desenhado, script criado, aguardando execução manual do usuário
+   (06/08/2026).** Script: `sql/etapa4_3_drop_colunas_legadas.sql` — Bloco 0
+   (inventário de definição, só leitura) / Parte A (backup) / Parte B (guardas
+   G1–G4 + `DROP`) / receita de restauração em comentário.
+   - **Achado no desenho:** `weekend_legs.price_ceiling` (teto legado) e
+     `settings.weekend_default_ceiling` (teto padrão vivo do usuário) são dois
+     números diferentes por desenho, não por defeito — o legado está congelado
+     em R$250 desde que o painel parou de escrever nele (pendências 3/4,
+     03/08/2026), e o padrão vivo já foi recalibrado para R$300 (04/08/2026).
+     A guarda G3 exige **uniformidade** do teto legado (`min = max`, sem NULL),
+     mas **não exige igualdade** com o teto padrão de hoje — que aparece na
+     mensagem só como contexto.
+   - **Backup de dados não preserva definição de coluna.** `DROP COLUMN` leva
+     junto tipo, default, not-null, checks e índices — por isso o script
+     começa com um Bloco 0 de inventário (`information_schema.columns` +
+     `pg_constraint` + `pg_indexes`), cujo resultado deve ser colado abaixo
+     quando o usuário rodar.
+     - Inventário de definição das 5 colunas (BLOCO 0): _(aguardando
+       execução)_
+   - **`weekend_legs_legacy_columns_backup` é PERMANENTE** — não deve ser
+     apagada ao fim da Etapa 4.3 nem em limpeza de rotina; só sai por decisão
+     explícita no chat de planejamento.
 4. **Notas de cabeçalho nos scripts `sql/` afetados** (registram que descrevem
    estrutura que não existe mais) + **aposentadoria do Bloco A de
    `sql/etapa4_1_verificacao.sql`**, que valida o mundo antigo.

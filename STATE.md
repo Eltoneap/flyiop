@@ -1,7 +1,23 @@
 # STATE.md — FlyIop
 
 > Atualizado em: 06/08/2026
-> Última sessão: Claude Code (06/08/2026) — Etapa 4.2, pendência 13 fechada:
+> Última sessão: Claude Code (06/08/2026) — Etapa 4.3, Passo 3 desenhado:
+> script `sql/etapa4_3_drop_colunas_legadas.sql` criado (Bloco 0 — inventário
+> de definição, só leitura; Parte A — backup em
+> `weekend_legs_legacy_columns_backup`, permanente, RLS ligada sem policies;
+> Parte B — guardas G1–G4 + `DROP` das 5 colunas; receita de restauração em
+> comentário), revisado em 3 rodadas no chat de planejamento paralelo. Achado
+> registrado: `weekend_legs.price_ceiling` (congelado em R$250 desde
+> 03/08/2026) e `settings.weekend_default_ceiling` (teto vivo, R$300 desde
+> 04/08/2026) são números diferentes por desenho — a guarda G3 exige
+> uniformidade do teto legado, não igualdade com o padrão vivo. O Passo 2
+> (janela de observação até segunda) foi desacoplado do `DROP` na mesma
+> sessão — não é mais pré-requisito, vira pendência de fechamento de registro
+> (trazer o resumo semanal do Telegram em 10/08/2026). Execução real do
+> script segue manual, pelo usuário, no SQL Editor — nada rodou contra
+> produção nesta sessão. Detalhe completo em `PLANO-ATIVO.md`, Etapa 4.3.
+>
+> Sessão anterior: Claude Code (06/08/2026) — Etapa 4.2, pendência 13 fechada:
 > `get_weekend_leg_counts` (resumo de segunda-feira) lia `weekend_legs.status`,
 > coluna congelada desde as pendências 3/4 — relatava 0 compradas em silêncio
 > desde 03/08. Achada no diagnóstico da Etapa 4.3 (chat paralelo), tratada como
@@ -60,13 +76,25 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 2. **Etapa 4 da iniciativa multi-usuário** (`weekend_leg_user_state` — teto/status/notas/valor pago por usuário, o núcleo do trabalho que falta), **quebrada em três degraus: 4.1 / 4.2 / 4.3**:
    - **4.1 — ✅ concluída e verificada (01/08/2026).** Estrutura nova criada no banco de produção (rodada à mão no SQL Editor) e verificada com os blocos A–G; nada em `src/` ou `docs/` lê a estrutura nova ainda, o sistema se comporta exatamente como antes. Ver `HISTORICO.md`, item 17.
    - **4.2 — pendências 1–11 e 13 concluídas e verificadas em produção; resta a 12.** É a virada de leitura: frontend e robô passam a ler/escrever a estrutura nova. 12 pendências nomeadas no `PLANO-ATIVO.md`; **pendências 3 e 4 (`docs/js/compras.js` e o botão "aplicar teto a todos") concluídas, commitadas e enviadas ao remoto em 03/08/2026** (commits `531f34f` e `9436bc0`, `origin/main == HEAD` confirmado), com verificação manual completa no site publicado. **Pendências 1 e 2 (re-sync do estado) concluídas e executadas em produção em 04/08/2026** (`sql/etapa4_2_resync.sql`, mantido no repo mas **aposentado em 05/08/2026** — hardcoded pro teto de 250, não reutilizável sem revisão) — resultado: zero divergência, nada precisou ser copiado. **Pendência 5 (`docs/js/dashboard.js` lendo `weekend_leg_effective`, mesma troca de fonte de `compras.js`) concluída, commitada e enviada em 04/08/2026** (commits `05c6f97` e `c19329f`, `origin/main == HEAD` confirmado), com verificação manual no site publicado — teto individual (override) salvo em Compras refletido de forma consistente no Dashboard. **Pendências 6/7(leve)/8/9/10 concluídas, commitadas e verificadas em produção em 05/08/2026** (commit `029ea61`, `origin/main == HEAD` confirmado): o robô (`weekends.py`, `live_check.py`, `telegram_notifier.py`) e `main.py` passaram a ler o teto e o status efetivos de `weekend_leg_effective`, em vez de `weekend_legs.price_ceiling`/`status` direto. Verificação de produção (execução manual, 05/08/2026): fila de pernas idêntica à de antes (132 pernas, nenhuma entrou ou saiu por causa da mudança); teto efetivo funcionando — override de R$555 da perna Ida 04/09 confirmado tanto via SQL (`weekend_leg_effective`) quanto no log da execução. **Pendência 10 (ordenação da fila pelo menor teto entre usuários) já estava resolvida como efeito colateral da pendência 6** — `live_check.py` lê o mesmo `effective_ceiling` que `get_active_legs()` já resolve com MIN, sem trabalho extra. **Verificação de produção do teto R$300 em si CONCLUÍDA em 06/08/2026**: execução real do robô (não pulada por cota diária — "20/20 pernas checadas, 20 com preço", ~09:49 BRT) registrou todas as 22 ocorrências de teto no log em R$300, nenhuma em R$250; zero erros. Fecha a lacuna aberta pelo incidente de gravação de 04/08 — ver "Decisões vivas". **Pendência 13 (`get_weekend_leg_counts` lendo `weekend_legs.status` congelado, resumo de segunda-feira sempre relatando 0 compradas) concluída em 06/08/2026** (commit `b22a569`) — achada no diagnóstico da Etapa 4.3 mas tratada como bug vivo da 4.2, bloqueadora do `DROP` das colunas antigas; passou a ler `weekend_leg_effective`; verificado via SQL (132 pernas, 0 compradas, sem regressão), prova de produção da mensagem real fica para a próxima segunda-feira. Detalhe em `PLANO-ATIVO.md`. Restam a reavaliação de teto fora da coleta (decidida em 02/08, nasce desligada por chave em `system_config`) e a pendência 12 (backlog de UI, não iniciada) — a 11 foi concluída em 05/08/2026, com prova de produção. **A regra de janela aberta (seção 4) está encerrada desde 04/08/2026; a "Janela aberta 2" (painel novo × Telegram velho) está encerrada de vez na parte do teto, agora com prova de produção (06/08/2026)** — segue aberta só para fan-out de alerta por usuário, cooldown/dedup por usuário e limiares gerais individualizados, que são a Etapa 6 (detalhe no `PLANO-ATIVO.md`).
-   - **4.3 — depois da 4.2:** remover as colunas antigas de `weekend_legs`.
+   - **4.3 — em execução (aberta 06/08/2026).** Remoção das 5 colunas antigas
+     de `weekend_legs`. Passo 1 (código do ramo degradado) concluído, commit
+     `d5f97eb`. **Passo 2 desacoplado do `DROP`** (06/08/2026) — virou
+     pendência de fechamento de registro, não bloqueante (ver item 5 abaixo).
+     **Passo 3: script `sql/etapa4_3_drop_colunas_legadas.sql` criado e
+     revisado, aguardando execução manual do usuário no SQL Editor.** Passos 4
+     e 5 não iniciados.
 
    **Etapa 5** (frontend por usuário) — ainda não iniciada, exige revisão explícita no chat de planejamento antes de começar (ver seção 4). Etapas 4 e 5 são modelo de dados e interface, valem independente de o alerta de perna funcionar.
 
    **Desejo do usuário, registrado em 02/08/2026: criar a conta do segundo usuário — objetivo ativo, não recusado.** Bloqueado pela regra dura da Etapa 7 (`PLANO-ATIVO.md`), que exige 4.2/4.3/5/6 concluídas antes. **Os dois desejos registrados em 02/08/2026 (aumentar frequência do scraping, item 1 acima, e criar a conta do segundo usuário) são objetivos ativos, nenhum recusado — o caminho para os dois é concluir a Etapa 4.2.**
 3. ✅ **Concluído (04/08/2026, corrigido em 05/08/2026, verificado em produção em 06/08/2026).** Teto padrão recalibrado de R$250 para R$300 — ver seção 2, "Decisões vivas", pelo incidente de gravação, a correção manual e a prova final de produção.
 4. **Observar o escalonamento automático rodando em produção** — acompanhar via Dashboard (seção "Saúde do sistema") se o estágio sobe conforme esperado e se algum bloqueio real acontece nos volumes mais altos (40/60 pernas·dia); agora depende de o cron 2x/dia estar restaurado (item 1) pra ter mais de 1 execução/dia pra observar.
+5. **Segunda-feira 10/08/2026 — trazer o resultado do resumo semanal do
+   Telegram.** Prova de produção pendente da pendência 13 da Etapa 4.2
+   (`get_weekend_leg_counts`, commit `b22a569`): a mensagem só é montada às
+   segundas. Esperado: pernas compradas = 0, sem erro. **Não bloqueia a Etapa
+   4.3** (desacoplado em 06/08/2026). Registrar o resultado no
+   `PLANO-ATIVO.md`, Etapa 4.3, Passo 2.
 
 ## 4. Bloqueios / perguntas em aberto
 
@@ -99,7 +127,7 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 
 - Repo: github.com/Eltoneap/flyiop (público)
 - `STATE.md` — este arquivo: orientação de alto nível, lido no início de qualquer sessão nova
-- `PLANO-ATIVO.md` — plano técnico detalhado só da Parte em execução agora. **Não está vazio (04/08/2026):** contém a iniciativa multi-usuário em andamento (Etapa 4.2 em execução, com as 13 pendências nomeadas — 12 concluídas, 1–11 e 13, restando só a 12 — e o histórico da regra de janela aberta, encerrada), o que restou do diagnóstico de alerta de perna (item (e), perguntas abertas) e as pendências de escopo separado.
+- `PLANO-ATIVO.md` — plano técnico detalhado só da Parte em execução agora. **Não está vazio (06/08/2026):** contém a iniciativa multi-usuário em andamento (Etapa 4.2 em execução, com as 13 pendências nomeadas — 12 concluídas, 1–11 e 13, restando só a 12 — e o histórico da regra de janela aberta, encerrada), o que restou do diagnóstico de alerta de perna (item (e), perguntas abertas) e as pendências de escopo separado, e a Etapa 4.3 (remoção das colunas antigas de `weekend_legs`) em execução, com o desenho de 5 passos.
 - `HISTORICO.md` — tudo já decidido/implementado, cronológico
 - `CLAUDE.md` — escopo geral do projeto (lido automaticamente pelo Claude Code)
 - `PROTOCOLO-DE-TRABALHO.md` — como usuário e Claude Code trabalham juntos (Plan Mode, gatilhos de revisão, regra de manutenção dos três arquivos de documentação)
