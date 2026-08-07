@@ -513,6 +513,37 @@ entre agora e a execução real da 4.2 pode gerar divergência nova.
     `ceiling_is_explicit` da view já existe e está pronta para indicar quando
     esse controle deve aparecer — só falta desenhar a UI (ex.: botão
     "voltar ao padrão" ao lado do teto quando `ceiling_is_explicit = true`).
+13. ✅ **Concluída (06/08/2026).** **`get_weekend_leg_counts` lendo coluna
+    congelada.** `src/supabase_client.py` contava pernas compradas do resumo
+    de segunda-feira lendo `weekend_legs.status` — a mesma coluna que as
+    pendências 3/4 (03/08) tiraram de uso quando o painel passou a escrever
+    status em `weekend_leg_user_state`. Consequência: o resumo semanal sempre
+    relatava **0 compradas**, em silêncio, desde 03/08.
+    - **Achada no diagnóstico da Etapa 4.3** (chat de planejamento paralelo,
+      que audita o que ainda lê colunas antigas de `weekend_legs` antes do
+      `DROP`), mas tratada como **bug vivo da 4.2**, não item da 4.3 — e com
+      prioridade sobre a 4.3: essa mesma query quebraria de vez (erro, não
+      silêncio) assim que as colunas antigas fossem derrubadas, então corrigir
+      antes do `DROP` era condição para a 4.3 poder prosseguir.
+    - **Correção:** passou a ler `weekend_leg_effective`. Perna conta como
+      comprada só quando **todos** os usuários que a monitoram têm
+      `status = 'purchased'` (`bool_and` por `leg_id`) — mesma regra de "sai da
+      fila" da pendência 9, aplicada aqui ao complemento. Só existem dois
+      estados possíveis hoje (`check` no schema,
+      `sql/etapa4_1_estado_por_usuario.sql:91`), então comparar `==
+      'purchased'` direto é seguro, sem inferir por ausência de monitoramento.
+    - **Verificação:** consulta equivalente rodada no SQL Editor —
+      132 pernas, 0 compradas, idêntico ao valor de hoje, sem regressão. O
+      caminho de código só roda às segundas-feiras (`primary_run and
+      date.today().weekday() == 0`), então não havia cron real disponível
+      para observar a mensagem de verdade nesta rodada — **conferir a
+      mensagem real do Telegram na próxima segunda-feira** para fechar o
+      ciclo com prova de produção (mesmo padrão da pendência 6, que também
+      levou dois dias entre "leitura corrigida" e "prova de produção do
+      valor").
+    - Commit `b22a569`, `origin/main == HEAD` confirmado. 189 testes
+      passando (5 novos: contagem single-user e a regra de "todos precisam
+      concordar" com múltiplos usuários).
 
 ### Limites conhecidos da 4.1 (registrados, não são pendência)
 
