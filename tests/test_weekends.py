@@ -173,7 +173,9 @@ class EffectiveLegStateTest(unittest.TestCase):
         "id": "wknd-1", "outbound_date": "2026-09-04",
         "return_sunday": "2026-09-06", "return_monday": "2026-09-07",
     }
-    LEG_ROW = {"id": "leg-out-1", "weekend_id": "wknd-1", "direction": "outbound", "status": "monitoring"}
+    # Sem `status`: a coluna antiga de weekend_legs sai na Etapa 4.3 e o robô
+    # não a lê mais em ramo nenhum. Só o teste do status antigo monta a chave.
+    LEG_ROW = {"id": "leg-out-1", "weekend_id": "wknd-1", "direction": "outbound"}
 
     def load(self, state, leg_rows=None):
         with patch("weekends.get_monitoring_weekends", return_value=[self.WEEKEND_ROW]), \
@@ -217,15 +219,20 @@ class EffectiveLegStateTest(unittest.TestCase):
         legs = self.load(state_rows("leg-out-1"))
         self.assertEqual([leg["id"] for leg in legs], ["leg-out-1"])
 
-    def test_no_settings_falls_back_to_old_status_without_inventing_ceiling(self):
+    def test_no_settings_keeps_the_leg_without_inventing_ceiling(self):
         legs = self.load([])
         self.assertEqual([leg["id"] for leg in legs], ["leg-out-1"])
         self.assertIsNone(legs[0]["effective_ceiling"])
         self.assertTrue(weekends.LEG_LOAD_DIAGNOSTICS["degraded_no_settings"])
 
-    def test_no_settings_still_respects_the_old_purchased_status(self):
+    def test_no_settings_ignores_the_old_purchased_status(self):
+        # Etapa 4.3: o ramo degradado não lê mais weekend_legs.status — coluna
+        # congelada desde 03/08/2026 e removida na 4.3. Guarda de regressão:
+        # com o filtro de volta, o DROP esvaziaria a fila em silêncio.
         bought = {**self.LEG_ROW, "status": "purchased"}
-        self.assertEqual(self.load([], leg_rows=[bought]), [])
+        legs = self.load([], leg_rows=[bought])
+        self.assertEqual([leg["id"] for leg in legs], ["leg-out-1"])
+        self.assertIsNone(legs[0]["effective_ceiling"])
 
     def test_diagnostics_are_overwritten_not_accumulated(self):
         state = (state_rows("leg-out-1", user_id="user-a", ceiling=300)

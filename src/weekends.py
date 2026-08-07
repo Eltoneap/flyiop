@@ -172,10 +172,12 @@ def get_active_legs() -> list[dict]:
     — o teto efetivo, única fonte de teto do robô desde a Etapa 4.2.
 
     Modo degradado: se `weekend_leg_effective` vier vazia (nenhum usuário em
-    `settings`), a fila cai no `weekend_legs.status` antigo e as pernas saem
-    com `effective_ceiling = None` — grava preço e avalia oportunidade, mas
-    sem comparação de teto. Nunca esvazia a fila em silêncio, e nunca inventa
-    um teto: main.py avisa no Telegram."""
+    `settings`), a fila não filtra por status nenhum — devolve todas as pernas
+    não expiradas com `effective_ceiling = None`, ou seja, grava preço e avalia
+    oportunidade, mas sem comparação de teto. Nunca esvazia a fila em silêncio,
+    e nunca inventa um teto: main.py avisa no Telegram. (Até a Etapa 4.3 esse
+    ramo caía no `weekend_legs.status` antigo; a coluna está congelada desde
+    03/08/2026 — não reflete decisão viva de usuário — e é removida na 4.3.)"""
     cutoff = (date.today() - timedelta(days=1)).isoformat()
     weekends_by_id = {w["id"]: w for w in get_monitoring_weekends()}
 
@@ -191,8 +193,10 @@ def get_active_legs() -> list[dict]:
         if weekend is None:
             continue  # weekend já passou (nem a volta é mais válida) ou não existe mais
         if degraded:
-            if leg.get("status") != "monitoring":
-                continue
+            # Sem filtro de status (Etapa 4.3): `weekend_legs.status` está
+            # congelado desde 03/08/2026 (o painel escreve em
+            # weekend_leg_user_state) e some no DROP — ler daqui esvaziaria a
+            # fila em silêncio (chave ausente vira None, e None != 'monitoring').
             ceiling = None
         else:
             if leg["id"] not in effective:

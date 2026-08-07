@@ -184,7 +184,7 @@ atendida manualmente pelo usuário principal.
 
 ---
 
-## Etapa 4.2 — virada de leitura (pendências 1–11 concluídas; 12 em aberto)
+## Etapa 4.2 — virada de leitura (pendências 1–11 e 13 concluídas; 12 em aberto)
 
 **Etapa 4.1 concluída e verificada em 01/08/2026.** A estrutura nova
 (`weekend_leg_user_state`, `settings.weekend_default_ceiling` como teto padrão
@@ -560,6 +560,59 @@ entre agora e a execução real da 4.2 pode gerar divergência nova.
 - As 5 pernas com `paid_price` preenchido e `status = 'monitoring'` são anomalia
   conhecida: copiadas como estão, sem normalizar (decisão do chat de
   planejamento).
+
+---
+
+## Etapa 4.3 — remoção das colunas antigas de `weekend_legs` (aberta 06/08/2026)
+
+Remover de `weekend_legs` as 5 colunas do mundo pré-multi-usuário:
+`price_ceiling`, `status`, `notes`, `paid_price`, `purchased_at`. A decisão
+por perna × usuário vive em `weekend_leg_user_state` desde a 4.1, e desde a
+4.2 painel e robô leem tudo por `weekend_leg_effective` — as colunas antigas
+só continuam de pé como fotografia congelada.
+
+**O que o diagnóstico (chat de planejamento, 06/08/2026) já estabeleceu:**
+
+- Mapa de leitura/escrita de código levantado: depois da pendência 13, o
+  último ponto vivo lendo essas colunas era o ramo degradado de
+  `get_active_legs()` (passo 1 abaixo).
+- **Nenhuma view** depende das 5 colunas.
+- **Nenhuma policy de RLS** as referencia.
+- **Zero divergência** entre `weekend_legs` e `weekend_leg_user_state` nas 132
+  pernas.
+- A pendência 13 da 4.2 (`get_weekend_leg_counts`) nasceu deste diagnóstico e
+  foi tratada lá, por ser bug vivo e bloqueadora do `DROP`.
+
+**Desenho aprovado, em 5 passos.** Regra: cada passo volta ao chat de
+planejamento antes de rodar — nenhum passo encadeia sozinho. O detalhe fino de
+cada passo futuro é discutido quando chegar a vez dele.
+
+1. ✅ **Concluído (06/08/2026).** **Código do ramo degradado.** O filtro
+   `if leg.get("status") != "monitoring": continue` saiu do ramo degradado de
+   `get_active_legs()` (`src/weekends.py`). Precisava sair **antes** do `DROP`:
+   sem colunas, `leg.get("status")` vira `None`, `None != "monitoring"` é
+   sempre verdadeiro e toda perna cairia da fila em silêncio. Agora o modo
+   degradado devolve todas as pernas não expiradas com
+   `effective_ceiling = None` — não inventa teto, e `main.py` segue avisando no
+   Telegram. Testes: `test_no_settings_still_respects_the_old_purchased_status`
+   virou `test_no_settings_ignores_the_old_purchased_status` (asserção
+   espelhada, guarda de regressão contra reintroduzir o filtro); a fixture
+   `LEG_ROW` perdeu a chave `status`, que só existia por causa desse filtro.
+   189 testes passando.
+2. **Janela de observação até a próxima segunda-feira.** O caminho corrigido
+   na pendência 13 (`get_weekend_leg_counts`, resumo semanal) só roda de fato
+   às segundas — o `DROP` espera essa prova de produção. As colunas ficam no
+   banco até lá, como rede de segurança.
+3. **Backup + `DROP` das 5 colunas.** À mão no SQL Editor, backup antes.
+4. **Notas de cabeçalho nos scripts `sql/` afetados** (registram que descrevem
+   estrutura que não existe mais) + **aposentadoria do Bloco A de
+   `sql/etapa4_1_verificacao.sql`**, que valida o mundo antigo.
+   *A conferir neste passo:* o chat de planejamento contou 6 scripts; o `grep`
+   de 06/08/2026 encontra **7** arquivos em `sql/` citando alguma das 5 colunas
+   — `alvo_fins_de_semana.sql`, `etapa4_1_estado_por_usuario.sql`,
+   `etapa4_1_verificacao.sql`, `etapa4_2_resync.sql`, `notas_pernas.sql`,
+   `parte8_preco_pago.sql`, `pernas_desacopladas.sql`. Fechar a lista fina aqui.
+5. **Bloco de verificação pós-`DROP`.**
 
 ---
 
