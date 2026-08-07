@@ -287,11 +287,26 @@ def insert_weekend_leg_run_log(leg_id: str, outcome: str, price: float | None = 
 
 
 def get_weekend_leg_counts() -> tuple[int, int]:
-    """(total de pernas cadastradas, quantas já compradas) — pro resumo semanal."""
-    resp = requests.get(_url("weekend_legs?select=status"), headers=_headers(), timeout=30)
-    resp.raise_for_status()
-    rows = resp.json()
-    return len(rows), sum(1 for r in rows if r["status"] == "purchased")
+    """(total de pernas cadastradas, quantas já compradas) — pro resumo semanal.
+
+    Lê `weekend_leg_effective` (Etapa 4.2, pendência 13) em vez de
+    `weekend_legs.status` — coluna congelada desde as pendências 3/4 (o painel
+    passou a escrever status em `weekend_leg_user_state`, não mais em
+    `weekend_legs`). `weekend_legs.status` sempre reportava 0 compradas.
+
+    A view é perna × usuário (cross join com `settings`); uma perna conta como
+    comprada só quando TODOS os usuários que a monitoram marcaram
+    'purchased' — mesma regra de "sai da fila" da pendência 9, aplicada aqui
+    ao complemento. Só existem dois estados hoje
+    (`check (status in ('monitoring','purchased'))`,
+    `sql/etapa4_1_estado_por_usuario.sql:91`), então checar `== 'purchased'`
+    diretamente é seguro e explícito — nenhuma inferência por ausência."""
+    rows = get_effective_leg_state()
+    legs: dict[str, list[str]] = {}
+    for row in rows:
+        legs.setdefault(row["leg_id"], []).append(row["status"])
+    purchased = sum(1 for statuses in legs.values() if all(s == "purchased" for s in statuses))
+    return len(legs), purchased
 
 
 def get_last_weekend_leg_alert(leg_id: str) -> dict | None:
