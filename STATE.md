@@ -1,7 +1,23 @@
 # STATE.md — FlyIop
 
-> Atualizado em: 06/08/2026
-> Última sessão: Claude Code (06/08/2026) — Etapa 4.3, Passo 3 CONCLUÍDO:
+> Atualizado em: 07/08/2026
+> Última sessão: Claude Code (07/08/2026) — Etapa 4.3, Passo 4 CONCLUÍDO:
+> notas de cabeçalho carimbadas em 7 scripts `sql/` que descrevem estrutura
+> removida das 5 colunas de `weekend_legs`, e aposentadoria do Bloco A de
+> `sql/etapa4_1_verificacao.sql` (comentado em bloco `/* */`, preservado como
+> registro histórico — blocos B, C, D, E, F, F2, G e H continuam válidos e
+> rodáveis). Fechamento da lista fina do Passo 4: `alvo_fins_de_semana.sql`
+> saiu (falso positivo do grep — as colunas citadas são de `weekend_targets`,
+> já dropada, não de `weekend_legs`; ganhou nota própria de risco separado) e
+> `sql/etapa4_3_drop_colunas_legadas.sql` entrou (único script que já rodou
+> contra produção sem carimbar isso). Fecha em 7 arquivos em escopo. Achado
+> reforçado: `notas_pernas.sql` e `parte8_preco_pago.sql` são armadilha
+> ativa — `alter table ... add column` sem guarda, recriam a coluna vazia
+> sem dar erro se re-rodados. Detalhe completo em `PLANO-ATIVO.md`, Etapa
+> 4.3, item 4. **Resta só o Passo 5 (bloco de verificação pós-`DROP`),
+> dependente de revisão explícita no chat de planejamento.**
+>
+> Sessão anterior: Claude Code (06/08/2026) — Etapa 4.3, Passo 3 CONCLUÍDO:
 > backup + `DROP` das 5 colunas legadas de `weekend_legs` (`price_ceiling`,
 > `status`, `notes`, `paid_price`, `purchased_at`) executados em produção pelo
 > usuário no SQL Editor, com o script `sql/etapa4_3_drop_colunas_legadas.sql`
@@ -98,7 +114,12 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
      pendência de fechamento de registro, não bloqueante (ver item 5 abaixo).
      **Passo 3 CONCLUÍDO (06/08/2026):** backup íntegro (132 linhas) e `DROP`
      executado em produção, zero colunas legadas restantes, confirmado por
-     select. Passos 4 e 5 não iniciados.
+     select. **Passo 4 CONCLUÍDO (07/08/2026):** notas de cabeçalho nos 7
+     scripts `sql/` em escopo (a lista fina fechou diferente da contagem
+     original — `alvo_fins_de_semana.sql` saiu, `etapa4_3_drop_colunas_legadas.sql`
+     entrou) + aposentadoria do Bloco A de `sql/etapa4_1_verificacao.sql`.
+     Detalhe em `PLANO-ATIVO.md`, Etapa 4.3, item 4. **Resta só o Passo 5**
+     (bloco de verificação pós-`DROP`), não iniciado.
 
    **Etapa 5** (frontend por usuário) — ainda não iniciada, exige revisão explícita no chat de planejamento antes de começar (ver seção 4). Etapas 4 e 5 são modelo de dados e interface, valem independente de o alerta de perna funcionar.
 

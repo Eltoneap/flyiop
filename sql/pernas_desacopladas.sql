@@ -1,3 +1,22 @@
+-- ======================================================================
+-- NOTA DE ESTADO - 07/08/2026 (Etapa 4.3, Passo 4)
+-- STATUS: HISTORICO - NAO RE-RODAR.
+-- Em 06/08/2026 (commit ce0d8b3) as colunas price_ceiling, status, notes,
+-- paid_price e purchased_at foram REMOVIDAS de weekend_legs.
+-- Este arquivo contem o "create table weekend_legs" original com as 5
+-- colunas - e a definicao textual de origem delas, e a referencia
+-- usada pela receita de restauracao de
+-- sql/etapa4_3_drop_colunas_legadas.sql.
+-- ATENCAO: rodar este arquivo hoje falha antes disso, no "create table
+-- weekends", que vem antes no proprio arquivo, porque a tabela ja existe.
+-- Essa falha e ACIDENTAL, nao e uma protecao desenhada - nao conte com ela.
+-- Onde a verdade vive hoje: weekend_leg_user_state (decisao por perna x
+-- usuario) e a view weekend_leg_effective (leitura).
+-- Rota de volta: weekend_legs_legacy_columns_backup (permanente, 132
+-- linhas) + receita em sql/etapa4_3_drop_colunas_legadas.sql.
+-- Contexto completo: HISTORICO.md, item 18.
+-- ======================================================================
+
 -- Desacopla ida/volta em pernas independentes (aprovado no chat de
 -- planejamento, 23/07/2026). Substitui weekend_targets/weekend_price_history/
 -- weekend_run_log — nenhum dado real existia nelas (66/66 alvos sempre

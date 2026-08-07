@@ -4,6 +4,12 @@
 -- re-executar sem revisar o valor. Script de migração pontual da Etapa 4.2,
 -- não reutilizável como está.
 -- ============================================================================
+-- Nota somada em 07/08/2026 (Etapa 4.3, Passo 4): alem do hardcode do teto
+-- 250 que motivou a aposentadoria em 05/08/2026, este script agora tambem
+-- QUEBRA. O Bloco 0 le status, notes, paid_price, purchased_at
+-- e price_ceiling de weekend_legs - colunas REMOVIDAS em 06/08/2026
+-- (commit ce0d8b3). A falha ocorre no primeiro bloco do arquivo.
+-- Aposentadoria reforcada: nao re-rodar, nem parcialmente.
 --
 -- Etapa 4.2 — re-sync do estado do mundo antigo (weekend_legs) para o mundo
 -- novo (weekend_leg_user_state). Pendências 1 e 2 do PLANO-ATIVO.md.

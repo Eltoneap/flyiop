@@ -668,16 +668,37 @@ cada passo futuro é discutido quando chegar a vez dele.
    - **`weekend_legs_legacy_columns_backup` é PERMANENTE** — não deve ser
      apagada ao fim da Etapa 4.3 nem em limpeza de rotina; só sai por decisão
      explícita no chat de planejamento.
-4. **Não iniciado.** Notas de cabeçalho nos scripts `sql/` afetados
-   (registram que descrevem estrutura que não existe mais) + **aposentadoria
-   do Bloco A de `sql/etapa4_1_verificacao.sql`**, que valida o mundo antigo.
-   *A conferir neste passo:* o chat de planejamento contou 6 scripts; o `grep`
-   de 06/08/2026 encontra **7** arquivos em `sql/` citando alguma das 5 colunas
-   — `alvo_fins_de_semana.sql`, `etapa4_1_estado_por_usuario.sql`,
-   `etapa4_1_verificacao.sql`, `etapa4_2_resync.sql`, `notas_pernas.sql`,
-   `parte8_preco_pago.sql`, `pernas_desacopladas.sql`. Fechar a lista fina aqui.
-   Depende de revisão explícita no chat de planejamento antes de começar —
-   nenhum passo encadeia sozinho.
+4. ✅ **CONCLUÍDO (07/08/2026).** Notas de cabeçalho nos scripts `sql/`
+   afetados + **aposentadoria do Bloco A de `sql/etapa4_1_verificacao.sql`**.
+   **Fechamento da lista fina:** o `grep` de 06/08/2026 tinha apontado 7
+   arquivos; a lista final é **outra**:
+   - `alvo_fins_de_semana.sql` **SAIU** da lista das 5 colunas — falso
+     positivo do grep: as ocorrências de `status`/`price_ceiling`/
+     `purchased_at` nele são de `weekend_targets`, tabela já dropada por
+     `pernas_desacopladas.sql` (23/07/2026), não de `weekend_legs`. Recebeu
+     nota própria por risco separado, fora do escopo da 4.3 — o arquivo, se
+     rodado hoje, não dá erro e ressuscita em silêncio a tabela zumbi
+     `weekend_targets` (66 linhas de seed) e a coluna `alert_log.target_id`.
+   - `sql/etapa4_3_drop_colunas_legadas.sql` **ENTROU** — não constava na
+     lista original; é o único script que já rodou contra produção (Passo 3,
+     06/08/2026) sem carimbar isso, e agora tem nota de execução própria.
+   - **Fecha em 7 arquivos em escopo**: 6 que tocam as colunas removidas de
+     `weekend_legs` (`etapa4_1_estado_por_usuario.sql`,
+     `etapa4_1_verificacao.sql`, `etapa4_2_resync.sql`, `notas_pernas.sql`,
+     `parte8_preco_pago.sql`, `pernas_desacopladas.sql`) + o próprio script
+     do `DROP` (`etapa4_3_drop_colunas_legadas.sql`).
+   - **Armadilha ativa identificada:** `notas_pernas.sql` e
+     `parte8_preco_pago.sql` fazem `alter table weekend_legs add column`
+     sem `if not exists` e sem guarda — rodar hoje **não dá erro**, recria a
+     coluna vazia e ressuscita em silêncio parte do mundo removido.
+   - `pernas_desacopladas.sql` só falha se re-rodado por **acidente de
+     ordem** (para no `create table weekends`, que já existe) — não por
+     proteção desenhada; não conte com essa falha como guarda.
+   - Em `etapa4_1_verificacao.sql`, só o **Bloco A** foi aposentado
+     (comentado em bloco `/* */`, preservado como registro histórico).
+     Blocos B, C, D, E, F, F2, G e H continuam válidos e rodáveis — E, F e
+     F2 seguem sendo a prova de produção de isolamento entre usuários e de
+     RLS de escrita (05/08/2026, commit `f50e55a`).
 5. **Não iniciado.** Bloco de verificação pós-`DROP`. Depende de revisão
    explícita no chat de planejamento antes de começar — nenhum passo encadeia
    sozinho.

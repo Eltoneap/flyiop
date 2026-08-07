@@ -1,3 +1,20 @@
+-- ======================================================================
+-- NOTA DE ESTADO - 07/08/2026 (Etapa 4.3, Passo 4)
+-- STATUS: ATIVO, COM RESSALVA. Este arquivo NAO foi aposentado.
+-- Blocos B, C, D, E, F, F2, G e H continuam validos e rodaveis - E, F e F2
+-- sao a prova de producao de isolamento entre usuarios e de RLS de escrita
+-- (rodados em 05/08/2026, commit f50e55a).
+-- O BLOCO A FOI APOSENTADO em 07/08/2026. Ele fotografava
+-- weekend_legs.price_ceiling / status / paid_price / notes, colunas
+-- REMOVIDAS em 06/08/2026 (commit ce0d8b3). O bloco ficou comentado no
+-- lugar, junto com o comentario de numeros esperados de 01/08/2026, que
+-- tambem ficou orfao. NAO DESCOMENTAR: rodar aquele SELECT hoje falha com
+-- erro de coluna inexistente.
+-- A fotografia equivalente do mundo novo se faz pelo Bloco D
+-- (weekend_leg_user_state / weekend_leg_effective).
+-- Contexto completo: HISTORICO.md, item 18.
+-- ======================================================================
+
 -- ============================================================================
 -- Etapa 4.1 — verificação.
 --
@@ -19,6 +36,10 @@
 -- ============================================================================
 
 
+/* === BLOCO A APOSENTADO EM 07/08/2026 (Etapa 4.3, Passo 4) - INICIO ===
+   Motivo: le colunas removidas de weekend_legs em 06/08/2026 (ce0d8b3).
+   Preservado como registro historico. Nao descomentar.
+
 -- ----------------------------------------------------------------------------
 -- BLOCO A — Fotografia do mundo antigo. Idêntico antes e depois.
 -- ----------------------------------------------------------------------------
@@ -30,6 +51,8 @@ select
   count(notes)                                    as com_nota
 from weekend_legs;
 -- Esperado (01/08/2026): 132 | 132 | 132 | 5 | 0
+
+   === BLOCO A APOSENTADO - FIM === */
 
 
 -- ----------------------------------------------------------------------------

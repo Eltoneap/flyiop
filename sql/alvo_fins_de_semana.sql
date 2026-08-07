@@ -1,3 +1,19 @@
+-- ======================================================================
+-- NOTA DE ESTADO - 07/08/2026 (achado no Passo 4 da Etapa 4.3)
+-- STATUS: PERIGO - NAO RE-RODAR EM HIPOTESE NENHUMA.
+-- Este script cria weekend_targets, weekend_price_history e a coluna
+-- alert_log.target_id. As TRES foram DROPADAS por
+-- sql/pernas_desacopladas.sql em 23/07/2026, quando o modelo passou a ser
+-- de pernas desacopladas. Nada disso existe mais em producao.
+-- Como este arquivo usa "create table if not exists" e "add column if not
+-- exists" em tudo, rodar hoje NAO DA ERRO - ele ressuscita a tabela zumbi
+-- com as 66 linhas de seed, em silencio. E justamente por nao falhar que
+-- ele e perigoso.
+-- Este arquivo NAO tem relacao com as 5 colunas removidas de weekend_legs
+-- na Etapa 4.3: as colunas status/price_ceiling/purchased_at citadas aqui
+-- sao de weekend_targets.
+-- ======================================================================
+
 -- Alvo Fins de Semana (plano de 22/07/2026): 66 fins de semana RIO<->BSB,
 -- de sexta 04/09/2026 a sexta 03/12/2027. Rodar no SQL Editor do Supabase
 -- ANTES do push do código que depende dele (Parte 1 do plano).

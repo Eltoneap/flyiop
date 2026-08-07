@@ -26,6 +26,19 @@
 -- ninguém nunca ter visto o inventário de definição. A guarda G0 na PARTE B
 -- detecta esse caso e barra o DROP.
 -- ============================================================================
+-- ----------------------------------------------------------------------
+-- NOTA DE EXECUCAO - somada em 07/08/2026 (Etapa 4.3, Passo 4)
+-- ESTE SCRIPT JA FOI EXECUTADO EM PRODUCAO em 06/08/2026, Partes A e B,
+-- manualmente no SQL Editor. Resultado real: guardas G0-G4 sem erro,
+-- colunas_legadas_restantes = 0, linhas_no_backup = 132.
+-- NAO RE-RODAR. A Parte A falha (weekend_legs_legacy_columns_backup ja
+-- existe, sem "if not exists"); a Parte B falha na guarda G2, que le as
+-- colunas removidas.
+-- O valor deste arquivo hoje e de REFERENCIA: o inventario de definicao
+-- das 5 colunas e a receita de restauracao a partir do backup permanente.
+-- A tabela weekend_legs_legacy_columns_backup e PERMANENTE - nao apagar
+-- em limpeza de rotina, so por decisao explicita no chat de planejamento.
+-- ----------------------------------------------------------------------
 
 
 -- ============================================================================

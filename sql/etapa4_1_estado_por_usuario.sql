@@ -1,3 +1,21 @@
+-- ======================================================================
+-- NOTA DE ESTADO - 07/08/2026 (Etapa 4.3, Passo 4)
+-- STATUS: HISTORICO - NAO RE-RODAR.
+-- A ESTRUTURA que este script cria (weekend_leg_user_state,
+-- weekend_leg_ceiling_audit, trigger de auditoria e a view
+-- weekend_leg_effective) EXISTE em producao desde 01/08/2026 e continua
+-- inteiramente valida. O que quebrou foi so a parte que lia o mundo antigo.
+-- Em 06/08/2026 (commit ce0d8b3) price_ceiling, status, notes, paid_price
+-- e purchased_at foram REMOVIDAS de weekend_legs. Por isso, rodar este
+-- arquivo hoje falha na Guarda 1c, que le weekend_legs.price_ceiling; a
+-- copia inicial de estado para weekend_leg_user_state, no fim do arquivo,
+-- le as mesmas colunas removidas.
+-- O erro de "coluna inexistente" e o comportamento ESPERADO, nao um bug.
+-- Rota de volta: weekend_legs_legacy_columns_backup (permanente, 132
+-- linhas) + receita em sql/etapa4_3_drop_colunas_legadas.sql.
+-- Contexto completo: HISTORICO.md, item 18.
+-- ======================================================================
+
 -- ============================================================================
 -- Etapa 4.1 (iniciativa multi-usuário) — estrutura de decisão pessoal por perna.
 -- Aprovado no chat de planejamento em 01/08/2026.
