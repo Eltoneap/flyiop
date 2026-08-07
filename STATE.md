@@ -1,7 +1,23 @@
 # STATE.md — FlyIop
 
 > Atualizado em: 06/08/2026
-> Última sessão: Claude Code (06/08/2026) — Etapa 4.3, Passo 3 desenhado:
+> Última sessão: Claude Code (06/08/2026) — Etapa 4.3, Passo 3 CONCLUÍDO:
+> backup + `DROP` das 5 colunas legadas de `weekend_legs` (`price_ceiling`,
+> `status`, `notes`, `paid_price`, `purchased_at`) executados em produção pelo
+> usuário no SQL Editor, com o script `sql/etapa4_3_drop_colunas_legadas.sql`
+> desenhado nas sessões anteriores. Guardas G0–G4 passaram sem erro; resultado
+> real da Parte B: `colunas_legadas_restantes = 0`, `linhas_no_backup = 132`.
+> As 5 colunas não existem mais em `weekend_legs` — o estado por perna vive só
+> em `weekend_leg_user_state`/`weekend_leg_effective` desde a 4.1/4.2. Backup
+> `weekend_legs_legacy_columns_backup` (132 linhas, permanente) é a rota de
+> volta, com receita de restauração completa (tipos e defaults reais) em
+> comentário no próprio script. Passos 4 (notas de cabeçalho + aposentadoria
+> do Bloco A de `sql/etapa4_1_verificacao.sql`) e 5 (verificação pós-`DROP`)
+> não iniciados — dependem de revisão explícita no chat de planejamento antes
+> de começar. Detalhe completo em `PLANO-ATIVO.md`, Etapa 4.3, e `HISTORICO.md`
+> item 18.
+>
+> Sessão anterior: Claude Code (06/08/2026) — Etapa 4.3, Passo 3 desenhado:
 > script `sql/etapa4_3_drop_colunas_legadas.sql` criado (Bloco 0 — inventário
 > de definição, só leitura; Parte A — backup em
 > `weekend_legs_legacy_columns_backup`, permanente, RLS ligada sem policies;
@@ -80,9 +96,9 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
      de `weekend_legs`. Passo 1 (código do ramo degradado) concluído, commit
      `d5f97eb`. **Passo 2 desacoplado do `DROP`** (06/08/2026) — virou
      pendência de fechamento de registro, não bloqueante (ver item 5 abaixo).
-     **Passo 3: script `sql/etapa4_3_drop_colunas_legadas.sql` criado e
-     revisado, aguardando execução manual do usuário no SQL Editor.** Passos 4
-     e 5 não iniciados.
+     **Passo 3 CONCLUÍDO (06/08/2026):** backup íntegro (132 linhas) e `DROP`
+     executado em produção, zero colunas legadas restantes, confirmado por
+     select. Passos 4 e 5 não iniciados.
 
    **Etapa 5** (frontend por usuário) — ainda não iniciada, exige revisão explícita no chat de planejamento antes de começar (ver seção 4). Etapas 4 e 5 são modelo de dados e interface, valem independente de o alerta de perna funcionar.
 

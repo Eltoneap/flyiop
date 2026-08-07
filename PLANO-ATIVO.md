@@ -613,10 +613,25 @@ cada passo futuro é discutido quando chegar a vez dele.
    pernas compradas — esperado: 0, sem erro) **e o resultado é registrado
    neste item.**
    - Resultado de 10/08/2026: _(aguardando)_
-3. **Desenhado, script criado, aguardando execução manual do usuário
-   (06/08/2026).** Script: `sql/etapa4_3_drop_colunas_legadas.sql` — Bloco 0
-   (inventário de definição, só leitura) / Parte A (backup) / Parte B (guardas
-   G1–G4 + `DROP`) / receita de restauração em comentário.
+3. ✅ **CONCLUÍDO (06/08/2026).** Backup + `DROP` das 5 colunas legadas
+   executados em produção pelo usuário, no SQL Editor. Script:
+   `sql/etapa4_3_drop_colunas_legadas.sql` — Bloco 0 (inventário de definição,
+   só leitura) / Parte A (backup) / Parte B (guardas G0–G4 + `DROP`) / receita
+   de restauração em comentário.
+   - **Resultado real da PARTE B**, rodada no SQL Editor de produção:
+
+     | colunas_legadas_restantes | linhas_no_backup |
+     |---|---|
+     | 0 | 132 |
+
+     Nenhum erro nas guardas G0–G4 — todas passaram. **As 5 colunas
+     `price_ceiling`, `status`, `notes`, `paid_price` e `purchased_at` NÃO
+     EXISTEM MAIS em `weekend_legs`.** O backup
+     `weekend_legs_legacy_columns_backup` é **PERMANENTE** e contém as 132
+     linhas originais. A receita de restauração (mesmo arquivo SQL) já está
+     com os tipos e defaults reais (`price_ceiling numeric not null default
+     200`, `status text not null default 'monitoring'::text`), não mais com
+     marcadores `<TIPO_DO_BLOCO_0>`.
    - **Achado no desenho:** `weekend_legs.price_ceiling` (teto legado) e
      `settings.weekend_default_ceiling` (teto padrão vivo do usuário) são dois
      números diferentes por desenho, não por defeito — o legado está congelado
@@ -653,15 +668,19 @@ cada passo futuro é discutido quando chegar a vez dele.
    - **`weekend_legs_legacy_columns_backup` é PERMANENTE** — não deve ser
      apagada ao fim da Etapa 4.3 nem em limpeza de rotina; só sai por decisão
      explícita no chat de planejamento.
-4. **Notas de cabeçalho nos scripts `sql/` afetados** (registram que descrevem
-   estrutura que não existe mais) + **aposentadoria do Bloco A de
-   `sql/etapa4_1_verificacao.sql`**, que valida o mundo antigo.
+4. **Não iniciado.** Notas de cabeçalho nos scripts `sql/` afetados
+   (registram que descrevem estrutura que não existe mais) + **aposentadoria
+   do Bloco A de `sql/etapa4_1_verificacao.sql`**, que valida o mundo antigo.
    *A conferir neste passo:* o chat de planejamento contou 6 scripts; o `grep`
    de 06/08/2026 encontra **7** arquivos em `sql/` citando alguma das 5 colunas
    — `alvo_fins_de_semana.sql`, `etapa4_1_estado_por_usuario.sql`,
    `etapa4_1_verificacao.sql`, `etapa4_2_resync.sql`, `notas_pernas.sql`,
    `parte8_preco_pago.sql`, `pernas_desacopladas.sql`. Fechar a lista fina aqui.
-5. **Bloco de verificação pós-`DROP`.**
+   Depende de revisão explícita no chat de planejamento antes de começar —
+   nenhum passo encadeia sozinho.
+5. **Não iniciado.** Bloco de verificação pós-`DROP`. Depende de revisão
+   explícita no chat de planejamento antes de começar — nenhum passo encadeia
+   sozinho.
 
 ---
 
