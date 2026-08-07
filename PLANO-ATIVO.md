@@ -699,9 +699,53 @@ cada passo futuro é discutido quando chegar a vez dele.
      Blocos B, C, D, E, F, F2, G e H continuam válidos e rodáveis — E, F e
      F2 seguem sendo a prova de produção de isolamento entre usuários e de
      RLS de escrita (05/08/2026, commit `f50e55a`).
-5. **Não iniciado.** Bloco de verificação pós-`DROP`. Depende de revisão
-   explícita no chat de planejamento antes de começar — nenhum passo encadeia
-   sozinho.
+5. ✅ **CONCLUÍDO (07/08/2026).** Bloco de verificação pós-`DROP`. Script
+   [sql/etapa4_3_verificacao_pos_drop.sql](sql/etapa4_3_verificacao_pos_drop.sql)
+   — 6 blocos (A, B, C, D1, D2, E), todos `select`, desenhados como **colheita
+   independente do Passo 3**: não reaproveitam nenhuma das guardas G0–G4 de
+   `sql/etapa4_3_drop_colunas_legadas.sql`, é uma consulta escrita do zero.
+   Rodado manualmente no SQL Editor de produção em 07/08/2026, um bloco por
+   vez. **Zero divergência — todos os 6 blocos bateram exatamente com os
+   valores esperados no rodapé do script:**
+   - **Bloco A** (colunas ausentes, consulta independente): `controle_tabela
+     = 1`, `controle_sobreviventes = 5`, `legadas_presentes = 0`,
+     `legadas_quais = (nenhuma)`, `total_colunas_hoje = 13` — `id,
+     weekend_id, direction, current_price, current_airport, current_variant,
+     current_source, lowest_seen, lowest_seen_at, last_live_check_at,
+     created_at, current_airline, current_departure_time`.
+   - **Bloco B** (policies de `weekend_legs` vs. baseline de 01/08/2026): as
+     2 policies esperadas, texto idêntico ao baseline, os 2 vereditos = `OK`.
+   - **Bloco C** (triggers de `weekend_legs`): zero linhas (`Success. No rows
+     returned`).
+   - **Bloco D1** (estrutura nova, cardinalidade): `estado_linhas = 5`,
+     `auditoria_linhas = 12`, `view_linhas = 132`, `view_esperado = 132`,
+     `pernas = 132`, `usuarios = 1`.
+   - **Bloco D2** (prova via `pg_depend` de que `weekend_leg_effective` não
+     depende de nenhuma das 5 colunas removidas): 10 linhas
+     (`current_airport`, `current_price`, `current_source`,
+     `current_variant`, `direction`, `id`, `last_live_check_at`,
+     `lowest_seen`, `lowest_seen_at`, `weekend_id`), `e_coluna_legada = false`
+     em todas.
+   - **Bloco E** (backup permanente íntegro): `linhas_backup = 132`,
+     `linhas_weekend_legs = 132`, `colunas_backup = 7` (`id, price_ceiling,
+     status, notes, paid_price, purchased_at, captured_at`),
+     `capturas_distintas = 1`, `capturado_em = 2026-08-07 01:56:43.499924+00`
+     (06/08/2026 22:56 BRT — ainda dentro do dia do Passo 3), `ids_orfaos =
+     0`, `pernas_sem_backup = 0`, `rls_ligada = true`, `policies_no_backup =
+     0`.
+
+---
+
+## Etapa 4.3 — CONCLUÍDA (07/08/2026)
+
+Todos os 5 passos verificados: Passo 1 (código do ramo degradado, commit
+`d5f97eb`), Passo 3 (backup + `DROP` em produção, commit `ce0d8b3`), Passo 4
+(notas de cabeçalho + aposentadoria do Bloco A, commit `4b02093`) e Passo 5
+(verificação pós-`DROP` independente, acima) concluídos. **Pendência
+PARALELA e NÃO BLOQUEANTE segue em aberto**: o Passo 2 (resultado real do
+resumo semanal do Telegram, a partir de segunda-feira 10/08/2026) ainda não
+foi trazido — isso não impede marcar a etapa como concluída; é registro
+separado, de fechamento de observação, não de correção estrutural.
 
 ---
 

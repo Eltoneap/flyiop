@@ -1,7 +1,27 @@
 # STATE.md — FlyIop
 
 > Atualizado em: 07/08/2026
-> Última sessão: Claude Code (07/08/2026) — Etapa 4.3, Passo 4 CONCLUÍDO:
+> Última sessão: Claude Code (07/08/2026) — Etapa 4.3, Passo 5 CONCLUÍDO —
+> **Etapa 4.3 ENCERRADA.** Script
+> [sql/etapa4_3_verificacao_pos_drop.sql](sql/etapa4_3_verificacao_pos_drop.sql),
+> 6 blocos (A, B, C, D1, D2, E) desenhados como colheita **independente** do
+> Passo 3 (não reaproveitam as guardas G0–G4 do script do `DROP`), rodado
+> manualmente no SQL Editor de produção em 07/08/2026. **Zero divergência em
+> todos os 6 blocos**: as 5 colunas legadas continuam ausentes de
+> `weekend_legs` (Bloco A), as 2 policies batem com o baseline de 01/08/2026
+> texto a texto (Bloco B), zero trigger (Bloco C), a estrutura nova
+> (`weekend_leg_user_state`/`weekend_leg_ceiling_audit`/`weekend_leg_effective`)
+> segue intacta com 132 linhas na view (Bloco D1), prova via `pg_depend` de
+> que a view não depende de nenhuma das 5 colunas removidas (Bloco D2), e o
+> backup permanente `weekend_legs_legacy_columns_backup` continua com 132
+> linhas mapeando 1:1 com as pernas vivas, zero órfão dos dois lados (Bloco
+> E). Detalhe completo dos 6 resultados em `HISTORICO.md`, item 19, e
+> `PLANO-ATIVO.md`, Etapa 4.3. **Etapa 4.3 CONCLUÍDA (07/08/2026), todos os
+> 5 passos verificados** — segue em aberto só o Passo 2, pendência paralela
+> e não bloqueante (resultado do resumo semanal do Telegram, a partir de
+> segunda 10/08/2026).
+>
+> Sessão anterior: Claude Code (07/08/2026) — Etapa 4.3, Passo 4 CONCLUÍDO:
 > notas de cabeçalho carimbadas em 7 scripts `sql/` que descrevem estrutura
 > removida das 5 colunas de `weekend_legs`, e aposentadoria do Bloco A de
 > `sql/etapa4_1_verificacao.sql` (comentado em bloco `/* */`, preservado como
@@ -14,8 +34,7 @@
 > reforçado: `notas_pernas.sql` e `parte8_preco_pago.sql` são armadilha
 > ativa — `alter table ... add column` sem guarda, recriam a coluna vazia
 > sem dar erro se re-rodados. Detalhe completo em `PLANO-ATIVO.md`, Etapa
-> 4.3, item 4. **Resta só o Passo 5 (bloco de verificação pós-`DROP`),
-> dependente de revisão explícita no chat de planejamento.**
+> 4.3, item 4.
 >
 > Sessão anterior: Claude Code (06/08/2026) — Etapa 4.3, Passo 3 CONCLUÍDO:
 > backup + `DROP` das 5 colunas legadas de `weekend_legs` (`price_ceiling`,
@@ -108,18 +127,21 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 2. **Etapa 4 da iniciativa multi-usuário** (`weekend_leg_user_state` — teto/status/notas/valor pago por usuário, o núcleo do trabalho que falta), **quebrada em três degraus: 4.1 / 4.2 / 4.3**:
    - **4.1 — ✅ concluída e verificada (01/08/2026).** Estrutura nova criada no banco de produção (rodada à mão no SQL Editor) e verificada com os blocos A–G; nada em `src/` ou `docs/` lê a estrutura nova ainda, o sistema se comporta exatamente como antes. Ver `HISTORICO.md`, item 17.
    - **4.2 — pendências 1–11 e 13 concluídas e verificadas em produção; resta a 12.** É a virada de leitura: frontend e robô passam a ler/escrever a estrutura nova. 12 pendências nomeadas no `PLANO-ATIVO.md`; **pendências 3 e 4 (`docs/js/compras.js` e o botão "aplicar teto a todos") concluídas, commitadas e enviadas ao remoto em 03/08/2026** (commits `531f34f` e `9436bc0`, `origin/main == HEAD` confirmado), com verificação manual completa no site publicado. **Pendências 1 e 2 (re-sync do estado) concluídas e executadas em produção em 04/08/2026** (`sql/etapa4_2_resync.sql`, mantido no repo mas **aposentado em 05/08/2026** — hardcoded pro teto de 250, não reutilizável sem revisão) — resultado: zero divergência, nada precisou ser copiado. **Pendência 5 (`docs/js/dashboard.js` lendo `weekend_leg_effective`, mesma troca de fonte de `compras.js`) concluída, commitada e enviada em 04/08/2026** (commits `05c6f97` e `c19329f`, `origin/main == HEAD` confirmado), com verificação manual no site publicado — teto individual (override) salvo em Compras refletido de forma consistente no Dashboard. **Pendências 6/7(leve)/8/9/10 concluídas, commitadas e verificadas em produção em 05/08/2026** (commit `029ea61`, `origin/main == HEAD` confirmado): o robô (`weekends.py`, `live_check.py`, `telegram_notifier.py`) e `main.py` passaram a ler o teto e o status efetivos de `weekend_leg_effective`, em vez de `weekend_legs.price_ceiling`/`status` direto. Verificação de produção (execução manual, 05/08/2026): fila de pernas idêntica à de antes (132 pernas, nenhuma entrou ou saiu por causa da mudança); teto efetivo funcionando — override de R$555 da perna Ida 04/09 confirmado tanto via SQL (`weekend_leg_effective`) quanto no log da execução. **Pendência 10 (ordenação da fila pelo menor teto entre usuários) já estava resolvida como efeito colateral da pendência 6** — `live_check.py` lê o mesmo `effective_ceiling` que `get_active_legs()` já resolve com MIN, sem trabalho extra. **Verificação de produção do teto R$300 em si CONCLUÍDA em 06/08/2026**: execução real do robô (não pulada por cota diária — "20/20 pernas checadas, 20 com preço", ~09:49 BRT) registrou todas as 22 ocorrências de teto no log em R$300, nenhuma em R$250; zero erros. Fecha a lacuna aberta pelo incidente de gravação de 04/08 — ver "Decisões vivas". **Pendência 13 (`get_weekend_leg_counts` lendo `weekend_legs.status` congelado, resumo de segunda-feira sempre relatando 0 compradas) concluída em 06/08/2026** (commit `b22a569`) — achada no diagnóstico da Etapa 4.3 mas tratada como bug vivo da 4.2, bloqueadora do `DROP` das colunas antigas; passou a ler `weekend_leg_effective`; verificado via SQL (132 pernas, 0 compradas, sem regressão), prova de produção da mensagem real fica para a próxima segunda-feira. Detalhe em `PLANO-ATIVO.md`. Restam a reavaliação de teto fora da coleta (decidida em 02/08, nasce desligada por chave em `system_config`) e a pendência 12 (backlog de UI, não iniciada) — a 11 foi concluída em 05/08/2026, com prova de produção. **A regra de janela aberta (seção 4) está encerrada desde 04/08/2026; a "Janela aberta 2" (painel novo × Telegram velho) está encerrada de vez na parte do teto, agora com prova de produção (06/08/2026)** — segue aberta só para fan-out de alerta por usuário, cooldown/dedup por usuário e limiares gerais individualizados, que são a Etapa 6 (detalhe no `PLANO-ATIVO.md`).
-   - **4.3 — em execução (aberta 06/08/2026).** Remoção das 5 colunas antigas
-     de `weekend_legs`. Passo 1 (código do ramo degradado) concluído, commit
-     `d5f97eb`. **Passo 2 desacoplado do `DROP`** (06/08/2026) — virou
-     pendência de fechamento de registro, não bloqueante (ver item 5 abaixo).
-     **Passo 3 CONCLUÍDO (06/08/2026):** backup íntegro (132 linhas) e `DROP`
+   - **4.3 — CONCLUÍDA (07/08/2026), todos os 5 passos verificados.**
+     Remoção das 5 colunas antigas de `weekend_legs`. Passo 1 (código do
+     ramo degradado) concluído, commit `d5f97eb`. **Passo 2 desacoplado do
+     `DROP`** (06/08/2026) — pendência PARALELA de fechamento de registro,
+     não bloqueante, segue em aberto (ver item 5 abaixo). **Passo 3
+     CONCLUÍDO (06/08/2026):** backup íntegro (132 linhas) e `DROP`
      executado em produção, zero colunas legadas restantes, confirmado por
      select. **Passo 4 CONCLUÍDO (07/08/2026):** notas de cabeçalho nos 7
      scripts `sql/` em escopo (a lista fina fechou diferente da contagem
      original — `alvo_fins_de_semana.sql` saiu, `etapa4_3_drop_colunas_legadas.sql`
      entrou) + aposentadoria do Bloco A de `sql/etapa4_1_verificacao.sql`.
-     Detalhe em `PLANO-ATIVO.md`, Etapa 4.3, item 4. **Resta só o Passo 5**
-     (bloco de verificação pós-`DROP`), não iniciado.
+     **Passo 5 CONCLUÍDO (07/08/2026):** verificação pós-`DROP`
+     independente (`sql/etapa4_3_verificacao_pos_drop.sql`, 6 blocos, zero
+     divergência) — detalhe completo em `HISTORICO.md`, item 19, e
+     `PLANO-ATIVO.md`, Etapa 4.3.
 
    **Etapa 5** (frontend por usuário) — ainda não iniciada, exige revisão explícita no chat de planejamento antes de começar (ver seção 4). Etapas 4 e 5 são modelo de dados e interface, valem independente de o alerta de perna funcionar.
 
