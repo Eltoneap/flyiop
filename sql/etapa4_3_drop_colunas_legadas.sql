@@ -19,6 +19,12 @@
 --   BLOCO 0 (inventário, só leitura)  -> colar o resultado no PLANO-ATIVO.md
 --   PARTE A (backup)                  -> conferir o select final antes de seguir
 --   PARTE B (guardas + DROP)          -> só depois de conferir a PARTE A
+--
+-- NÃO RODAR O ARQUIVO INTEIRO DE UMA VEZ — copiar e rodar um bloco por vez. Se
+-- selecionar tudo e executar de uma tacada, o resultado do BLOCO 0 é
+-- descartado (o SQL Editor só mostra o último select) e as colunas caem sem
+-- ninguém nunca ter visto o inventário de definição. A guarda G0 na PARTE B
+-- detecta esse caso e barra o DROP.
 -- ============================================================================
 
 
@@ -53,13 +59,17 @@ where table_schema = 'public'
 union all
 
 select
-  'check_constraint',
+  'constraint',
   conname,
   pg_get_constraintdef(oid),
-  '', '', '', ''
+  contype::text,  -- 'c'=check, 'f'=foreign key, 'u'=unique, 'x'=exclusion, 'p'=primary key
+  '', '', ''
 from pg_constraint
 where conrelid = 'public.weekend_legs'::regclass
-  and contype = 'c'
+  -- Sem filtro por contype de propósito: QUALQUER constraint cuja definição
+  -- cite uma das 5 colunas precisa entrar aqui, não só checks — uma FK, uma
+  -- unique ou uma exclusion constraint passariam batido do contrário, e este
+  -- bloco é a única chance de registrar isso antes do DROP.
   and pg_get_constraintdef(oid) ~ '(price_ceiling|status|notes|paid_price|purchased_at)'
 
 union all
@@ -156,19 +166,47 @@ select
 -- Três instruções abaixo numa execução só (o do $$ $$, os 5 alter table, e o
 -- select final) = uma transação: guarda que estoura não deixa nenhuma coluna
 -- derrubada.
+--
+-- O QUE ESPERAR NA TELA: o SQL Editor do Supabase NÃO exibe `raise notice` —
+-- a mensagem "Guardas G0-G4 passaram" no fim do bloco `do $$ $$` não vai
+-- aparecer, e isso é normal, não é falha. O critério real é:
+--   - ERRO EM VERMELHO NA TELA  = alguma guarda barrou, NADA foi alterado.
+--   - NENHUM ERRO                = todas as guardas passaram, e a prova é o
+--     `select` final logo depois dos `drop column`, que tem que devolver
+--     `colunas_legadas_restantes = 0`.
 -- ============================================================================
 
 do $$
 declare
-  n_backup      int;
-  n_legs        int;
-  n_fidelidade  int;
-  v_min_teto    numeric;
-  v_max_teto    numeric;
-  n_teto_nulo   int;
-  v_padrao_hoje numeric;
-  n_g4          int;
+  n_backup       int;
+  n_legs         int;
+  ultimo_backup  timestamptz;
+  n_fidelidade   int;
+  v_min_teto     numeric;
+  v_max_teto     numeric;
+  n_teto_nulo    int;
+  v_padrao_hoje  numeric;
+  n_g4           int;
 begin
+  -- G0 — guarda de PROCEDIMENTO, não de dado: é a única deste bloco que
+  -- verifica COMO o script está sendo rodado, não o que está no banco. Sem
+  -- ela, nada impede selecionar o arquivo inteiro (BLOCO 0 + PARTE A + PARTE
+  -- B) de uma vez só: o resultado do BLOCO 0 seria descartado (o SQL Editor só
+  -- mostra o último select), o backup sairia fiel por construção (acabou de
+  -- ser copiado) e as guardas G1-G4 passariam todas sem ninguém nunca ter
+  -- visto o inventário de definição — a única fonte dos tipos/defaults/
+  -- checks/índices para a receita de restauração.
+  --
+  -- O SQL Editor roda o texto submetido numa transação implícita única, então
+  -- `now()` fica congelado no início dela: se a PARTE A e a PARTE B rodaram
+  -- juntas (ou o arquivo inteiro de uma vez), a diferença entre `now()` e
+  -- `captured_at` do backup é exatamente zero, e esta guarda pega.
+  select max(captured_at) into ultimo_backup from weekend_legs_legacy_columns_backup;
+  if ultimo_backup is null or now() - ultimo_backup < interval '2 minutes' then
+    raise exception
+      'Guarda G0: o backup foi criado há menos de 2 minutos. Isso quase sempre significa que a PARTE A e a PARTE B rodaram na mesma execução (ou o arquivo inteiro foi rodado de uma vez), o que descarta o resultado do BLOCO 0 sem você ver. Nada foi alterado. Confira: (1) o resultado do BLOCO 0 está colado no PLANO-ATIVO.md? (2) o select de conferência da PARTE A foi conferido? Se sim, espere 2 minutos e rode a PARTE B sozinha.';
+  end if;
+
   -- G1 — cobertura: toda perna foi copiada pro backup.
   select count(*) into n_backup from weekend_legs_legacy_columns_backup;
   select count(*) into n_legs   from weekend_legs;
@@ -248,7 +286,11 @@ begin
   from (
     select
       l.id,
-      (l.status = 'purchased')                                        as legado_purchased,
+      -- coalesce nos dois lados: status legado é not null hoje, mas sem o
+      -- coalesce à esquerda um NULL futuro faria `l.status = 'purchased'`
+      -- devolver NULL, e `NULL is distinct from false` marcaria divergência
+      -- que não existe.
+      (coalesce(l.status, 'monitoring') = 'purchased')                as legado_purchased,
       bool_and(coalesce(st.status, 'monitoring') = 'purchased')       as efetivo_purchased,
       (max(nullif(btrim(coalesce(st.notes, '')), ''))
          is distinct from nullif(btrim(coalesce(l.notes, '')), ''))   as diverge_notes,
@@ -269,7 +311,9 @@ begin
       n_g4;
   end if;
 
-  raise notice 'Guardas G1-G4 passaram: % pernas, backup íntegro, teto legado uniforme em %, zero divergência efetiva.',
+  -- Este raise notice NÃO aparece no SQL Editor do Supabase (ver nota no
+  -- cabeçalho da PARTE B) — fica só para quem rodar via psql/outro cliente.
+  raise notice 'Guardas G0-G4 passaram: % pernas, backup íntegro, teto legado uniforme em %, zero divergência efetiva.',
     n_legs, v_min_teto;
 end $$;
 
