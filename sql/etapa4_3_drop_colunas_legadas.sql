@@ -41,6 +41,11 @@
 --
 -- Resultado único (union all) porque o SQL Editor do Supabase só mostra o
 -- resultado do último select de uma execução.
+--
+-- JÁ EXECUTADO em 06/08/2026 — resultado registrado em PLANO-ATIVO.md, Etapa
+-- 4.3, item 3: os 5 tipos batem com o create table da PARTE A, e zero
+-- constraint/índice cita as 5 colunas. Re-rodar é inofensivo (é só leitura),
+-- mas não é mais necessário.
 -- ============================================================================
 select
   'coluna'::text                 as tipo_de_linha,
@@ -339,14 +344,20 @@ select
 -- sido escrito depois do DROP (ex.: pernas novas criadas sem essas colunas,
 -- ou qualquer código que passe a assumir a ausência delas).
 --
--- 1) Recriar as colunas. Os tipos <TIPO_DO_BLOCO_0> devem vir do resultado do
---    BLOCO 0 colado no PLANO-ATIVO.md, não presumidos:
+-- 1) Recriar as colunas, com os tipos e defaults reais (BLOCO 0, rodado em
+--    06/08/2026, registrado em PLANO-ATIVO.md, Etapa 4.3, item 3):
 --
---    alter table weekend_legs add column price_ceiling <TIPO_DO_BLOCO_0>;
---    alter table weekend_legs add column status         <TIPO_DO_BLOCO_0>;
---    alter table weekend_legs add column notes           <TIPO_DO_BLOCO_0>;
---    alter table weekend_legs add column paid_price      <TIPO_DO_BLOCO_0>;
---    alter table weekend_legs add column purchased_at    <TIPO_DO_BLOCO_0>;
+--    alter table weekend_legs add column price_ceiling numeric not null default 200;
+--    alter table weekend_legs add column status        text    not null default 'monitoring'::text;
+--    alter table weekend_legs add column notes         text;
+--    alter table weekend_legs add column paid_price    numeric;
+--    alter table weekend_legs add column purchased_at  timestamptz;
+--
+--    O `not null` de price_ceiling e de status SÓ é possível aqui porque cada
+--    um tem `default` — sem default, adicionar coluna `not null` numa tabela
+--    já populada (132 linhas) falharia, porque o Postgres precisa de um valor
+--    para preencher as linhas existentes no mesmo instante em que a coluna
+--    nasce not null.
 --
 -- 2) Repovoar a partir do backup:
 --
@@ -359,7 +370,9 @@ select
 --    from weekend_legs_legacy_columns_backup b
 --    where b.id = w.id;
 --
--- 3) Reaplicar default / not null / check constraints / índices conforme o
---    inventário do BLOCO 0 registrado no PLANO-ATIVO.md — não estão listados
---    aqui porque dependem do que o BLOCO 0 encontrar no banco real.
+-- 3) Reaplicar check constraints / índices: ESTE ITEM FICA VAZIO DE PROPÓSITO,
+--    não por esquecimento — o inventário do BLOCO 0, rodado em 06/08/2026,
+--    não encontrou nenhuma constraint (check, FK, unique ou exclusion) nem
+--    nenhum índice citando qualquer uma das 5 colunas. Foi verificado, não
+--    pulado.
 -- ============================================================================

@@ -630,8 +630,26 @@ cada passo futuro é discutido quando chegar a vez dele.
      começa com um Bloco 0 de inventário (`information_schema.columns` +
      `pg_constraint` + `pg_indexes`), cujo resultado deve ser colado abaixo
      quando o usuário rodar.
-     - Inventário de definição das 5 colunas (BLOCO 0): _(aguardando
-       execução)_
+     - **Inventário de definição das 5 colunas (BLOCO 0), rodado no SQL
+       Editor de produção em 06/08/2026:**
+
+       ```
+       | tipo_de_linha | nome          | detalhe_1                | detalhe_2   | detalhe_3 | detalhe_4 | detalhe_5          |
+       | coluna        | notes         | text                     | text        | /         | YES       |                    |
+       | coluna        | paid_price    | numeric                  | numeric     | /         | YES       |                    |
+       | coluna        | price_ceiling | numeric                  | numeric     | /         | NO        | 200                |
+       | coluna        | purchased_at  | timestamp with time zone | timestamptz | /         | YES       |                    |
+       | coluna        | status        | text                     | text        | /         | NO        | 'monitoring'::text |
+       ```
+
+       Nenhuma linha de tipo `constraint` e nenhuma de tipo `indice` — zero
+       check/FK/unique/exclusion e zero índices citando as 5 colunas.
+       Os 5 tipos conferidos batem exatamente com o `create table` da Parte A
+       (nenhuma divergência; a instrução de parada do cabeçalho da Parte A não
+       se aplicou). Os únicos elementos de definição a reaplicar numa eventual
+       restauração são o `not null` + `default` de `price_ceiling` (`200`) e
+       de `status` (`'monitoring'::text`) — o resto (`notes`, `paid_price`,
+       `purchased_at`) é coluna simples, nullable, sem default.
    - **`weekend_legs_legacy_columns_backup` é PERMANENTE** — não deve ser
      apagada ao fim da Etapa 4.3 nem em limpeza de rotina; só sai por decisão
      explícita no chat de planejamento.
@@ -672,6 +690,17 @@ R$ 200, pendente de calibração" enquanto o valor real em produção era R$ 250
 price_ceiling <> 250` retornando 0, registrada acima em "(a)"), e depois R$ 300
 (04/08/2026). Fixar o número no texto foi a causa de ele desatualizar duas
 vezes; agora aponta para `settings.weekend_default_ceiling`.
+
+**Nota datada de 06/08/2026:** o inventário do Bloco 0 do script da Etapa 4.3,
+Passo 3 (`sql/etapa4_3_drop_colunas_legadas.sql`) mostrou que o `default` da
+coluna `weekend_legs.price_ceiling` no banco **sempre foi `200`**. O
+`CLAUDE.md` não estava desatualizado no sentido de "valor antigo esquecido" —
+ele descrevia corretamente o default do DDL da coluna, enquanto o resto da
+documentação (`STATE.md`, `PLANO-ATIVO.md`) descrevia o valor efetivo das 132
+linhas (`250`, depois `300`), que já divergia do default desde a criação da
+tabela. Não eram duas versões conflitantes do mesmo fato — eram dois fatos
+diferentes (default do DDL × valor efetivo dos dados). Registro histórico; a
+coluna e o default somem com o `DROP` do Passo 3.
 
 `README.md` tem duas descrições desatualizadas, verificadas em 01/08/2026
 (linhas 3, 11 e 52 do arquivo):
