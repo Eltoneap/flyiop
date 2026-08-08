@@ -749,6 +749,78 @@ separado, de fechamento de observação, não de correção estrutural.
 
 ---
 
+## Etapa 4.4 — RLS de weekend_legs (CONCLUÍDA, 07/08/2026)
+
+**Achado do diagnóstico:** `weekend_legs` tinha policy de `UPDATE` para
+`authenticated` — vestígio do mundo pré-4.1/4.2, quando o painel escrevia
+teto/status/notas direto nessa tabela. Desde as pendências 3/4/5 da Etapa 4.2
+(verificadas em produção, 03-04/08/2026), o painel escreve em
+`weekend_leg_user_state` e em `settings.weekend_default_ceiling` — nunca mais
+em `weekend_legs`. Quem ainda escreve em `weekend_legs` é só o robô
+(`service_role`, que sempre ignora RLS). A policy ficou sem uso real, mas
+continuava sendo superfície de escrita: qualquer sessão autenticada no
+navegador podia, tecnicamente, dar `update` direto em `weekend_legs` via API.
+**`SELECT` continua aberto para qualquer autenticado — isso não mudou.**
+
+**Achado do Passo 1** (checagem de segurança, `grep -rn "weekend_legs"
+docs/js/`, antes de tocar no banco): 11 ocorrências, todas em `compras.js` e
+`dashboard.js`, todas leitura — acesso à chave `weekend_legs` de um objeto JS
+vindo de um select que embute `weekend_legs(*)` dentro de `weekends`, ou
+leitura de `weekend_leg_effective`. Confirmação adicional (busca de todas as
+chamadas `.from(...)` + `.update(`/`.upsert(`/`.insert(` nos dois arquivos):
+as únicas escritas do frontend são `.from('weekend_leg_user_state').upsert(...)`
+(`compras.js:51`) e `.from('settings').upsert(...)` (`compras.js:549`). **Zero
+update/upsert/insert contra `weekend_legs` em `docs/js/`** — confirma que o
+frontend não dependia da policy removida; nada divergia do que o `STATE.md`
+já documentava sobre as pendências 3/4/5 da Etapa 4.2.
+
+**Script:** [sql/etapa4_4_weekend_legs_readonly.sql](sql/etapa4_4_weekend_legs_readonly.sql)
+— Guarda G0 (inventário do estado atual, para não em cima de suposição),
+Parte A (`revoke update on weekend_legs from anon, authenticated`), Parte B
+(`drop policy weekend_legs_update_authenticated`), verificação final.
+
+**Resultado real, rodado manualmente no SQL Editor de produção em
+07/08/2026:**
+
+| bloco | resultado |
+|---|---|
+| Guarda G0 | `policies_update_hoje = 1`, `view_effective_e_updatable = NO` |
+| Parte A (`revoke update`) | sucesso, sem erro |
+| Parte B (`drop policy`) | sucesso, sem erro |
+| Verificação final | `policies_update_depois = 0`, `authenticated_ainda_pode_update = false`, `anon_ainda_pode_update = false` |
+
+**Achado lateral:** `view_effective_e_updatable` já vinha `NO` antes deste
+script rodar. `weekend_leg_effective` é uma view com join de múltiplas
+tabelas (`weekend_legs` + `weekends` + `settings` + `weekend_leg_user_state`),
+sem trigger `INSTEAD OF` — o Postgres nunca a considerou automaticamente
+atualizável, independente de qualquer RLS ou grant em `weekend_legs`. O grant
+que existe sobre ela sempre foi só de `SELECT`
+(`sql/etapa4_1_estado_por_usuario.sql`, Bloco 6). Ou seja: o caminho de
+escrita pela view nunca foi real — este script fechou o único caminho de
+escrita que de fato existia (direto na tabela).
+
+**Escopo confirmado como respeitado:** nenhuma outra tabela foi tocada —
+`weekend_leg_user_state`, `weekend_leg_effective`, `weekends` e todas as
+demais ficaram intocadas. Esta etapa foi só RLS/grants de `weekend_legs`.
+
+**Relação com a pendência de RLS "genérica" registrada em `STATE.md` (seção
+4, "Bloqueios/perguntas em aberto", 31/07/2026):** essa pendência tem dois
+lados — `authenticated` conseguia **ler e escrever** qualquer linha de
+`weekend_legs`, sem filtro por usuário. A Etapa 4.4 fecha só o lado de
+**escrita**. O lado de **leitura** (qualquer autenticado ainda enxerga todas
+as linhas de `weekend_legs`/`weekends`) segue sem alteração — continua
+pendência separada, a resolver antes da Etapa 7. Nota também: a alternativa
+descartada em 31/07/2026 ("travar `weekend_legs` como somente-leitura via RLS
+**temporária**") era outra coisa — uma trava provisória para blindar a
+migração 4.1→4.2 em andamento, descartada por risco de falha silenciosa no
+frontend durante a própria migração. A Etapa 4.4 é diferente: **permanente**,
+rodada só depois de a migração já estar concluída e verificada (Etapas
+4.1-4.3), com checagem de segurança prévia no código real antes de tocar no
+banco — não é a mesma decisão sendo revertida, é um passo posterior sobre uma
+base já estável.
+
+---
+
 ## Pendência fora do escopo desta iniciativa (registrada 30/07/2026)
 
 `CLAUDE.md` linha 14 descreve a comparação de preço "avulso vs. pacote"

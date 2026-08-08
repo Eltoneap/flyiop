@@ -1,7 +1,31 @@
 # STATE.md — FlyIop
 
 > Atualizado em: 07/08/2026
-> Última sessão: Claude Code (07/08/2026) — Etapa 4.3, Passo 5 CONCLUÍDO —
+> Última sessão: Claude Code (07/08/2026) — **Etapa 4.4 CONCLUÍDA:**
+> `weekend_legs` vira somente-leitura no navegador. A policy de `UPDATE`
+> para `authenticated` era vestígio do mundo pré-4.1/4.2 — desde as
+> pendências 3/4/5 da Etapa 4.2 (03-04/08/2026) o painel escreve em
+> `weekend_leg_user_state`/`settings`, nunca mais em `weekend_legs`; só o
+> robô (`service_role`, ignora RLS) continua escrevendo lá. `SELECT`
+> continua aberto para qualquer autenticado — isso não mudou. **Checagem de
+> segurança antes de rodar** (`grep -rn "weekend_legs" docs/js/`): 11
+> ocorrências em `compras.js`/`dashboard.js`, todas leitura — nenhum
+> update/upsert/insert contra `weekend_legs`; confirma que o frontend não
+> dependia da policy removida. Script
+> [sql/etapa4_4_weekend_legs_readonly.sql](sql/etapa4_4_weekend_legs_readonly.sql)
+> rodado manualmente no SQL Editor de produção em 07/08/2026. **Resultado
+> real:** Guarda G0 — `policies_update_hoje = 1`,
+> `view_effective_e_updatable = NO`; Parte A (`revoke update`) e Parte B
+> (`drop policy`) sem erro; verificação final — `policies_update_depois =
+> 0`, `authenticated_ainda_pode_update = false`, `anon_ainda_pode_update =
+> false`. **Achado lateral:** `weekend_leg_effective` já não era
+> atualizável antes deste script (view com join de múltiplas tabelas, sem
+> `INSTEAD OF` trigger, grant só de `SELECT`) — o caminho de escrita pela
+> view nunca foi real; este script fechou o único caminho de escrita que de
+> fato existia (direto na tabela). Detalhe completo em `PLANO-ATIVO.md`,
+> "Etapa 4.4".
+>
+> Sessão anterior: Claude Code (07/08/2026) — Etapa 4.3, Passo 5 CONCLUÍDO —
 > **Etapa 4.3 ENCERRADA.** Script
 > [sql/etapa4_3_verificacao_pos_drop.sql](sql/etapa4_3_verificacao_pos_drop.sql),
 > 6 blocos (A, B, C, D1, D2, E) desenhados como colheita **independente** do
@@ -142,6 +166,17 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
      independente (`sql/etapa4_3_verificacao_pos_drop.sql`, 6 blocos, zero
      divergência) — detalhe completo em `HISTORICO.md`, item 19, e
      `PLANO-ATIVO.md`, Etapa 4.3.
+   - **4.4 — CONCLUÍDA (07/08/2026).** `weekend_legs` vira somente-leitura
+     no navegador — `revoke update` + `drop policy` dos papéis `anon`/
+     `authenticated`, `SELECT` inalterado. Checagem de segurança prévia
+     (`grep` em `docs/js/`) confirmou zero escrita contra `weekend_legs` no
+     frontend. Script
+     [sql/etapa4_4_weekend_legs_readonly.sql](sql/etapa4_4_weekend_legs_readonly.sql),
+     zero divergência no resultado real. Detalhe em `PLANO-ATIVO.md`, Etapa
+     4.4. **Fecha só o lado de escrita da RLS "genérica" de `weekend_legs`
+     registrada na seção 4 (Bloqueios)** — o lado de leitura (qualquer
+     autenticado ainda enxerga todas as linhas de `weekend_legs`/`weekends`)
+     segue sem alteração, é pendência separada a resolver antes da Etapa 7.
 
    **Etapa 5** (frontend por usuário) — ainda não iniciada, exige revisão explícita no chat de planejamento antes de começar (ver seção 4). Etapas 4 e 5 são modelo de dados e interface, valem independente de o alerta de perna funcionar.
 
