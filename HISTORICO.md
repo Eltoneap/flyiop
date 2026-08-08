@@ -321,3 +321,13 @@ Itens (a) e (b) do "Diagnóstico: caminho de alerta de perna" (`PLANO-ATIVO.md`,
 - **Bloco E** (backup permanente íntegro): `linhas_backup = 132`, `linhas_weekend_legs = 132`, `colunas_backup = 7`, `capturas_distintas = 1`, `capturado_em = 2026-08-07 01:56:43.499924+00` (06/08/2026 22:56 BRT), `ids_orfaos = 0`, `pernas_sem_backup = 0`, `rls_ligada = true`, `policies_no_backup = 0`.
 
 **Fechamento:** com os Passos 1, 3, 4 e 5 concluídos e verificados, a **Etapa 4.3 está encerrada**. As 5 colunas legadas de `weekend_legs` não existem mais em produção, a estrutura nova (`weekend_leg_user_state`, `weekend_leg_ceiling_audit`, `weekend_leg_effective`) segue intacta e confirmada por colheita independente, o backup permanente está íntegro e mapeando 1:1 com as pernas vivas, e os scripts `sql/` obsoletos estão carimbados contra re-execução acidental. Segue em aberto só o Passo 2 — pendência paralela e não bloqueante de trazer o resultado real do resumo semanal do Telegram a partir de segunda-feira 10/08/2026 — que não é uma correção estrutural pendente, é registro de observação. Detalhe completo em `PLANO-ATIVO.md`, seção "Etapa 4.3".
+
+## 20. Lado de leitura da RLS de `weekend_legs`/`weekends` fechado, 08/08/2026
+
+**Contexto:** pendência registrada em `STATE.md` desde 31/07/2026 (junto com o pedido recusado de antecipar a Etapa 7): `weekend_legs`/`weekends` tinham — e no lado de leitura continuam tendo — policy `auth.uid() is not null`, sem filtro por usuário. Diferente do lado de escrita (fechado pela Etapa 4.4, 07/08/2026, por não ter consumidor legítimo restante), o lado de leitura exigia decisão de produto antes de decisão técnica: os dois usuários compram a mesma rota RIO↔BSB, então dado objetivo de voo poderia ser intencionalmente compartilhado.
+
+**Decisão** tomada no chat de planejamento (08/08/2026): sim, compartilhado — preço atual, companhia, horário do voo encontrado pelo robô, menor preço visto e o calendário dos fins de semana são dado de mercado, não decisão pessoal; o que é pessoal (teto, status de compra, valor pago, notas — inclusive localizador e horário do voo efetivamente comprado) já vive isolado em `weekend_leg_user_state` desde a Etapa 4.1.
+
+**Verificação:** confirmado por diagnóstico só-leitura em duas partes (inventário de catálogo de RLS + personificação de usuário fictício via `set local role authenticated`, transação com rollback): zero divergência — nenhuma tabela de decisão pessoal legível por outro usuário, tabelas de mercado visíveis como esperado.
+
+**Fechamento:** fecha a pendência de RLS "genérica" nos dois lados; deixa de ser bloqueio da Etapa 7, que segue bloqueada pelas Etapas 5 e 6. Detalhe completo em `PLANO-ATIVO.md`, seção "Etapa 4.4".

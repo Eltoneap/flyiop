@@ -819,6 +819,23 @@ rodada só depois de a migração já estar concluída e verificada (Etapas
 banco — não é a mesma decisão sendo revertida, é um passo posterior sobre uma
 base já estável.
 
+**Lado de leitura fechado (08/08/2026).** Pergunta de produto respondida no
+chat de planejamento: dado objetivo de voo é compartilhado entre usuários —
+decisão consciente, não um problema de RLS a corrigir. Confirmado por
+diagnóstico só-leitura, duas partes, rodado manualmente no SQL Editor de
+produção:
+
+| bloco | resultado |
+|---|---|
+| Parte A (catálogo de RLS, 15 tabelas + 1 view) | todas as tabelas de decisão pessoal com policy `= auth.uid()`; todas as tabelas de mercado com policy `auth.uid() is not null`; `weekend_leg_effective` sem policy própria, `security_invoker=true` |
+| Parte B (personificação de usuário fictício, `00000000-…-0001`, transação com rollback) | `weekend_leg_user_state=0`, `weekend_leg_ceiling_audit=0`, `weekend_legs_legacy_columns_backup=0`, `weekend_leg_effective=0` — zero leitura de dado pessoal alheio; `weekends=66`, `weekend_legs=132`, histórico/run log de perna > 0 — dado de mercado visível, como decidido; `price_history`/`run_log` (rotas legado) = 0, protegidas por `routes.user_id` |
+
+Achado de higiene sem ação necessária: `grant_select_anon = true` em todas as
+tabelas é grant de role padrão do Supabase, não RLS — a policy de linha é quem
+efetivamente barra, confirmado pela Parte B. Fecha a pendência de RLS
+"genérica" registrada em `STATE.md`, seção 4, nos dois lados (escrita pela
+4.4, leitura por esta decisão). Não é mais bloqueio da Etapa 7.
+
 ---
 
 ## Pendência fora do escopo desta iniciativa (registrada 30/07/2026)
