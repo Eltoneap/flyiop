@@ -1,7 +1,31 @@
 # STATE.md — FlyIop
 
-> Atualizado em: 07/08/2026
-> Última sessão: Claude Code (07/08/2026) — **Etapa 4.4 CONCLUÍDA:**
+> Atualizado em: 08/08/2026
+> Última sessão: Claude Code (08/08/2026) — **Fatia A CONCLUÍDA e
+> publicada:** tema escuro por padrão + paleta em variáveis CSS no site
+> estático (`docs/`), recorte puramente visual de um handoff maior de UI
+> multi-usuário que não está aprovado — só esta fatia entrou, o resto
+> (rótulos SÓ SEU/DOS DOIS, visibilidade cruzada entre usuários,
+> separação pessoal×global em Configurações) segue fora de escopo. As 25
+> variáveis já existentes em `:root` de `docs/css/style.css` ganharam
+> bloco `:root[data-theme="dark"]`, mais 6 variáveis novas para literais
+> sem token e 3 de sombra; alternância por `data-theme` em `<html>`,
+> persistida só em `localStorage` (`flyiop-theme`, escuro é o padrão),
+> script inline anti-flash nas 4 páginas, botão só em
+> index/compras/config (`login.html` só herda o tema salvo), novo módulo
+> `docs/js/theme.js`. Única exceção de JS fora de CSS: cor do gráfico
+> Chart.js em `docs/js/dashboard.js`, lida via CSS var e recolorida ao
+> vivo sem re-consultar o Supabase — aprovada explicitamente. Corrigido
+> durante a implementação: 2 literais `#fff` catalogados como texto eram
+> na verdade fundos (`input`/`select`, `.btn-outline-full`) — trocados
+> para `var(--card)` pra não ficarem brancos no escuro. Testado com dados
+> reais + harness sintético para estados sem cobertura nos dados atuais;
+> usuário confirmou teste manual completo no navegador local antes do
+> push. Publicado no commit `809eb2d`. Detalhe completo em
+> `HISTORICO.md`, item 21. Frente independente das etapas multi-usuário —
+> não desbloqueia nem bloqueia nada listado nas seções 3/4 abaixo.
+>
+> Sessão anterior: Claude Code (07/08/2026) — **Etapa 4.4 CONCLUÍDA:**
 > `weekend_legs` vira somente-leitura no navegador. A policy de `UPDATE`
 > para `authenticated` era vestígio do mundo pré-4.1/4.2 — desde as
 > pendências 3/4/5 da Etapa 4.2 (03-04/08/2026) o painel escreve em

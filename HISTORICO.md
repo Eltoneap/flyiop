@@ -331,3 +331,17 @@ Itens (a) e (b) do "Diagnóstico: caminho de alerta de perna" (`PLANO-ATIVO.md`,
 **Verificação:** confirmado por diagnóstico só-leitura em duas partes (inventário de catálogo de RLS + personificação de usuário fictício via `set local role authenticated`, transação com rollback): zero divergência — nenhuma tabela de decisão pessoal legível por outro usuário, tabelas de mercado visíveis como esperado.
 
 **Fechamento:** fecha a pendência de RLS "genérica" nos dois lados; deixa de ser bloqueio da Etapa 7, que segue bloqueada pelas Etapas 5 e 6. Detalhe completo em `PLANO-ATIVO.md`, seção "Etapa 4.4".
+
+## 21. Fatia A — tema escuro por padrão + paleta em variáveis CSS (08/08/2026)
+
+**Contexto:** recorte puramente visual de um handoff maior de UI (multi-usuário, "camada de dois usuários") que **não está aprovado**. Só esta fatia (cor/tema) foi implementada; o resto do handoff — rótulos SÓ SEU/DOS DOIS, camada de visibilidade cruzada entre usuários (Fatia C), separação pessoal×global em Configurações (Fatia B) — segue fora de escopo, nenhum implementado, registrado aqui para não se perder e aguardando decisões próprias em revisão futura.
+
+**O que foi feito:** as 25 variáveis já existentes em `:root` de `docs/css/style.css` ganharam um bloco `:root[data-theme="dark"]` com valores de tema escuro (nomes preservados, não renomeados). 6 variáveis novas criadas para literais de cor que não tinham token (`--field-empty-bg`, `--field-filled-border`, `--primary-tint-bg`, `--outline-border`, `--danger-hover`, `--primary-rgb`) + 3 variáveis de sombra (`--shadow-1`/`--shadow-2`/`--shadow-3`). Alternância via atributo `data-theme` em `<html>`, persistida só em `localStorage` (chave `flyiop-theme`, escuro é o padrão quando não há preferência salva). Script inline anti-flash no `<head>` das 4 páginas HTML, rodando antes da primeira pintura. Botão de alternância só em `index.html`/`compras.html`/`config.html` (nav compartilhado); `login.html` não tem botão, só herda o tema salvo. Novo módulo `docs/js/theme.js`.
+
+**Exceção pontual de escopo:** `docs/js/dashboard.js`, linhas do Chart.js (cor hardcoded do gráfico de rota legada), foi tocado para ler a cor via CSS var e recolorir ao vivo na troca de tema, sem re-consultar o Supabase — único ponto de JS fora de CSS nesta fatia, aprovado explicitamente no chat de planejamento.
+
+**Correção durante a implementação:** 2 dos literais `#fff` catalogados como "texto sobre cor sólida" eram na verdade fundos (`input`/`select` e `.btn-outline-full`) — se deixados como `#fff` literal, ficariam brancos sobre fundo escuro. Corrigidos para `var(--card)`. Identificado e sinalizado pelo Claude Code durante a implementação, não presumido.
+
+**Verificação:** testado localmente (servidor estático local) com dados reais de uma sessão Supabase ativa + harness sintético para estados sem cobertura nos dados reais atuais (perna comprada, card colapsado, trend warn/info, badges feriado+alta-temporada simultâneos). Estado âmbar de edição não salva confirmado com dado real. Recoloração ao vivo do gráfico Chart.js confirmada sem nova chamada de rede. Usuário confirmou teste manual completo no navegador local antes do push, incluindo o roteiro de 6 pontos (flash ao recarregar, clique físico no botão, âmbar, persistência entre páginas, gráfico, botão outline).
+
+**Publicado:** commit `809eb2d`, enviado a `origin/main` em 08/08/2026, junto com os 2 commits anteriores desta mesma sessão (nota de documentação sobre visibilidade cruzada de compra/táxi, e troca de `favicon.png`/`apple-touch-icon.png`).
