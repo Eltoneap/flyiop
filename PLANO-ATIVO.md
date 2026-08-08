@@ -95,6 +95,21 @@ arquivos oficiais, arquivo de trabalho desta iniciativa).
 **Regra de trabalho:** cada etapa exige revisão explícita no chat de
 planejamento antes de rodar. Nunca encadear etapas sozinho.
 
+### Nota (08/08/2026) — motivo adicional para visibilidade cruzada de compra
+
+Registrado no chat de planejamento: uma proposta de design (não aprovada,
+fora do repositório) sugeriu uma camada de visibilidade cruzada entre
+usuários — o outro vê que você comprou uma perna e em qual voo. Além de
+sincronia geral, essa funcionalidade serve também para otimizar logística —
+saber que o outro já tem voo comprado ajuda a decidir se vale dividir táxi.
+
+**Escopo, se e quando essa funcionalidade for desenhada: visibilidade só
+depois que `status` vira `purchased`.** A alternativa de expor a
+intenção/voo *antes* da compra (mais útil ainda para coordenar táxi com
+antecedência, mas vaza mais informação pessoal do outro) foi levantada e
+**descartada por ora** — revisar só se a limitação de "só depois de
+comprado" virar dor real na prática.
+
 ### Ordem de execução
 
 1. ✅ **Concluída (29/07/2026).** Consolidar baseline do schema legado +
