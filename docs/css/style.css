@@ -24,6 +24,52 @@
   --amber-bg: #fef6e3;
   --amber-line: #ebcb8b;
   --line-strong: #b9b9c4;
+  --field-empty-bg: #fafafc;
+  --field-filled-border: #c3c3ce;
+  --primary-tint-bg: #eff6ff;
+  --outline-border: #c7d6f7;
+  --danger-hover: #b91c1c;
+  --primary-rgb: 37, 99, 235;
+  --shadow-1: rgba(16, 16, 30, 0.05);
+  --shadow-2: rgba(16, 16, 30, 0.04);
+  --shadow-3: rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="dark"] {
+  --bg: #0a0c0f;
+  --card: #171a20;
+  --text: #e9ebef;
+  --muted: #949ba7;
+  --border: #282d36;
+  --primary: #5b8cff;
+  --primary-dark: #7fa4ff;
+  --good: #3ddc97;
+  --good-bg: rgba(61, 220, 151, .14);
+  --warn: #f87171;
+  --warn-bg: rgba(248, 113, 113, .14);
+  --info: #5b8cff;
+  --info-bg: rgba(91, 140, 255, .14);
+  --neutral-bg: #1e222a;
+  --holiday: #f0b429;
+  --holiday-bg: rgba(240, 180, 41, .14);
+  --season: #ff8a4c;
+  --season-bg: rgba(255, 138, 76, .14);
+  --bought: #34b878;
+  --bought-bg: rgba(52, 184, 120, .14);
+  --bought-line: #3c8f68;
+  --amber: #f0b429;
+  --amber-bg: rgba(240, 180, 41, .14);
+  --amber-line: #b8862f;
+  --line-strong: #3f4756;
+  --field-empty-bg: #1e222a;
+  --field-filled-border: #262b35;
+  --primary-tint-bg: #141a2e;
+  --outline-border: #2f3d5c;
+  --danger-hover: #fb7185;
+  --primary-rgb: 91, 140, 255;
+  --shadow-1: rgba(0, 0, 0, .35);
+  --shadow-2: rgba(0, 0, 0, .55);
+  --shadow-3: rgba(0, 0, 0, .35);
 }
 
 * { box-sizing: border-box; }
@@ -134,7 +180,7 @@ h1 {
 
 .card.weekend-card {
   border-color: var(--line-strong);
-  box-shadow: 0 1px 2px rgba(16, 16, 30, 0.05), 0 4px 12px rgba(16, 16, 30, 0.04);
+  box-shadow: 0 1px 2px var(--shadow-1), 0 4px 12px var(--shadow-2);
   overflow: hidden;
 }
 
@@ -366,7 +412,7 @@ input, select {
   border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 13px;
-  background: #fff;
+  background: var(--card);
   color: var(--text);
 }
 
@@ -410,7 +456,7 @@ button {
 
 button:hover { background: var(--primary-dark); }
 button.danger { background: var(--warn); }
-button.danger:hover { background: #b91c1c; }
+button.danger:hover { background: var(--danger-hover); }
 button.small { padding: 5px 10px; font-size: 12px; margin-right: 4px; }
 
 a.small {
@@ -494,7 +540,7 @@ ul.suggestions {
   overflow-y: auto;
   z-index: 20;
   display: none;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 12px var(--shadow-3);
 }
 
 ul.suggestions li {
@@ -575,7 +621,7 @@ ul.suggestions li:hover {
 }
 
 .advisory.personalized {
-  background: #eff6ff;
+  background: var(--primary-tint-bg);
   color: var(--primary-dark);
 }
 
@@ -713,12 +759,12 @@ ul.suggestions li:hover {
 
 .field-empty {
   border: 1.5px dashed var(--border);
-  background: #fafafc;
+  background: var(--field-empty-bg);
   color: var(--muted);
 }
 
 .field-filled {
-  border: 1.5px solid #c3c3ce;
+  border: 1.5px solid var(--field-filled-border);
   color: var(--text);
   font-weight: 600;
 }
@@ -783,9 +829,9 @@ button.small.dirty {
   display: block;
   width: 100%;
   text-align: center;
-  background: #fff;
+  background: var(--card);
   color: var(--primary-dark);
-  border: 1.5px solid #c7d6f7;
+  border: 1.5px solid var(--outline-border);
   border-radius: 6px;
   padding: 9px 16px;
   font-size: 13px;
@@ -794,7 +840,7 @@ button.small.dirty {
   cursor: pointer;
 }
 
-.btn-outline-full:hover { background: #eff6ff; }
+.btn-outline-full:hover { background: var(--primary-tint-bg); }
 
 .btn-undo {
   display: inline-block;

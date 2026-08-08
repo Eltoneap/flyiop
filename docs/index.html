@@ -3,6 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>
+  (function () {
+    var t = localStorage.getItem('flyiop-theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', t);
+  })();
+  </script>
   <title>FlyIop — Dashboard</title>
   <link rel="stylesheet" href="css/style.css">
   <link rel="icon" type="image/png" href="img/favicon.png">
@@ -16,6 +22,7 @@
     <a href="compras.html">Compras</a>
     <a href="config.html">Configurações</a>
     <span class="spacer"></span>
+    <button type="button" class="link" id="theme-toggle" aria-label="Alternar tema">🌙</button>
     <button type="button" class="link" id="logout">Sair</button>
   </nav>
   <main>
@@ -44,6 +51,7 @@
       </div>
     </details>
   </main>
+  <script type="module" src="js/theme.js"></script>
   <script type="module" src="js/dashboard.js"></script>
 </body>
 </html>

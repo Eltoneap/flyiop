@@ -13,6 +13,27 @@ const DEFAULT_SETTINGS = {
 
 const URGENCY_WINDOW_DAYS = 60;
 const BLOCK_RECENT_HOURS = 48;
+
+// Gráficos de rota legada em tela, pra recolorir ao vivo quando o tema
+// (docs/js/theme.js) alterna, sem re-buscar dados do Supabase.
+const legacyCharts = [];
+
+function chartColors() {
+  const style = getComputedStyle(document.documentElement);
+  const border = style.getPropertyValue('--primary').trim();
+  const rgb = style.getPropertyValue('--primary-rgb').trim();
+  return { border, background: `rgba(${rgb},0.08)` };
+}
+
+document.addEventListener('theme:change', () => {
+  const { border, background } = chartColors();
+  legacyCharts.forEach((chart) => {
+    chart.data.datasets[0].borderColor = border;
+    chart.data.datasets[0].backgroundColor = background;
+    chart.update();
+  });
+});
+
 // Primeiro fim de semana alvo de compra real (decisão de 28/07/2026, ver
 // CLAUDE.md/STATE.md) — fins de semana antes disso são monitorados de
 // propósito (histórico/teste), mas não contam nas métricas de progresso e
@@ -391,14 +412,15 @@ function renderLegacyCard(route, history, settings, isDomestic, lastOutcome) {
 
   if (latest != null) {
     const canvas = card.querySelector('canvas');
-    new Chart(canvas, {
+    const { border, background } = chartColors();
+    const chart = new Chart(canvas, {
       type: 'line',
       data: {
         labels: history.map((h) => h.checked_at.slice(0, 10)),
         datasets: [{
           data: prices,
-          borderColor: '#2563eb',
-          backgroundColor: 'rgba(37,99,235,0.08)',
+          borderColor: border,
+          backgroundColor: background,
           fill: true,
           tension: 0.25,
           pointRadius: 2,
@@ -409,6 +431,7 @@ function renderLegacyCard(route, history, settings, isDomestic, lastOutcome) {
         scales: { x: { display: false }, y: { display: true, ticks: { font: { size: 10 } } } },
       },
     });
+    legacyCharts.push(chart);
   }
 
   return card;
