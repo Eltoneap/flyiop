@@ -155,8 +155,15 @@ comprado" virar dor real na prática.
      **Em revisão no chat de planejamento, ainda não aprovada** — pendências
      nomeadas abaixo, na seção "Etapa 4.2".
    - **4.3** — só depois, remover as colunas antigas de `weekend_legs`.
-5. Frontend: Compras/Dashboard por usuário logado; `weekend_legs` vira
-   somente-leitura no navegador; redesenho de RLS de update.
+5. ✅ **Concluída por composição (08/08/2026).** Frontend: Compras/Dashboard
+   por usuário logado; `weekend_legs` vira somente-leitura no navegador;
+   redesenho de RLS de update. Coberta por trabalho feito sob outros nomes:
+   "`weekend_legs` somente-leitura no navegador" = Etapa 4.4 (07/08/2026);
+   "redesenho de RLS de update" = Etapa 4.1, RLS de
+   `weekend_leg_user_state`, provada nos blocos F/F2; "Compras/Dashboard por
+   usuário logado" = funcionalmente pela Etapa 4.2 (pendências 3/5, leitura
+   via `weekend_leg_effective`), visualmente pela Fatia A/B (UI,
+   `HISTORICO.md` itens 21/22).
 6. Telegram: cooldown/dedup de `alert_log` por (perna × usuário); composição
    de mensagem com nome+valor; mantém o mesmo `TELEGRAM_CHAT_ID` (grupo).
    **Depende do teste do caminho de alerta de perna** (ver "Diagnóstico:
