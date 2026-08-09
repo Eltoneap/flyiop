@@ -14,6 +14,48 @@ const DEFAULT_SETTINGS = {
 const URGENCY_WINDOW_DAYS = 60;
 const BLOCK_RECENT_HOURS = 48;
 
+// Fatia B (08/08/2026) — etiqueta de escopo por bloco. O Dashboard mistura
+// decisão pessoal do usuário logado (progresso, orçamento, tetos, rotas) com
+// dado do sistema, igual para todo mundo (saúde do robô, feriados). Sem pista
+// visual isso vira erro de leitura assim que existir um segundo usuário:
+// "esse número é meu ou é dele?".
+//
+// Mapa + um passe único, em vez de colar a etiqueta em cada template: as
+// funções de render abaixo somam 11 atribuições de `section.innerHTML`, várias
+// em pares (ramo com dado / ramo vazio) — seriam 11 pontos de edição, e todo
+// ramo novo nasceria sem etiqueta.
+const BLOCK_SCOPE = {
+  'acao-do-dia': 'own',
+  progresso: 'own',
+  oportunidades: 'own',
+  orcamento: 'own',
+  'rotas-legado': 'own',
+  'saude-sistema': 'system',
+  'feriados-alta-temporada': 'system',
+  // 'urgencia' fica sem etiqueta de propósito (decisão de 08/08/2026).
+};
+
+const SCOPE_LABEL = { own: 'só seu', system: 'do sistema' };
+
+// Chamada uma vez, ao fim de initPage: hoje nada reescreve o innerHTML de um
+// bloco depois disso (os únicos listeners do arquivo são 'theme:change', que
+// só recolore o Chart.js, e o clique do export CSV; não há timer nem filtro).
+// A guarda de idempotência existe para o dia em que houver — rodar de novo não
+// duplica pill.
+function tagBlockScopes() {
+  for (const [id, scope] of Object.entries(BLOCK_SCOPE)) {
+    const block = document.getElementById(id);
+    if (!block) continue;
+    const heading = block.querySelector('h2, summary'); // h2 nas <section>, summary no <details> legado
+    if (!heading || heading.querySelector('.badge.scope-own, .badge.scope-system')) continue;
+
+    const badge = document.createElement('span');
+    badge.className = `badge scope-${scope}`;
+    badge.textContent = SCOPE_LABEL[scope]; // maiúsculas ficam por conta do CSS
+    heading.appendChild(badge);
+  }
+}
+
 // Gráficos de rota legada em tela, pra recolorir ao vivo quando o tema
 // (docs/js/theme.js) alterna, sem re-buscar dados do Supabase.
 const legacyCharts = [];
@@ -465,12 +507,43 @@ async function exportCsv(routes) {
 }
 
 async function renderLegacyRoutes(session) {
-  const [{ data: routes }, { data: legacySettingsRows }, airports, { data: lastRunRows }] = await Promise.all([
+  const [
+    { data: routes, error: routesError },
+    { data: legacySettingsRows },
+    airports,
+    { data: lastRunRows },
+  ] = await Promise.all([
     supabase.from('routes').select('*').eq('archived', false).order('created_at'),
     supabase.from('settings').select('*').eq('user_id', session.user.id).limit(1),
     loadAirports(),
     supabase.from('run_log').select('ran_at').order('ran_at', { ascending: false }).limit(1),
   ]);
+
+  // Fatia B — o bloco todo é "só seu": nasce hidden no HTML e só é revelado
+  // com rota ATIVA de verdade. Aqui a conta é só das ativas (a consulta acima
+  // já filtra), diferente de Configurações, que conta ativas + arquivadas:
+  // lá existe aba Arquivadas e botão Reativar para preservar, aqui não há
+  // caminho nenhum a proteger, e contar arquivadas devolveria justamente o
+  // card vazio que esta fatia elimina.
+  const details = document.getElementById('rotas-legado');
+
+  if (routesError) {
+    // Falha de consulta NÃO pode virar bloco escondido em silêncio — o
+    // usuário leria como "minhas rotas sumiram". Revela e avisa, no mesmo
+    // alert() que initPage usa para weekends/pernas e que config.js usa em
+    // loadRoutes.
+    details.hidden = false;
+    alert('Erro ao carregar rotas: ' + routesError.message);
+    return;
+  }
+
+  // Atribuição explícita nos dois sentidos, e não só um `return` confiando no
+  // `hidden` do markup: assim o estado do bloco é sempre função do resultado da
+  // consulta, mesmo que um dia isto rode duas vezes no mesmo documento (mesma
+  // forma do gate de config.js).
+  details.hidden = !routes || routes.length === 0;
+  if (details.hidden) return; // sem card vazio
+
   const settings = legacySettingsRows && legacySettingsRows[0] ? legacySettingsRows[0] : DEFAULT_SETTINGS;
 
   document.getElementById('notification-mode').textContent = settings.notification_mode;
@@ -482,13 +555,10 @@ async function renderLegacyRoutes(session) {
 
   document.getElementById('export-csv').addEventListener('click', () => exportCsv(routes || []));
 
+  // O ramo de zero rotas saiu daqui para o gate acima (Fatia B): em vez de
+  // mostrar #empty-state, o bloco inteiro não aparece. O nó #empty-state
+  // continua em index.html, deliberadamente intocado, apenas nunca exibido.
   const grid = document.getElementById('routes-grid');
-  const empty = document.getElementById('empty-state');
-
-  if (!routes || routes.length === 0) {
-    empty.style.display = 'block';
-    return;
-  }
 
   for (const route of routes) {
     const [{ data: history }, { data: lastOutcomeRows }] = await Promise.all([
@@ -576,6 +646,10 @@ async function initPage(session) {
   await renderSaude(liveActive);
   renderFeriados(allWeekends);
   await renderLegacyRoutes(session);
+
+  // Por último: todo bloco já está montado (as funções acima sobrescrevem
+  // innerHTML), então a etiqueta não corre risco de ser apagada.
+  tagBlockScopes();
 }
 
 const session = await requireAuth();

@@ -62,7 +62,7 @@ perna, precisa virar 1 valor por (perna × usuário).
 | `bot_state` | `auth.uid() is not null` (adicionada em `parte8_preco_pago.sql`, 24/07) | — | — | — |
 | `alert_log` | `route_id in (select id from routes where user_id = auth.uid())` | — | — | — |
 | `settings` | **confirmada em produção (05/08/2026)**: policy única `Users manage their own settings [ALL]: auth.uid() = user_id`, mais FK `settings_user_id_fkey -> auth.users` | idem (a policy é `ALL`) | idem | idem |
-| `routes` | não rastreada — mas `sql/etapa3_cooldown.sql` referencia `routes.user_id`, então provavelmente `user_id = auth.uid()` já existe | não confirmada | não confirmada | — |
+| `routes` | **confirmada em produção (08/08/2026)**: policy única `[ALL]` com `using` e `with check` = `auth.uid() = user_id` — ver seção "Diagnóstico de RLS de `routes`/`settings`" no fim deste arquivo | idem (a policy é `ALL`) | idem | idem |
 | `price_history`, `run_log` (rotas flexíveis) | não rastreada — provavelmente aberta a qualquer autenticado (mesmo padrão dos outros "\*_select_authenticated") | — | — | — |
 
 **Achado histórico (29/07/2026), já corrigido — ver nota abaixo.**
@@ -555,3 +555,54 @@ existe desde o 15 e o comportamento é o mesmo), e os papéis do Supabase foram
 imitados, não são os reais. Isso torna a checagem uma boa prova de sintaxe,
 lógica e desenho — **não** substitui o bloco F (teste positivo com o uuid real)
 rodado no banco de produção.
+
+---
+
+## Diagnóstico de RLS de `routes`/`settings` (08/08/2026)
+
+**Origem.** A Fatia B (UI, `PLANO-ATIVO.md`, seção Fatia B) condiciona a seção de rotas
+flexíveis, no Dashboard e em Configurações, ao resultado de uma consulta a
+`routes` **sem nenhum filtro de usuário no JS** — o isolamento por dono é
+inteiramente delegado à RLS. Essa delegação estava apoiada numa suposição não
+escrita em lugar nenhum do repositório: o `create table` de `routes` e de
+`settings` nunca esteve em `sql/` (só `alter table` incrementais), e a linha de
+`routes` na tabela da seção 2 deste arquivo dizia literalmente "não rastreada —
+provavelmente". Sem fechar isso, o gate estaria apoiado num "provavelmente".
+
+**Execução.** Consulta rodada **manualmente pelo usuário no SQL Editor do
+Supabase de produção em 08/08/2026** (não há credencial de banco nesta sessão de
+código, e não deveria haver). O resultado esperado foi declarado **antes** de
+rodar; os oito campos vieram como esperado, zero divergência:
+
+| # | Campo verificado | Esperado (declarado antes) | Resultado |
+|---|---|---|---|
+| 1 | Tipo da policy de `routes` | `ALL` (uma policy cobrindo os 4 comandos) | bateu |
+| 2 | `using` da policy | `auth.uid() = user_id` | bateu |
+| 3 | `with check` da policy | `auth.uid() = user_id` | bateu |
+| 4 | `routes.user_id` — default | `auth.uid()` | bateu |
+| 5 | `routes.user_id` — nulabilidade | `not null` | bateu |
+| 6 | Linhas em `routes` | 3 | bateu |
+| 7 | Donos distintos em `routes` | 1 | bateu |
+| 8 | Divergência geral do esperado | zero | bateu |
+
+**Consequências.**
+
+- Fecha a lacuna "não rastreada" da linha de `routes` na tabela da seção 2, que
+  foi atualizada para o resultado real. `routes` e `settings` têm hoje **a mesma
+  forma de policy**: uma única `[ALL]` com `using` e `with check` iguais a
+  `auth.uid() = user_id` (`settings` já estava confirmada em 05/08/2026).
+- O `with check` (campo 3) é o que sustenta o insert do form "Adicionar rota"
+  sem mandar `user_id`: o `default auth.uid()` (campo 4) preenche o dono, e o
+  `with check` impede que alguém mande o uuid de outra pessoa. Mesmo padrão já
+  documentado para `weekend_leg_user_state`
+  (`sql/etapa4_1_estado_por_usuario.sql:118-122`).
+- O gate da Fatia B, portanto, não precisa (e não deve) filtrar por `user_id` no
+  JS: cada usuário só enxerga as próprias rotas por construção da RLS.
+- Campos 6 e 7 são só a fotografia de hoje (single-user), não uma garantia
+  estrutural — não devem ser usados como premissa por nenhum código.
+
+**Limite desta verificação.** Confirma a policy e as colunas de `routes`; **não**
+é um teste de personificação como o do bloco F da Etapa 4.1 (nenhum segundo
+usuário foi simulado aqui). O isolamento efetivo entre duas contas reais em
+`routes` continua sem prova direta em produção — o que não bloqueia a Fatia B,
+que é UI e não afrouxa nenhuma barreira.

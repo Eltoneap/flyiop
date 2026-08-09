@@ -293,6 +293,25 @@ h1 {
 .badge.deal { background: var(--good-bg); color: var(--good); }
 .badge.bought { background: var(--bought); color: #fff; }
 
+/* Etiqueta de escopo do bloco (Fatia B): "só seu" x "do sistema". Mesmo pill
+   das outras badges, só menor e em maiúsculas — e sem o margin-bottom acima,
+   que empurraria o texto do <h2>/<summary> onde ela mora. Nenhuma cor nova:
+   --info-bg/--primary e --neutral-bg/--muted já são os pares de .badge.info e
+   .badge.neutral, definidos nos dois temas. */
+.badge.scope-own,
+.badge.scope-system {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  margin: 0 0 0 8px;
+  vertical-align: 2px;
+}
+
+.badge.scope-own { background: var(--info-bg); color: var(--primary); }
+.badge.scope-system { background: var(--neutral-bg); color: var(--muted); }
+
 .progress-bar {
   background: var(--border);
   border-radius: 999px;

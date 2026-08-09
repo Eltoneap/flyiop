@@ -22,28 +22,57 @@ function showFlash() {
 
 let currentTab = 'active';
 
+// Última leitura de `routes` (todas as linhas do usuário, ativas e arquivadas).
+// Trocar de aba passa a re-renderizar daqui, sem nova ida ao servidor — antes
+// cada clique refazia a consulta só pra mudar o filtro de `archived`.
+let allRoutes = [];
+
 async function loadRoutes() {
+  // Uma consulta só, sem filtro de `archived` no servidor: o recorte por aba é
+  // client-side, e o TOTAL (ativas + arquivadas) é o que decide se a seção
+  // legado existe (Fatia B). Contar só as ativas trancaria o caminho de volta —
+  // quem arquivasse todas perderia a aba Arquivadas e o botão Reativar junto
+  // com a seção. (No Dashboard a regra é a oposta e de propósito: lá não há aba
+  // nem reativar, então o gate conta só as ativas.)
   const { data: routes, error } = await supabase
     .from('routes')
     .select('*')
-    .eq('archived', currentTab === 'archived')
     .order('created_at');
+
+  const section = document.getElementById('legado-section');
+
+  if (error) {
+    // Falha de consulta NÃO pode virar seção escondida em silêncio — o usuário
+    // leria como "minhas rotas sumiram". Revela e avisa, mesmo alert() das
+    // outras falhas deste arquivo.
+    section.hidden = false;
+    alert('Erro ao carregar rotas: ' + error.message);
+    return;
+  }
+
+  allRoutes = routes || [];
+  section.hidden = allRoutes.length === 0;
+  if (section.hidden) return;
+
+  renderRoutes();
+}
+
+function renderRoutes() {
+  const routes = allRoutes.filter((r) => Boolean(r.archived) === (currentTab === 'archived'));
 
   const tbody = document.getElementById('routes-body');
   const emptyEl = document.getElementById('routes-empty');
   tbody.innerHTML = '';
 
-  if (error) {
-    alert('Erro ao carregar rotas: ' + error.message);
-    return;
-  }
-
+  // Estado vazio da ABA, não da seção: com o gate acima, a seção só existe se
+  // houver alguma rota, mas uma das duas abas pode estar vazia (ex.: arquivou
+  // todas -> "Ativas" vazia, "Arquivadas" com as linhas).
   emptyEl.textContent = currentTab === 'archived'
     ? 'Nenhuma rota arquivada.'
     : 'Nenhuma rota ativa cadastrada ainda.';
-  emptyEl.style.display = routes && routes.length ? 'none' : 'block';
+  emptyEl.style.display = routes.length ? 'none' : 'block';
 
-  for (const route of routes || []) {
+  for (const route of routes) {
     const tr = document.createElement('tr');
     const archiveLabel = currentTab === 'archived' ? 'Reativar' : 'Arquivar';
     const archiveClass = currentTab === 'archived' ? '' : 'danger';
@@ -104,18 +133,20 @@ function wireTabs() {
   const tabActive = document.getElementById('tab-active');
   const tabArchived = document.getElementById('tab-archived');
 
+  // renderRoutes(), não loadRoutes(): a lista completa já está em memória, a
+  // aba é só um recorte dela.
   tabActive.addEventListener('click', () => {
     currentTab = 'active';
     tabActive.classList.add('active');
     tabArchived.classList.remove('active');
-    loadRoutes();
+    renderRoutes();
   });
 
   tabArchived.addEventListener('click', () => {
     currentTab = 'archived';
     tabArchived.classList.add('active');
     tabActive.classList.remove('active');
-    loadRoutes();
+    renderRoutes();
   });
 }
 
