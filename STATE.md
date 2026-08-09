@@ -1,9 +1,8 @@
 # STATE.md — FlyIop
 
 > Atualizado em: 08/08/2026
-> Última sessão: Claude Code (08/08/2026) — **Fatia B IMPLEMENTADA
-> LOCALMENTE, pendente de conferência manual no navegador e de push**
-> (não está em produção): separação pessoal × sistema na UI. Dashboard
+> Última sessão: Claude Code (08/08/2026) — **Fatia B CONCLUÍDA e
+> publicada:** separação pessoal × sistema na UI. Dashboard
 > ganhou etiqueta de escopo por bloco (`SÓ SEU` em Ação do dia,
 > Progresso, Melhores oportunidades, Orçamento e Rotas flexíveis;
 > `DO SISTEMA` em Saúde do sistema e Feriados/alta temporada; Urgência
@@ -18,8 +17,9 @@
 > Consequência aceita e registrada: usuário com 0 rotas ativas e N
 > arquivadas perde o export CSV na UI (reversível). Fatia C
 > (visibilidade cruzada entre usuários) segue fora de escopo, não
-> implementada. Detalhe no `PLANO-ATIVO.md`, seção Fatia B; RLS de `routes`
-> confirmada em produção e registrada no `AUDITORIA-MULTIUSUARIO.md`.
+> implementada. Publicado no commit `b44a353`. Detalhe completo em
+> `HISTORICO.md`, item 22; RLS de `routes` confirmada em produção e
+> registrada no `AUDITORIA-MULTIUSUARIO.md`.
 > Sessão anterior: Claude Code (08/08/2026) — **Fatia A CONCLUÍDA e
 > publicada:** tema escuro por padrão + paleta em variáveis CSS no site
 > estático (`docs/`), recorte puramente visual de um handoff maior de UI
