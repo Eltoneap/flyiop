@@ -110,6 +110,9 @@ antecedência, mas vaza mais informação pessoal do outro) foi levantada e
 **descartada por ora** — revisar só se a limitação de "só depois de
 comprado" virar dor real na prática.
 
+**Desenhada em 09/08/2026 — ver seção "Fatia C — visibilidade de compra
+entre usuários" abaixo.**
+
 ### Ordem de execução
 
 1. ✅ **Concluída (29/07/2026).** Consolidar baseline do schema legado +
@@ -815,11 +818,24 @@ Parte A (`revoke update on weekend_legs from anon, authenticated`), Parte B
 script rodar. `weekend_leg_effective` é uma view com join de múltiplas
 tabelas (`weekend_legs` + `weekends` + `settings` + `weekend_leg_user_state`),
 sem trigger `INSTEAD OF` — o Postgres nunca a considerou automaticamente
-atualizável, independente de qualquer RLS ou grant em `weekend_legs`. O grant
-que existe sobre ela sempre foi só de `SELECT`
-(`sql/etapa4_1_estado_por_usuario.sql`, Bloco 6). Ou seja: o caminho de
-escrita pela view nunca foi real — este script fechou o único caminho de
-escrita que de fato existia (direto na tabela).
+atualizável, independente de qualquer RLS ou grant em `weekend_legs`. Ou seja:
+o caminho de escrita pela view nunca foi real — este script fechou o único
+caminho de escrita que de fato existia (direto na tabela).
+
+**Correção (09/08/2026):** o parágrafo acima afirmava que o grant sobre
+`weekend_leg_effective` "sempre foi só de `SELECT`"
+(`sql/etapa4_1_estado_por_usuario.sql`, Bloco 6). É **falso** — verificado em
+produção em 08/08/2026, no diagnóstico da Fatia C: a view tem os 7
+privilégios (`select`/`insert`/`update`/`delete`/`truncate`/`references`/
+`trigger`) para `anon` e `authenticated`, porque o Supabase aplica
+`alter default privileges grant all` no schema `public` — todo objeto novo
+nasce assim, independente do `grant select` explícito escrito no script (que
+só *adiciona* select, nunca restringe o que o default já concedeu). A
+**conclusão do achado lateral segue válida por outro motivo**, preservado
+acima: a view não é atualizável por não ter trigger `INSTEAD OF`, qualquer
+que seja o grant. Ver `sql/fatia_c_visibilidade_compra.sql` para o mesmo
+achado aplicado à tabela de projeção nova (revoke explícito antes de
+qualquer grant).
 
 **Escopo confirmado como respeitado:** nenhuma outra tabela foi tocada —
 `weekend_leg_user_state`, `weekend_leg_effective`, `weekends` e todas as
@@ -857,6 +873,78 @@ tabelas é grant de role padrão do Supabase, não RLS — a policy de linha é 
 efetivamente barra, confirmado pela Parte B. Fecha a pendência de RLS
 "genérica" registrada em `STATE.md`, seção 4, nos dois lados (escrita pela
 4.4, leitura por esta decisão). Não é mais bloqueio da Etapa 7.
+
+---
+
+## Fatia C — visibilidade de compra entre usuários (ATIVA, 09/08/2026)
+
+Terceira fatia do handoff de UI multi-usuário (depois da Fatia A, item 21 do
+`HISTORICO.md`, e da Fatia B, item 22) — a única das três que toca o banco,
+não só a UI. Motivo adicional registrado em 08/08/2026: além de sincronia
+geral entre os dois usuários, serve para logística de táxi (nota acima,
+"Nota (08/08/2026)").
+
+**Regra de produto (aprovada no chat de planejamento):** o outro usuário vê
+QUE você comprou uma perna e EM QUAL VOO. Nunca quanto você pagou, qual seu
+teto, nem seu localizador. Visibilidade só depois de `status = 'purchased'`
+— nunca antes (a alternativa de expor antes da compra foi descartada em
+08/08/2026, ver nota acima).
+
+**Mecanismo escolhido: tabela de projeção mantida por trigger.**
+`weekend_leg_purchase_shared`, alimentada por uma trigger `security definer`
+em `weekend_leg_user_state`, contendo só os 3 campos de voo (companhia,
+aeroporto, horário) + chave + timestamps — nenhum campo sensível (teto, valor
+pago, notas) chega a existir nessa tabela. Princípio: a garantia é
+**estrutural** (o dado sensível não está lá), não depende de um `WHERE`
+correto numa view ou função.
+
+**Duas alternativas avaliadas e descartadas**, e por quê:
+- **View com `security_invoker = off`** — daria à view acesso irrestrito às
+  tabelas de baixo, ignorando a RLS de `weekend_leg_user_state`; um `WHERE`
+  errado (ou um `select *` futuro) vazaria teto/pago/notas do outro usuário.
+  Bypass de RLS.
+- **Função RPC `security definer`** — mesmo problema: a função rodaria com o
+  privilégio de quem a criou, não de quem chama, e teria que reimplementar à
+  mão exatamente o filtro que a RLS já faz de graça. Bypass de RLS.
+
+Ambas descartadas pelo mesmo motivo de fundo, achado no diagnóstico desta
+fatia (08/08/2026): **todo objeto novo em `public` neste projeto nasce com os
+7 privilégios para `anon` e `authenticated`** — o Supabase aplica `alter
+default privileges grant all` no schema `public`. Isso já tinha corrigido a
+leitura do "Achado lateral" da Etapa 4.4 acima (grant da view nunca foi só
+`SELECT` por padrão; era só `SELECT` funcional porque a view não é
+atualizável, não porque o grant fosse restrito). Numa tabela de projeção, sem
+esse achado, o `revoke all` explícito não seria óbvio — e sem ele, `anon`
+teria os 7 privilégios sobre um objeto pensado para ser só-leitura de dado
+compartilhado.
+
+**Escopo, em duas partes:**
+- **Parte 1 (banco) — script pronto, aguardando execução manual do
+  usuário.** [sql/fatia_c_visibilidade_compra.sql](sql/fatia_c_visibilidade_compra.sql):
+  3 colunas de snapshot em `weekend_leg_user_state` (`purchased_airline`,
+  `purchased_airport`, `purchased_departure_time` — fotografia do voo
+  comprado, independente das colunas `current_*` que o robô reescreve);
+  tabela `weekend_leg_purchase_shared` (chave `leg_id`+`user_id`, FKs `on
+  delete cascade`); trigger `flyiop_sync_purchase_shared` (grava/atualiza a
+  projeção quando `status = 'purchased'`, remove em qualquer outro status ou
+  `DELETE` — o botão "desfazer" do painel limpa a projeção sozinho); RLS
+  ligada, `revoke all` explícito de `anon`/`authenticated` antes de qualquer
+  grant, `grant select` só para `authenticated`, uma única policy de
+  `SELECT` (`auth.uid() is not null`), nenhuma policy de escrita (só a
+  trigger grava); backfill idempotente a partir do que já está `purchased`
+  hoje (0 linhas). Guarda de inventário no início, 4 blocos de verificação no
+  fim (estrutura, grants/policies, prova de comportamento com rollback, prova
+  de isolamento com rollback).
+- **Parte 2 (frontend)** — prompt separado, ainda não escrito.
+- **Telegram** — fica para a Etapa 6, fora do escopo desta fatia.
+
+**Nada tocado nesta fatia:** `weekend_leg_effective`, `weekend_legs`,
+`settings`, as policies existentes de `weekend_leg_user_state`,
+`flyiop_audit_leg_ceiling`, `flyiop_touch_updated_at`, `docs/`, `src/`.
+
+**Resultado real da execução manual:** pendente — registrar aqui assim que
+o usuário rodar o script e colar os 4 blocos de verificação (G0 + V1-V4), no
+mesmo formato de tabela usado na Etapa 4.4.
 
 ---
 

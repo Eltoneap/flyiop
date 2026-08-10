@@ -83,9 +83,23 @@ select
 -- view com join de múltiplas tabelas (weekend_legs + weekends + settings +
 -- weekend_leg_user_state), sem trigger INSTEAD OF — o Postgres nunca a
 -- considerou automaticamente atualizável, independente de qualquer RLS ou
--- grant em weekend_legs. O grant que existe sobre ela sempre foi só de
--- SELECT ("grant select on weekend_leg_effective to authenticated,
--- service_role"). Ou seja: o caminho de escrita pela view nunca foi real —
--- este script fecha o caminho de escrita DIRETO na tabela, que era o único
--- que de fato existia.
+-- grant em weekend_legs. Ou seja: o caminho de escrita pela view nunca foi
+-- real — este script fecha o caminho de escrita DIRETO na tabela, que era o
+-- único que de fato existia.
+--
+-- NOTA DE ESTADO - 09/08/2026 (diagnóstico da Fatia C, PLANO-ATIVO.md):
+-- a frase abaixo, "o grant que existe sobre ela sempre foi só de SELECT",
+-- É FALSA. Verificado em produção em 08/08/2026: a view tem os 7
+-- privilégios (select/insert/update/delete/truncate/references/trigger)
+-- para anon e authenticated — o Supabase aplica `alter default privileges
+-- grant all` no schema public, e todo objeto novo nasce assim, independente
+-- do `grant select` explícito escrito no Bloco 6. A CONCLUSÃO ACIMA segue
+-- válida por outro motivo, já registrado nas linhas anteriores: a view não
+-- é atualizável por não ter trigger INSTEAD OF, qualquer que seja o grant.
+-- Frase original preservada abaixo como registro do que se afirmava; não
+-- reescrever a história.
+--   "O grant que existe sobre ela sempre foi só de SELECT (grant select on
+--   weekend_leg_effective to authenticated, service_role)."
+-- Detalhe completo: PLANO-ATIVO.md, Etapa 4.4, "Achado lateral" (correção
+-- de 09/08/2026).
 -- ============================================================================
