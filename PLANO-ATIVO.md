@@ -919,8 +919,8 @@ teria os 7 privilégios sobre um objeto pensado para ser só-leitura de dado
 compartilhado.
 
 **Escopo, em duas partes:**
-- **Parte 1 (banco) — script pronto, aguardando execução manual do
-  usuário.** [sql/fatia_c_visibilidade_compra.sql](sql/fatia_c_visibilidade_compra.sql):
+- **Parte 1 (banco) — CONCLUÍDA e verificada em produção (10/08/2026).**
+  [sql/fatia_c_visibilidade_compra.sql](sql/fatia_c_visibilidade_compra.sql):
   3 colunas de snapshot em `weekend_leg_user_state` (`purchased_airline`,
   `purchased_airport`, `purchased_departure_time` — fotografia do voo
   comprado, independente das colunas `current_*` que o robô reescreve);
@@ -942,9 +942,20 @@ compartilhado.
 `settings`, as policies existentes de `weekend_leg_user_state`,
 `flyiop_audit_leg_ceiling`, `flyiop_touch_updated_at`, `docs/`, `src/`.
 
-**Resultado real da execução manual:** pendente — registrar aqui assim que
-o usuário rodar o script e colar os 4 blocos de verificação (G0 + V1-V4), no
-mesmo formato de tabela usado na Etapa 4.4.
+**Resultado real, rodado manualmente no SQL Editor de produção em
+10/08/2026:**
+
+| bloco | resultado |
+|---|---|
+| G0 (inventário) | `colunas_snapshot_hoje = 0`, `projecao_existe_hoje = false`, `compradas_hoje = 0`, `linhas_estado_hoje = 5`, `pernas_hoje = 132`, `triggers_wlus_hoje = trg_audit_leg_ceiling,trg_wlus_touch` — bate 100% com o esperado |
+| V1 (estrutura) | `colunas_snapshot = 3`, `projecao_existe = true`, `colunas_projecao = 7`, `colunas_sensiveis_na_projecao = 0`, `triggers_wlus = trg_audit_leg_ceiling,trg_sync_purchase_shared,trg_wlus_touch` — bate 100% |
+| V2 (grants/policies) | `anon_privilegios = 0`, `authenticated_privilegios = 1`, `authenticated_so_select = true`, `rls_ligada = true`, `rls_forcada = false`, `policies = 1`, `policy_cmd = SELECT` — bate 100%. **Este é o bloco que prova que o achado do Bloco J do diagnóstico (objeto novo em `public` nasce com os 7 privilégios para `anon`) foi neutralizado nesta tabela** — `anon` termina com zero privilégio, como desenhado |
+| V3 (prova de comportamento, rollback) | `apos_compra = 1`, `voo_gravado = 'LATAM,GIG,2026-09-09 15:53:02.554533+00'`, `apos_desfazer = 0`, `apos_recomprar = 1`, `apos_delete_estado = 0` — bate 100%, os três ramos da trigger confirmados (insert-purchased, update-sai-de-purchased, delete) |
+| V4 (prova de isolamento, rollback) | `uid_visto = 00000000-...-0001`, `papel_efetivo = authenticated`, `projecao_esp_1 = 1`, `estado_pessoal_esp_0 = 0`, `view_efetiva_esp_0_sem_valor_probatorio = 0`, `escrita_direta_esp_bloqueada = 'bloqueado 42501'` — bate 100%. **A asserção com valor probatório de isolamento é `estado_pessoal_esp_0`** — `view_efetiva_esp_0_sem_valor_probatorio` bateu 0 como esperado, mas esse zero não prova RLS (o UUID fictício não tem linha em `settings`, então o `cross join` de `weekend_leg_effective` já dá 0 mesmo com a RLS inteira desligada — ressalva escrita no próprio script) |
+
+**Parte 1 CONCLUÍDA e verificada em produção (10/08/2026). Parte 2
+(frontend) segue sem prompt escrito — aguardando início no chat de
+planejamento.**
 
 ---
 

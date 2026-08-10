@@ -1,7 +1,20 @@
 # STATE.md — FlyIop
 
-> Atualizado em: 09/08/2026
-> Última sessão: Claude Code (09/08/2026) — **Fatia C, Parte 1/2 (banco)
+> Atualizado em: 10/08/2026
+> Última sessão: Claude Code (10/08/2026, documentação apenas — nenhum
+> comando executado contra o Supabase) — **Fatia C, Parte 1 (banco)
+> CONCLUÍDA E VERIFICADA EM PRODUÇÃO.** O usuário rodou
+> `sql/fatia_c_visibilidade_compra.sql` manualmente no SQL Editor; os 5
+> blocos de verificação (G0 + V1-V4) bateram 100% com o esperado —
+> destaque para V2, que prova que `anon` termina com zero privilégio sobre
+> `weekend_leg_purchase_shared` (o achado de fundo desta fatia, objeto novo
+> em `public` nascendo com os 7 privilégios para `anon`, foi neutralizado
+> nesta tabela), e V3, que confirma os três ramos da trigger de
+> sincronização (compra grava, desfazer remove, recomprar grava de novo).
+> Resultado real completo, bloco a bloco, registrado em `PLANO-ATIVO.md`,
+> seção "Fatia C". **Parte 2 (frontend) segue sem prompt escrito** —
+> aguardando início no chat de planejamento; Telegram fica para a Etapa 6.
+> Sessão anterior: Claude Code (09/08/2026) — **Fatia C, Parte 1/2 (banco)
 > PLANEJADA E ESCRITA, aguardando execução manual no SQL Editor** —
 > visibilidade de compra entre usuários (o outro vê QUE você comprou uma
 > perna e EM QUAL VOO, nunca quanto pagou/teto/localizador; só depois de
@@ -244,7 +257,7 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 
    **Etapa 5** (frontend por usuário) — ainda não iniciada, exige revisão explícita no chat de planejamento antes de começar (ver seção 4). Etapas 4 e 5 são modelo de dados e interface, valem independente de o alerta de perna funcionar.
 
-   **Fatia C — visibilidade de compra entre usuários (ATIVA, 09/08/2026), Parte 1/2 (banco) planejada e escrita, aguardando execução manual.** Terceira fatia do handoff de UI multi-usuário (depois das Fatias A e B, `HISTORICO.md` itens 21/22) — a única que toca o banco. Regra de produto: o outro usuário vê QUE você comprou uma perna e EM QUAL VOO, nunca quanto pagou/teto/localizador, só depois de `status = 'purchased'`. Mecanismo: tabela de projeção (`weekend_leg_purchase_shared`) mantida por trigger `security definer`, com só os 3 campos de voo — nenhum campo sensível chega a existir na tabela compartilhada; view/função `security definer` avaliadas e descartadas por serem bypass de RLS. Script pronto, [sql/fatia_c_visibilidade_compra.sql](sql/fatia_c_visibilidade_compra.sql), ainda não rodado em produção. Parte 2 (frontend) é prompt separado, não escrito. Detalhe completo em `PLANO-ATIVO.md`, seção "Fatia C".
+   **Fatia C — visibilidade de compra entre usuários (ATIVA, 09/08/2026), Parte 1 (banco) CONCLUÍDA e verificada em produção (10/08/2026).** Terceira fatia do handoff de UI multi-usuário (depois das Fatias A e B, `HISTORICO.md` itens 21/22) — a única que toca o banco. Regra de produto: o outro usuário vê QUE você comprou uma perna e EM QUAL VOO, nunca quanto pagou/teto/localizador, só depois de `status = 'purchased'`. Mecanismo: tabela de projeção (`weekend_leg_purchase_shared`) mantida por trigger `security definer`, com só os 3 campos de voo — nenhum campo sensível chega a existir na tabela compartilhada; view/função `security definer` avaliadas e descartadas por serem bypass de RLS. Script [sql/fatia_c_visibilidade_compra.sql](sql/fatia_c_visibilidade_compra.sql) rodado manualmente no SQL Editor de produção em 10/08/2026, os 5 blocos de verificação (G0 + V1-V4) batendo 100% com o esperado. **Parte 2 (frontend) segue sem prompt escrito** — aguardando início no chat de planejamento. Detalhe completo, resultado real bloco a bloco, em `PLANO-ATIVO.md`, seção "Fatia C".
 
    **Desejo do usuário, registrado em 02/08/2026: criar a conta do segundo usuário — objetivo ativo, não recusado.** Bloqueado pela regra dura da Etapa 7 (`PLANO-ATIVO.md`), que exige 4.2/4.3/5/6 concluídas antes. **Os dois desejos registrados em 02/08/2026 (aumentar frequência do scraping, item 1 acima, e criar a conta do segundo usuário) são objetivos ativos, nenhum recusado — o caminho para os dois é concluir a Etapa 4.2.**
 3. ✅ **Concluído (04/08/2026, corrigido em 05/08/2026, verificado em produção em 06/08/2026).** Teto padrão recalibrado de R$250 para R$300 — ver seção 2, "Decisões vivas", pelo incidente de gravação, a correção manual e a prova final de produção.
@@ -287,7 +300,7 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 
 - Repo: github.com/Eltoneap/flyiop (público)
 - `STATE.md` — este arquivo: orientação de alto nível, lido no início de qualquer sessão nova
-- `PLANO-ATIVO.md` — plano técnico detalhado só da Parte em execução agora. **Não está vazio (09/08/2026):** contém a iniciativa multi-usuário (Etapa 4.2 com as 13 pendências nomeadas — 12 concluídas, 1–11 e 13, restando só a 12, backlog de UI — e o histórico da regra de janela aberta, encerrada; Etapas 4.3 e 4.4 concluídas e verificadas em produção), o que restou do diagnóstico de alerta de perna (item (e), perguntas abertas), as pendências de escopo separado, e a **Fatia C (visibilidade de compra entre usuários) ativa, Parte 1/2 (banco) planejada e escrita, aguardando execução manual** — ver seção 3.
+- `PLANO-ATIVO.md` — plano técnico detalhado só da Parte em execução agora. **Não está vazio (10/08/2026):** contém a iniciativa multi-usuário (Etapa 4.2 com as 13 pendências nomeadas — 12 concluídas, 1–11 e 13, restando só a 12, backlog de UI — e o histórico da regra de janela aberta, encerrada; Etapas 4.3 e 4.4 concluídas e verificadas em produção), o que restou do diagnóstico de alerta de perna (item (e), perguntas abertas), as pendências de escopo separado, e a **Fatia C (visibilidade de compra entre usuários) ativa — Parte 1 (banco) concluída e verificada em produção, Parte 2 (frontend) ainda sem prompt escrito** — ver seção 3.
 - `HISTORICO.md` — tudo já decidido/implementado, cronológico
 - `CLAUDE.md` — escopo geral do projeto (lido automaticamente pelo Claude Code)
 - `PROTOCOLO-DE-TRABALHO.md` — como usuário e Claude Code trabalham juntos (Plan Mode, gatilhos de revisão, regra de manutenção dos três arquivos de documentação)
