@@ -1,7 +1,13 @@
 # STATE.md — FlyIop
 
-> Atualizado em: 11/08/2026
-> Última sessão: Claude Code (11/08/2026, documentação apenas — chat de
+> Atualizado em: 12/08/2026
+> Última sessão: Claude Code (12/08/2026, chat de planejamento — investigação
+> apenas, read-only) — **silêncio recente do Telegram investigado: causa é
+> preço acima do teto, não perda de alerta.** Detalhe completo em "Decisões
+> vivas" (seção 2) e esclarecimento dos dois itens de `no_data`/detector de
+> bloqueio na seção 4. Nenhum arquivo em `src/`, `docs/` ou `sql/` tocado,
+> nenhum SQL executado, nenhum commit feito.
+> Sessão anterior: Claude Code (11/08/2026, documentação apenas — chat de
 > planejamento) — **Fatia C movida para o `HISTORICO.md` (item 23)**,
 > conforme a regra de manutenção do `PROTOCOLO-DE-TRABALHO.md` (mover ao
 > concluir uma Parte); `PLANO-ATIVO.md` mantém só um ponteiro de uma linha
@@ -298,6 +304,46 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
   - **Evidência observada (10-11/08/2026, resumo semanal e alerta reais):** "Mais baratas agora" listou 9 de 10 pernas anteriores a 29/01/2027 (só a de 29/01/2027 ida estava dentro da janela); "Mais próximas" listou as 10 pernas fora da janela (09/10/2026 a 04/12/2026, 100% fora); alerta de oportunidade recebido pro fim de semana de 25/12/2026, 19,6% abaixo da média (R$425,00 contra teto R$300) — fora da janela.
   - **Inconsistência que esta decisão corrige:** o Dashboard já conta progresso/orçamento só a partir de 29/01/2027; o Telegram contava as 132 pernas inteiras — os dois respondiam a mesma pergunta com números diferentes.
   - **IMPORTANTE: a implementação desta decisão pertence à Etapa 6 e ainda NÃO foi feita.** Nenhum código mudou nesta rodada, só o registro da decisão.
+- **INVESTIGAÇÃO (chat de planejamento, 12/08/2026) — silêncio recente do
+  Telegram, causa identificada: preço acima do teto, não perda de alerta.**
+  Motivada pelo usuário notar poucas mensagens recentes. Diagnóstico read-only
+  sobre 14 dias de produção (30/07–12/08/2026), 435 checagens com preço:
+  - **Teto de R$300 nunca foi tocado — zero hits em 14 dias**, confirmado
+    por duas medições independentes (contagem diária e busca direta por
+    preço ≤ teto no histórico). Preço mínimo observado: R$304 em 04/08;
+    desde 05/08 travado em R$334. Não há alerta de teto perdido porque não
+    houve alerta de teto possível.
+  - **32 alertas reconstruídos como devidos (pré-cooldown) contra 30
+    enviados** no período — método validado por bater exatamente com o
+    "6 de 13 orgânicos" já registrado para 01/08. Diferença residual (~8,
+    de 02/08 em diante) é supressão por cooldown funcionando por desenho
+    (`realert_days=1`, mais permissivo que o valor default documentado),
+    não confirmada linha a linha.
+  - **Zero casos de cooldown sem tipo colidindo** (alerta de oportunidade
+    segurando alerta de teto ou vice-versa) — porque nunca houve hit de
+    teto para colidir. O bug em si (alert_log sem coluna de tipo de
+    alerta) segue real no código e é escopo da Fatia D2, mas não produziu
+    perda observável neste período — só se manifestaria no momento de um
+    primeiro hit de teto.
+  - **Taxa de no_data de 85% (registrada em 02/08/2026) veio inteiramente
+    do cache Travelpayouts** (que erra ~98% por desenho, conferidor
+    secundário desde a Parte 2) — não do lote `fli` (fonte primária),
+    que ficou em ~0% de falha em 13 dos 14 dias. Corrige a leitura anterior
+    que tratava a taxa agregada como possível sinal de problema.
+  - **Achado lateral confirmado, não solicitado:** bloqueio isolado
+    detectado em 09/08/2026 às 23:27 UTC (`weekend_batch_blocked_at`)
+    derrubou o estágio de escalonamento de 1 para 0 (`weekend_scrape_stage`
+    em bot_state), reduzindo checagens de ~40/dia para 20/dia por alguns
+    dias. Confirmado em 12/08/2026 que a recuperação está progredindo
+    normalmente e sem intervenção: `weekend_block_streak_days = 0` (sem
+    recorrência desde 09/08), `weekend_scrape_clean_days = 3` (subindo dia
+    a dia), execuções primária e de lote rodando normalmente em 12/08. Não
+    travado, não é pendência.
+
+  MOTIVO REGISTRADO: fins de semana dentro da janela deslizante monitorada
+  hoje ainda estão, em sua maioria, fora da janela de compra (< 29/01/2027) —
+  o mercado real da rota, no período observado, não chegou perto do teto de
+  R$300. Sem ação corretiva necessária; registrado como linha de base.
 
 ## 3. Próximos passos (ordem sugerida)
 
@@ -362,8 +408,8 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 - **OBSERVAÇÃO DO ROBÔ 02/08/2026, PARCIAL.** A execução das 08:54 BRT rodou e alertou (2 alertas de rota legado + 2 de oportunidade de perna). **A conclusão sobre cooldown/dedup NÃO foi tirada** — depende de consulta à `alert_log` comparando 01/08 e 02/08, ainda não feita. Continua valendo: não restaurar o cron para mais de 1x/dia antes dessa conclusão (seção 3, item 1).
 - **✅ DECIDIDO em 11/08/2026 (era "ACHADO NOVO A DECIDIR", 02/08/2026):** os 2 alertas de oportunidade da execução das 08:54 de 02/08 dispararam para o fim de semana de 18/09/2026 (ida R$424, volta R$423, teto R$250) — fim de semana **anterior** a 29/01/2027, ou seja, fora da janela de compra, que por decisão de escopo nunca será comprado. O caminho de oportunidade (`weekend_opportunity_pct`) alerta por queda percentual contra a média histórica, **independentemente do teto e da janela de compra**. O Dashboard já separa ação de informação para esse mesmo caso; o Telegram não. **Decidido em 11/08/2026** (ver seção 2, "Decisões vivas"): o alerta de oportunidade passa a respeitar a janela de compra — implementação pertence à Etapa 6, ainda não feita.
 - **EXPOSIÇÃO CONHECIDA E ACEITA:** o `user_id` do Supabase do usuário (`c72bf50e-…`) aparece por extenso na documentação de um repositório **público**. Risco avaliado como baixo — UUID não é credencial, e a RLS exige JWT assinado, que não se forja conhecendo o identificador. Registrado como decisão consciente, não como descuido.
-- **TAXA DE `no_data` DE 85% EM 02/08/2026:** 152 checagens no dia, 23 `ok`, 129 `no_data`. Detector de bloqueio **não disparou** (`bloqueio_detectado = false`, 4 dias limpos). Usuário avaliou que o scraping está funcionando bem e **decidiu não acionar o kill-switch**. Registrado como observação, não como incidente. Revisitar só se repetir.
-- **DETECTOR DE BLOQUEIO POSSIVELMENTE MAL CALIBRADO:** o limiar documentado (sucesso <50% com amostra ≥8) não disparou apesar de 85% de falha no dia. **Não investigado a fundo** — mas a investigação do item de volume abaixo já apurou um dado relevante: o detector (`live_check.py:218-220`) calcula `success_rate` só sobre o lote `fli` do dia, nunca sobre o total (o lote cache, que historicamente erra ~98% das pernas, não entra nessa conta). Se essa leitura estiver certa, não é miscalibração de limiar — é escopo: o detector nunca teve a intenção de olhar o dia inteiro, só o lote que ele mesmo executa. Revisar essa leitura antes de mexer no limiar.
+- **TAXA DE `no_data` DE 85% EM 02/08/2026 — ✅ ESCLARECIDO (12/08/2026).** 152 checagens no dia, 23 `ok`, 129 `no_data`. Detector de bloqueio **não disparou** (`bloqueio_detectado = false`, 4 dias limpos). Usuário avaliou que o scraping está funcionando bem e **decidiu não acionar o kill-switch**. Registrado como observação, não como incidente. **Esclarecido pela investigação de 12/08/2026** (ver seção 2, "Decisões vivas"): os 85% vinham inteiramente do cache Travelpayouts (que erra ~98% por desenho), não do lote `fli` (fonte primária, ~0% de falha em 13 dos 14 dias observados) — não indicava problema real. Não é mais dúvida em aberto.
+- **DETECTOR DE BLOQUEIO POSSIVELMENTE MAL CALIBRADO — ✅ ESCLARECIDO (12/08/2026).** O limiar documentado (sucesso <50% com amostra ≥8) não disparou apesar de 85% de falha no dia. O detector (`live_check.py:218-220`) calcula `success_rate` só sobre o lote `fli` do dia, nunca sobre o total (o lote cache, que historicamente erra ~98% das pernas, não entra nessa conta). **Confirmado pela investigação de 12/08/2026** (ver seção 2, "Decisões vivas"): essa leitura estava correta — não é miscalibração de limiar, é escopo pretendido (o detector nunca teve a intenção de olhar o dia inteiro, só o lote que ele mesmo executa). Não é mais dúvida em aberto.
 - **VOLUME DE CHECAGENS ACIMA DO PREVISTO — investigado e explicado (02/08/2026).** 152 checagens/dia contra `batch_size` 20 e ~43 pernas elegíveis pareciam divergentes. Leitura de código (`weekends.py`, `live_check.py`, `scrape_schedule.py`) explica o número: são dois lotes com escopos diferentes somados, cada um gravando 1 linha por perna, sem retentativa gerando linha extra — **cache** (`process_all_weekend_legs`/`get_active_legs`) roda TODA perna `monitoring` não expirada, **sem limite de janela de meses à frente** (~132 pernas), e **lote ao vivo** (`run_daily_batch`/`select_batch`) é o único limitado por `batch_size` (20) e pela janela de 183 dias. 132 + 20 = 152, bate exato. **IMPEDITIVO ATUAL para aumentar a frequência do cron:** enquanto não se souber se o volume do cache (sem limite de janela, ~132/dia, roda 1x/dia independente do estágio) muda com o aumento de frequência do lote `fli`, multiplicar a frequência viola a regra de scraping discreto. Achado registrado, decisão não tomada nesta tarefa.
 - **✅ DECIDIDO em 11/08/2026 — ALERTA DE OPORTUNIDADE (E RESUMO SEMANAL) FORA DA JANELA DE COMPRA** — ver item acima ("DECIDIDO em 11/08/2026") e seção 2, "Decisões vivas", para o texto completo da decisão (que passou a cobrir também o resumo semanal, não só o alerta de oportunidade). Implementação pertence à Etapa 6, ainda não feita.
 - **PERGUNTA ABERTA, REGISTRADA 11/08/2026 — "execução extra do dia" parece pular Travelpayouts, não só rotas flexíveis.** O item 1 da seção 1 já documenta que só a primeira execução do dia roda "rotas flexíveis/cache Travelpayouts/notificações", com as execuções extras rodando só o lote `fli`. Em observação recente, o usuário notou que a execução extra também não roda Travelpayouts — ainda não está claro se isso é exatamente esse comportamento já documentado (e portanto intencional) ou um achado novo/divergente. **Travelpayouts deve continuar rodando normalmente** — não é decisão de reduzir seu uso. **Sem ação agora** — só registrado para não esquecer; investigar em sessão futura antes de tirar conclusão.
