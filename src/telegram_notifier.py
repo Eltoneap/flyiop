@@ -223,12 +223,30 @@ def build_weekend_alert_message(report: dict, comparison: dict | None = None) ->
     return "\n".join(lines)
 
 
-def build_weekly_weekend_summary(weekend_reports: list[dict], total: int, purchased: int) -> str:
+def build_weekly_weekend_summary(weekend_reports: list[dict], total: int, purchased: int, cutoff: str) -> str:
     """Resumo semanal curado (segundas-feiras): 10 pernas mais baratas + 10
-    mais próximas, sem listar as ~132 inteiras (a mensagem cresceria demais)."""
-    ok_reports = [r for r in weekend_reports if r["status"] == "ok"]
+    mais próximas, sem listar as ~132 inteiras (a mensagem cresceria demais).
 
-    lines = ["📅 <b>Resumo semanal — pernas RIO↔BSB</b>", f"{purchased} de {total} pernas compradas"]
+    `cutoff` (Fatia D1, 12/08/2026): as duas listas passam a considerar só
+    pernas de fim de semana >= cutoff — mesma regra que já corta `total`/
+    `purchased` (get_weekend_leg_counts, chamado por main.py) e que o
+    Dashboard já aplica desde 28/07/2026 (docs/js/dashboard.js). Recortado
+    pela `outbound_date` do FIM DE SEMANA (âncora), tanto para a perna de ida
+    quanto para a de volta.
+
+    Nota: `weekend_reports` é só o que esta EXECUÇÃO checou hoje (lote fli +
+    cache), não um acúmulo da semana — "resumo semanal" é o nome da rotina
+    (roda só às segundas), não do dado. Com o filtro de janela, a lista de
+    elegíveis nas próximas semanas costuma ser pequena (a janela deslizante do
+    lote fli tem 183 dias — cruza com a janela de compra em poucas dezenas de
+    pernas por vez) — daí o estado vazio abaixo passar a ser comum, não sinal
+    de falha."""
+    ok_reports = [r for r in weekend_reports if r["status"] == "ok" and r["outbound_date"] >= cutoff]
+
+    lines = [
+        "📅 <b>Resumo semanal — pernas RIO↔BSB</b>",
+        f"{purchased} de {total} pernas compradas · janela de compra a partir de {format_date_br(cutoff)}",
+    ]
 
     if ok_reports:
         def leg_label(r: dict) -> str:
@@ -245,7 +263,12 @@ def build_weekly_weekend_summary(weekend_reports: list[dict], total: int, purcha
         for r in nearest:
             lines.append(f"· {leg_label(r)}: R$ {r['price']:.2f}")
     else:
-        lines.append("\nSem preços coletados ainda esta semana.")
+        lines.append(
+            f"\nNenhuma perna dentro da janela de compra (a partir de {format_date_br(cutoff)}) "
+            "foi checada na execução de hoje — normal enquanto a janela deslizante do lote de "
+            "consulta ao vivo (~6 meses) ainda cobre poucas pernas dentro da janela de compra; "
+            "cresce com o tempo."
+        )
 
     return "\n".join(lines)
 
@@ -358,6 +381,22 @@ def build_shared_settings_message(chosen_user_id: str, total_users: int) -> str:
         "determinística (menor user_id).\n"
         "O <b>teto não depende disso</b> — desde a Etapa 4.2 cada perna usa o teto "
         "efetivo por usuário. Individualizar os demais limiares é a Etapa 6."
+    )
+
+
+def build_buying_cutoff_fallback_message(fallback_cutoff: str) -> str:
+    """Fatia D1 (12/08/2026): a data de corte da janela de compra não veio de
+    `system_config` (tabela sem a linha, ou chave ausente/ilegível na
+    resposta) — o robô caiu no fallback embutido em vez de inventar um valor
+    diferente ou desligar o filtro. O filtro CONTINUA valendo (com o valor de
+    fallback); é isso que este aviso deixa explícito, no mesmo padrão dos
+    outros avisos de estado provisório desta seção."""
+    return (
+        "⚠️ <b>Data de corte da janela de compra indisponível — usando padrão</b>\n"
+        f"Não foi possível ler <code>system_config.weekend_buying_cutoff_date</code>. "
+        f"O filtro de janela de compra do Telegram continua ativo, usando o valor padrão "
+        f"<b>{format_date_br(fallback_cutoff)}</b>. Verifique a tabela <code>system_config</code> "
+        "no Supabase (RUNBOOK.md)."
     )
 
 

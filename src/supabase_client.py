@@ -22,6 +22,13 @@ DEFAULT_SYSTEM_CONFIG = {
     "suspicious_below_avg_pct": 50,
     "fast_flights_enabled": True,
     "fast_flights_daily_batch_size": 20,
+    # Fallback, NÃO fonte de verdade — usado só se a leitura de system_config
+    # falhar ou a chave ainda não existir (código subiu antes do SQL). Fonte
+    # de verdade é sql/fatia_d1_janela_compra_telegram.sql, coluna
+    # weekend_buying_cutoff_date. Mantém o filtro de janela ativo mesmo
+    # degradado — nunca deixa o Telegram voltar a alertar/contar as 132
+    # pernas inteiras em silêncio (main.py avisa quando cai aqui).
+    "weekend_buying_cutoff_date": "2027-01-29",
 }
 
 
@@ -66,12 +73,12 @@ def get_all_settings() -> list[dict]:
 
 
 def get_system_config() -> dict | None:
-    # select explícito das 3 colunas (não select=*): id/updated_at
+    # select explícito das colunas (não select=*): id/updated_at
     # contaminariam o merge com settings em main.py.
     resp = requests.get(
         _url(
             "system_config?select=suspicious_below_avg_pct,fast_flights_enabled,"
-            "fast_flights_daily_batch_size&limit=1"
+            "fast_flights_daily_batch_size,weekend_buying_cutoff_date&limit=1"
         ),
         headers=_headers(), timeout=30,
     )
@@ -233,8 +240,16 @@ def get_effective_leg_state() -> list[dict]:
     O robô roda como `service_role`, que bypassa RLS: aqui vêm as linhas de
     TODOS os usuários, sem filtro (é intencional e está documentado em
     `sql/etapa4_1_estado_por_usuario.sql`). Quem colapsa isso para uma decisão
-    por perna é `get_active_legs` (weekends.py)."""
-    params = {"select": "leg_id,user_id,price_ceiling,status"}
+    por perna é `get_active_legs` (weekends.py).
+
+    `outbound_date` (Fatia D1, 12/08/2026): acrescentado ao select — a view já
+    expõe a coluna (`w.outbound_date`, sql/etapa4_1_estado_por_usuario.sql:394),
+    nenhum grant novo é necessário. Usado por `get_weekend_leg_counts` (abaixo)
+    para recortar o denominador pela janela de compra. `get_active_legs`
+    (weekends.py) só lê `leg_id`/`status`/`price_ceiling` destas linhas — o
+    campo extra é inerte para ela, as datas que ela usa vêm de
+    `get_monitoring_weekends()`, não daqui."""
+    params = {"select": "leg_id,user_id,price_ceiling,status,outbound_date"}
     resp = requests.get(_url("weekend_leg_effective"), headers=_headers(), params=params, timeout=30)
     resp.raise_for_status()
     return resp.json()
@@ -286,8 +301,9 @@ def insert_weekend_leg_run_log(leg_id: str, outcome: str, price: float | None = 
     resp.raise_for_status()
 
 
-def get_weekend_leg_counts() -> tuple[int, int]:
-    """(total de pernas cadastradas, quantas já compradas) — pro resumo semanal.
+def get_weekend_leg_counts(cutoff: str) -> tuple[int, int]:
+    """(pernas dentro da janela de compra, quantas já compradas) — pro resumo
+    semanal.
 
     Lê `weekend_leg_effective` (Etapa 4.2, pendência 13) em vez de
     `weekend_legs.status` — coluna congelada desde as pendências 3/4 (o painel
@@ -300,8 +316,15 @@ def get_weekend_leg_counts() -> tuple[int, int]:
     ao complemento. Só existem dois estados hoje
     (`check (status in ('monitoring','purchased'))`,
     `sql/etapa4_1_estado_por_usuario.sql:91`), então checar `== 'purchased'`
-    diretamente é seguro e explícito — nenhuma inferência por ausência."""
-    rows = get_effective_leg_state()
+    diretamente é seguro e explícito — nenhuma inferência por ausência.
+
+    `cutoff` (Fatia D1, 12/08/2026): recorta pela `outbound_date` do fim de
+    semana (âncora), pernas com `outbound_date < cutoff` não entram no total
+    nem no numerador — mesma regra que `docs/js/dashboard.js` já aplica pro
+    progresso/orçamento (renderProgresso/renderOrcamento) desde 28/07/2026.
+    A COLETA não é afetada: esta função só monta o número do resumo semanal,
+    não decide o que o robô consulta ou grava."""
+    rows = [r for r in get_effective_leg_state() if r["outbound_date"] >= cutoff]
     legs: dict[str, list[str]] = {}
     for row in rows:
         legs.setdefault(row["leg_id"], []).append(row["status"])

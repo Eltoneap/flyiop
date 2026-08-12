@@ -29,6 +29,18 @@ import main  # noqa: E402
 
 TODAY = "2026-07-30"
 
+# Fatia D1 (12/08/2026): system_config passou a incluir weekend_buying_cutoff_date.
+# Usado no lugar de `None` nos testes que não são sobre a leitura de
+# system_config em si — `None` agora dispara o aviso de fallback da janela de
+# compra (build_buying_cutoff_fallback_message), o que quebraria as
+# asserções estritas de "nenhuma mensagem"/"só esta mensagem" destes testes.
+# O comportamento de degradação em si tem teste dedicado, mais abaixo
+# (BuyingCutoffFallbackTest).
+SYSTEM_CONFIG = {
+    "suspicious_below_avg_pct": 50, "fast_flights_enabled": True,
+    "fast_flights_daily_batch_size": 20, "weekend_buying_cutoff_date": "2026-01-01",
+}
+
 
 class BlockAtLastExpectedBatchTest(unittest.TestCase):
     def test_block_at_last_expected_batch_never_escalates_same_cycle(self):
@@ -44,7 +56,7 @@ class BlockAtLastExpectedBatchTest(unittest.TestCase):
 
         with patch("main.get_routes", return_value=[]), \
              patch("main.get_all_settings", return_value=[]), \
-             patch("main.get_system_config", return_value=None), \
+             patch("main.get_system_config", return_value=SYSTEM_CONFIG), \
              patch("main.process_all_weekend_legs", return_value=[]), \
              patch("main.run_daily_batch", return_value=([], True)), \
              patch("main.current_brt_date", return_value=TODAY), \
@@ -81,7 +93,7 @@ class BlockAtLastExpectedBatchTest(unittest.TestCase):
 
         with patch("main.get_routes", return_value=[]), \
              patch("main.get_all_settings", return_value=[]), \
-             patch("main.get_system_config", return_value=None), \
+             patch("main.get_system_config", return_value=SYSTEM_CONFIG), \
              patch("main.process_all_weekend_legs", return_value=[]), \
              patch("main.run_daily_batch", return_value=([], False)), \
              patch("main.current_brt_date", return_value=TODAY), \
@@ -117,7 +129,7 @@ class DelayedScheduleDoesNotNoOpTest(unittest.TestCase):
         with patch("main.get_routes", return_value=[route]), \
              patch("main.get_all_settings", return_value=[{"user_id": "user-1", "notification_mode": "alert_only"}]), \
              patch("main.get_settings", return_value={"notification_mode": "daily_summary"}), \
-             patch("main.get_system_config", return_value=None), \
+             patch("main.get_system_config", return_value=SYSTEM_CONFIG), \
              patch("main.process_route") as mock_process_route, \
              patch("main.process_all_weekend_legs", return_value=[]) as mock_cache, \
              patch("main.run_daily_batch", return_value=([], False)) as mock_batch, \
@@ -158,7 +170,7 @@ class DuplicateFireSameDayIsIdempotentTest(unittest.TestCase):
         with patch("main.get_routes", return_value=[route]), \
              patch("main.get_all_settings", return_value=[{"user_id": "user-1", "notification_mode": "alert_only"}]), \
              patch("main.get_settings", return_value={"notification_mode": "alert_only"}), \
-             patch("main.get_system_config", return_value=None), \
+             patch("main.get_system_config", return_value=SYSTEM_CONFIG), \
              patch("main.process_route") as mock_process_route, \
              patch("main.process_all_weekend_legs") as mock_cache, \
              patch("main.run_daily_batch") as mock_batch, \
@@ -196,7 +208,7 @@ class SharedSettingsChoiceTest(unittest.TestCase):
         with patch("main.get_routes", return_value=routes or []), \
              patch("main.get_all_settings", return_value=all_settings), \
              patch("main.get_settings", return_value=None), \
-             patch("main.get_system_config", return_value=None), \
+             patch("main.get_system_config", return_value=SYSTEM_CONFIG), \
              patch("main.process_route", side_effect=lambda route, _s: {"route": route, "status": "no_data"}), \
              patch("main.process_all_weekend_legs", return_value=[]), \
              patch("main.run_daily_batch", return_value=([], False)), \
@@ -219,7 +231,7 @@ class SharedSettingsChoiceTest(unittest.TestCase):
         ]
         with patch("main.get_routes", return_value=[]), \
              patch("main.get_all_settings", return_value=all_settings), \
-             patch("main.get_system_config", return_value=None), \
+             patch("main.get_system_config", return_value=SYSTEM_CONFIG), \
              patch("main.process_all_weekend_legs", return_value=[]) as mock_cache, \
              patch("main.run_daily_batch", return_value=([], False)), \
              patch("main.current_brt_date", return_value=TODAY), \
@@ -266,7 +278,7 @@ class WeekendDiagnosticWarningsTest(unittest.TestCase):
     def run_main(self, diag):
         with patch("main.get_routes", return_value=[]), \
              patch("main.get_all_settings", return_value=[{"user_id": "user-a", "notification_mode": "alert_only"}]), \
-             patch("main.get_system_config", return_value=None), \
+             patch("main.get_system_config", return_value=SYSTEM_CONFIG), \
              patch("main.process_all_weekend_legs", return_value=[]), \
              patch("main.run_daily_batch", return_value=([], False)), \
              patch("main.LEG_LOAD_DIAGNOSTICS", diag), \
@@ -292,6 +304,41 @@ class WeekendDiagnosticWarningsTest(unittest.TestCase):
 
     def test_healthy_run_sends_nothing(self):
         self.assertEqual(self.run_main({"degraded_no_settings": False, "multi_user_ceiling_legs": 0}), [])
+
+
+class BuyingCutoffFallbackTest(unittest.TestCase):
+    """Fatia D1 (12/08/2026), Decisão 4: se `system_config` não tem linha
+    (get_system_config() -> None), o corte da janela de compra cai no
+    fallback embutido — o filtro CONTINUA valendo, e main.py avisa 1x por
+    execução, mesmo padrão dos avisos de estado provisório da Etapa 4.2."""
+
+    def run_main(self, system_config):
+        diag = {"degraded_no_settings": False, "multi_user_ceiling_legs": 0}
+        with patch("main.get_routes", return_value=[]), \
+             patch("main.get_all_settings", return_value=[{"user_id": "user-a", "notification_mode": "alert_only"}]), \
+             patch("main.get_system_config", return_value=system_config), \
+             patch("main.process_all_weekend_legs", return_value=[]), \
+             patch("main.run_daily_batch", return_value=([], False)), \
+             patch("main.LEG_LOAD_DIAGNOSTICS", diag), \
+             patch("main.current_brt_date", return_value=TODAY), \
+             patch("main.get_weekend_scrape_state", return_value=dict(SCRAPE_STATE_FRESH)), \
+             patch("main.set_weekend_scrape_state"), \
+             patch("main.date") as mock_date, \
+             patch("main.send_message") as mock_send:
+            mock_date.today.return_value.weekday.return_value = 2
+            main.main()
+        return [c.args[0] for c in mock_send.call_args_list]
+
+    def test_missing_system_config_row_warns_once_with_fallback_value(self):
+        sent = self.run_main(None)
+        matches = [m for m in sent if "janela de compra" in m and "indisponível" in m]
+        self.assertEqual(len(matches), 1)
+        self.assertIn("29/01/2027", matches[0])  # valor de fallback, não inventado
+
+    def test_configured_cutoff_sends_no_fallback_warning(self):
+        sent = self.run_main(SYSTEM_CONFIG)
+        matches = [m for m in sent if "janela de compra" in m and "indisponível" in m]
+        self.assertEqual(matches, [])
 
 
 if __name__ == "__main__":

@@ -30,6 +30,14 @@ SCRAPE_STATE_STAGE_0 = {
 
 TODAY = "2026-07-30"
 
+# Fatia D1 (12/08/2026): ver mesma constante/motivo em tests/test_main.py —
+# `None` para get_system_config passou a disparar o aviso de fallback da
+# janela de compra, que quebraria as asserções estritas destes testes.
+SYSTEM_CONFIG = {
+    "suspicious_below_avg_pct": 50, "fast_flights_enabled": True,
+    "fast_flights_daily_batch_size": 20, "weekend_buying_cutoff_date": "2026-01-01",
+}
+
 
 class CooldownBlocksAlertTest(unittest.TestCase):
     BASE_SETTINGS = {"notification_mode": "alert_only", "realert_drop_pct": 5, "realert_days": 3}
@@ -127,7 +135,7 @@ class AlertLogWiringTest(unittest.TestCase):
         with patch("main.get_routes", return_value=[route]), \
              patch("main.get_all_settings", return_value=[{"user_id": "user-1", "notification_mode": "alert_only"}]), \
              patch("main.get_settings", return_value={"notification_mode": "alert_only"}), \
-             patch("main.get_system_config", return_value=None), \
+             patch("main.get_system_config", return_value=SYSTEM_CONFIG), \
              patch("main.process_route", return_value=report), \
              patch("main.process_all_weekend_legs", return_value=[]), \
              patch("main.run_daily_batch", return_value=([], False)), \
@@ -153,7 +161,7 @@ class AlertLogWiringTest(unittest.TestCase):
         with patch("main.get_routes", return_value=[route]), \
              patch("main.get_all_settings", return_value=[{"user_id": "user-1", "notification_mode": "daily_summary"}]), \
              patch("main.get_settings", return_value={"notification_mode": "daily_summary"}), \
-             patch("main.get_system_config", return_value=None), \
+             patch("main.get_system_config", return_value=SYSTEM_CONFIG), \
              patch("main.process_route", return_value=report), \
              patch("main.process_all_weekend_legs", return_value=[]), \
              patch("main.run_daily_batch", return_value=([], False)), \
@@ -178,7 +186,7 @@ class AlertLogWiringTest(unittest.TestCase):
         }
         with patch("main.get_routes", return_value=[]), \
              patch("main.get_all_settings", return_value=[]), \
-             patch("main.get_system_config", return_value=None), \
+             patch("main.get_system_config", return_value=SYSTEM_CONFIG), \
              patch("main.process_all_weekend_legs", return_value=[weekend_report]), \
              patch("main.run_daily_batch", return_value=([], False)), \
              patch("main.current_brt_date", return_value=TODAY), \

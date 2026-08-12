@@ -41,11 +41,41 @@ SETTINGS = {
     "suspicious_below_avg_pct": 50,
     "realert_drop_pct": 5,
     "realert_days": 3,
+    # Fatia D1 (12/08/2026): corte bem no passado para que os testes
+    # existentes (fim de semana 2026-09-04) sigam dentro da janela de compra
+    # sem precisar mudar nenhuma asserção já escrita. Os testes de janela,
+    # abaixo, declaram o corte que precisam.
+    "weekend_buying_cutoff_date": "2026-01-01",
 }
 
 
 def entry(price: float, departure_date: str, transfers=0) -> dict:
     return {"price": price, "departure_at": f"{departure_date}T07:00:00Z", "transfers": transfers}
+
+
+class ResolveBuyingCutoffTest(unittest.TestCase):
+    """Fatia D1 (12/08/2026): degradação nunca remove o filtro, só cai no
+    fallback e sinaliza — main.py decide se avisa no Telegram."""
+
+    def test_reads_value_from_settings(self):
+        cutoff, degraded = weekends.resolve_buying_cutoff({"weekend_buying_cutoff_date": "2027-06-01"})
+        self.assertEqual(cutoff, "2027-06-01")
+        self.assertFalse(degraded)
+
+    def test_missing_key_falls_back_and_flags_degraded(self):
+        cutoff, degraded = weekends.resolve_buying_cutoff({})
+        self.assertEqual(cutoff, weekends.BUYING_CUTOFF_FALLBACK)
+        self.assertTrue(degraded)
+
+    def test_none_value_falls_back_and_flags_degraded(self):
+        cutoff, degraded = weekends.resolve_buying_cutoff({"weekend_buying_cutoff_date": None})
+        self.assertEqual(cutoff, weekends.BUYING_CUTOFF_FALLBACK)
+        self.assertTrue(degraded)
+
+    def test_empty_string_falls_back_and_flags_degraded(self):
+        cutoff, degraded = weekends.resolve_buying_cutoff({"weekend_buying_cutoff_date": ""})
+        self.assertEqual(cutoff, weekends.BUYING_CUTOFF_FALLBACK)
+        self.assertTrue(degraded)
 
 
 class RelevantMonthsAndCandidatesTest(unittest.TestCase):
@@ -296,6 +326,41 @@ class ProcessWeekendLegTest(unittest.TestCase):
         month_cache = {("2026-09", "GIG", "outbound"): [entry(150.0, "2026-09-04")]}
         report, _, _, _ = self.run_process(month_cache, history_prices=[400.0, 420.0])
         self.assertTrue(report["is_ceiling_hit"])
+        self.assertTrue(report["should_alert"])
+
+    # --- Fatia D1 (12/08/2026): janela de compra --------------------------
+    # Ajuste do mesmo dia: o filtro vale para os DOIS tipos de alerta de
+    # perna (teto e oportunidade), não só oportunidade — um alerta de teto
+    # fora da janela mandaria "compre" algo que nunca será comprado.
+
+    def test_ceiling_hit_outside_buying_window_does_not_alert(self):
+        settings = {**SETTINGS, "weekend_buying_cutoff_date": "2027-01-29"}  # OUTBOUND_LEG é 2026-09-04
+        month_cache = {("2026-09", "GIG", "outbound"): [entry(150.0, "2026-09-04")]}
+        report, _, _, _ = self.run_process(month_cache, history_prices=[400.0, 420.0], settings=settings)
+        self.assertTrue(report["is_ceiling_hit"])
+        self.assertFalse(report["should_alert"])
+
+    def test_opportunity_outside_buying_window_does_not_alert(self):
+        settings = {**SETTINGS, "weekend_buying_cutoff_date": "2027-01-29"}
+        leg = {**OUTBOUND_LEG, "effective_ceiling": None}  # sem teto: só a regra de oportunidade decide
+        month_cache = {("2026-09", "GIG", "outbound"): [entry(150.0, "2026-09-04")]}
+        report, _, _, _ = self.run_process(
+            month_cache, history_prices=[400.0, 420.0], leg=leg, settings=settings
+        )
+        self.assertFalse(report["is_ceiling_hit"])
+        self.assertFalse(report["should_alert"])
+
+    def test_ceiling_hit_inside_buying_window_still_alerts(self):
+        settings = {**SETTINGS, "weekend_buying_cutoff_date": "2026-01-01"}
+        month_cache = {("2026-09", "GIG", "outbound"): [entry(150.0, "2026-09-04")]}
+        report, _, _, _ = self.run_process(month_cache, history_prices=[400.0, 420.0], settings=settings)
+        self.assertTrue(report["should_alert"])
+
+    def test_cutoff_exactly_on_outbound_date_counts_as_inside_window(self):
+        # OUTBOUND_LEG é 2026-09-04 — corte igual à data conta como dentro (>=).
+        settings = {**SETTINGS, "weekend_buying_cutoff_date": "2026-09-04"}
+        month_cache = {("2026-09", "GIG", "outbound"): [entry(150.0, "2026-09-04")]}
+        report, _, _, _ = self.run_process(month_cache, history_prices=[400.0, 420.0], settings=settings)
         self.assertTrue(report["should_alert"])
 
     def test_suspicious_price_never_alerts_even_below_ceiling(self):

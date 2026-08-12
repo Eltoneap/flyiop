@@ -31,6 +31,7 @@ from supabase_client import (
 )
 from telegram_notifier import (
     build_alert_message,
+    build_buying_cutoff_fallback_message,
     build_multi_user_ceiling_message,
     build_no_effective_ceiling_message,
     build_route_block,
@@ -53,7 +54,7 @@ from scrape_schedule import (
     should_run_live_batch,
 )
 from travelpayouts_client import get_prices_for_dates
-from weekends import LEG_LOAD_DIAGNOSTICS, process_all_weekend_legs
+from weekends import LEG_LOAD_DIAGNOSTICS, process_all_weekend_legs, resolve_buying_cutoff
 
 MONTHS_AHEAD = 6  # varre de "em cima da hora" até ~6 meses à frente; o histórico aprende sozinho qual faixa é mais barata
 REQUEST_DELAY_SECONDS = 0.3  # precaução contra possível limite de requisições da Travelpayouts
@@ -300,7 +301,8 @@ def main() -> None:
     primary_run = is_primary_run(scrape_state, today)
 
     routes = get_routes()
-    system_config = get_system_config() or DEFAULT_SYSTEM_CONFIG
+    raw_system_config = get_system_config()  # None = tabela sem linha (kill-switch etc. também degradam aqui)
+    system_config = raw_system_config or DEFAULT_SYSTEM_CONFIG
 
     # `settings` é o registro de usuários (mesma tabela do cross join da view
     # weekend_leg_effective) — carregada inteira, ordenada por user_id. NÃO
@@ -351,6 +353,19 @@ def main() -> None:
     )
     if settings_user_id:
         print(f"[main] limiares gerais: settings de {settings_user_id} ({len(settings_cache)} usuário(s))")
+
+    # Janela de compra (Fatia D1, 12/08/2026): resolvida uma única vez por
+    # execução, a partir de `raw_system_config` (a resposta CRUA do banco, não
+    # o `system_config` já mesclado com DEFAULT_SYSTEM_CONFIG acima) — se
+    # calculássemos a partir de `weekend_settings`, o caso "system_config sem
+    # linha" ficaria indistinguível de um corte real configurado igual ao
+    # fallback, e o aviso nunca dispararia. Resultado normalizado de volta em
+    # weekend_settings — é a mesma cópia que evaluate_and_record_leg_price
+    # (weekends.py) vai ler para cada perna, então o valor usado no alerta e
+    # o usado no resumo/contagem abaixo são garantidamente o mesmo.
+    # Degradação nunca remove o filtro — cai no fallback embutido e avisa.
+    buying_cutoff, buying_cutoff_degraded = resolve_buying_cutoff(raw_system_config or {})
+    weekend_settings["weekend_buying_cutoff_date"] = buying_cutoff
 
     if primary_run:
         # Novo dia de contagem começando — sempre reseta (idempotente se já
@@ -414,6 +429,8 @@ def main() -> None:
         send_message(build_multi_user_ceiling_message(LEG_LOAD_DIAGNOSTICS["multi_user_ceiling_legs"]))
     if len(settings_cache) > 1:
         send_message(build_shared_settings_message(settings_user_id, len(settings_cache)))
+    if buying_cutoff_degraded:
+        send_message(build_buying_cutoff_fallback_message(buying_cutoff))
 
     weekend_reports = dedupe_weekend_reports(cache_reports + live_reports)
     if any(wr["status"] == "error" for wr in weekend_reports):
@@ -458,8 +475,8 @@ def main() -> None:
             insert_weekend_alert_log(wr["leg"]["id"], wr["price"], wr.get("reason"))
 
     if primary_run and date.today().weekday() == 0:  # segunda-feira
-        total, purchased = get_weekend_leg_counts()
-        send_message(build_weekly_weekend_summary(weekend_reports, total, purchased))
+        total, purchased = get_weekend_leg_counts(buying_cutoff)
+        send_message(build_weekly_weekend_summary(weekend_reports, total, purchased, buying_cutoff))
 
     if had_error:
         sys.exit(1)

@@ -39,6 +39,7 @@ from datetime import date, datetime, timedelta, timezone
 from rules import cooldown_blocks_alert, is_good_price, is_suspicious_price
 from supabase_client import (
     DEFAULT_SETTINGS,
+    DEFAULT_SYSTEM_CONFIG,
     get_all_weekend_legs,
     get_effective_leg_state,
     get_last_weekend_leg_alert,
@@ -58,6 +59,30 @@ CURRENCY = "BRL"
 REQUEST_DELAY_SECONDS = 0.3
 MONTH_QUERY_LIMIT = 200  # a API ordena por preço, não por data — limite alto
 # aumenta a chance da data exata da perna aparecer entre os resultados do mês.
+
+# Fallback do corte da janela de compra — só usado se a chave não vier de
+# settings (que já é o merge de system_config feito em main.py). Mesmo valor
+# de DEFAULT_SYSTEM_CONFIG (supabase_client.py); duplicado aqui só para o
+# caso degradado ficar legível sem seguir o import. Fonte de verdade:
+# system_config.weekend_buying_cutoff_date (sql/fatia_d1_janela_compra_telegram.sql).
+BUYING_CUTOFF_FALLBACK = DEFAULT_SYSTEM_CONFIG["weekend_buying_cutoff_date"]
+
+
+def resolve_buying_cutoff(settings: dict) -> tuple[str, bool]:
+    """(corte efetivo, degradado?). `settings` aqui já é o dict mesclado com
+    system_config que main.py monta — não outra leitura do banco.
+
+    Degradado = a chave não veio como string não vazia (ausente, None, "").
+    Direção da falha (Fatia D1, decisão 4): SEMPRE mantém o filtro, nunca o
+    remove — um filtro restritivo demais só deixa o Telegram mais quieto
+    (recuperável, preço continua no painel); um filtro que some é
+    indistinguível do bug que esta fatia existe para corrigir. Quem chama
+    decide se avisa no Telegram (main.py, 1x por execução, mesmo padrão dos
+    avisos da Etapa 4.2)."""
+    value = settings.get("weekend_buying_cutoff_date")
+    if isinstance(value, str) and value:
+        return value, False
+    return BUYING_CUTOFF_FALLBACK, True
 
 
 def cheapest_entry(entries: list[dict]) -> dict | None:
@@ -253,7 +278,19 @@ def evaluate_and_record_leg_price(leg: dict, settings: dict, price: float, airpo
     )
     suspicious = is_suspicious_price(price, history_prices, suspicious_threshold)
 
-    would_alert = good and not suspicious
+    # Janela de compra (Fatia D1, 12/08/2026, ajuste do mesmo dia): filtro vale
+    # para os DOIS tipos de alerta de perna — teto e oportunidade — não só
+    # oportunidade. Um alerta de teto para um fim de semana anterior ao corte
+    # mandaria "compre" algo que por decisão de escopo nunca será comprado
+    # (STATE.md, seção 2). NÃO afeta a COLETA: o preço já foi gravado acima
+    # (insert_weekend_leg_price) e current_price/lowest_seen são atualizados
+    # normalmente mais abaixo, fora da janela ou não.
+    buying_cutoff, _cutoff_degraded = resolve_buying_cutoff(settings)
+    in_buying_window = leg["outbound_date"] >= buying_cutoff
+
+    would_alert = good and not suspicious and in_buying_window
+    if good and not suspicious and not in_buying_window:
+        print(f"[{direction} {leg['outbound_date']}] alerta suprimido — fim de semana fora da janela de compra (< {buying_cutoff})")
     cooldown_suppressed = False
     if would_alert:
         last_alert = get_last_weekend_leg_alert(leg_id)
