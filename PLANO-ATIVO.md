@@ -888,7 +888,7 @@ efetivamente barra, confirmado pela Parte B. Fecha a pendência de RLS
 
 ---
 
-## Fatia C — visibilidade de compra entre usuários (ATIVA, 09/08/2026)
+## Fatia C — visibilidade de compra entre usuários (CONCLUÍDA — desenhada 09/08/2026, Parte 1/banco 10/08/2026, Parte 2/frontend 11/08/2026)
 
 Terceira fatia do handoff de UI multi-usuário (depois da Fatia A, item 21 do
 `HISTORICO.md`, e da Fatia B, item 22) — a única das três que toca o banco,
@@ -947,10 +947,13 @@ compartilhado.
   hoje (0 linhas). Guarda de inventário no início, 4 blocos de verificação no
   fim (estrutura, grants/policies, prova de comportamento com rollback, prova
   de isolamento com rollback).
-- **Parte 2 (frontend) — IMPLEMENTADA (11/08/2026), aguardando verificação
-  manual em produção.** Planejada e implementada em sessão de Plan Mode
-  própria (11/08/2026), revisada em rodadas sucessivas de diff antes da
-  aprovação do usuário. Arquivos alterados:
+- **Parte 2 (frontend) — CONCLUÍDA e verificada em produção (11/08/2026).**
+  Planejada e implementada em sessão de Plan Mode própria (11/08/2026),
+  revisada em rodadas sucessivas de diff antes da aprovação do usuário,
+  commitada (`ca54dd8`) e enviada ao remoto no mesmo dia. **Roteiro de
+  verificação manual em produção concluído (11/08/2026): todos os itens
+  passaram, sem erro no console, sem regressão visível.** Arquivos
+  alterados:
   - [docs/js/compras.js](docs/js/compras.js) — toda a lógica: 5 consultas
     independentes em `loadWeekends` (`weekends`, `weekend_leg_effective`,
     `weekend_legs` só com `current_airline`/`current_departure_time`,
@@ -982,22 +985,25 @@ compartilhado.
   real e É convertido para `America/Sao_Paulo` na leitura. As duas funções
   fazem o oposto uma da outra de propósito.
 
-  **Roteiro de verificação manual (produção, pendente — exige login, o
-  Claude Code não tenta obter/preencher credencial):**
-  - Perna não comprada: "Marcar como comprada" abre o painel pré-preenchido
-    pelo voo monitorado (conferir se a hora bate com o Google Flights — é o
-    teste do achado de fuso). Cancelar não salva nada.
-  - Confirmar com tudo em branco: marca como comprada mesmo assim.
-  - Confirmar com hora preenchida e data vazia: avisa e não salva.
-  - Perna comprada: bloco de edição de voo salva os 4 campos num clique só;
-    a data/hora volta correta ao recarregar (prova o round-trip `-03:00` →
-    `America/Sao_Paulo`).
-  - Desfazer e marcar de novo: o painel volta pré-preenchido com o que
+  **Roteiro de verificação manual — ✅ CONCLUÍDO em produção (11/08/2026),
+  todos os itens abaixo passaram, sem erro no console, sem regressão
+  visível:**
+  - ✅ Perna não comprada: "Marcar como comprada" abre o painel
+    pré-preenchido pelo voo monitorado, hora batendo com o Google Flights
+    (confirma o achado de fuso). Cancelar não salva nada.
+  - ✅ Confirmar com tudo em branco: marca como comprada mesmo assim.
+  - ✅ Confirmar com hora preenchida e data vazia: avisa e não salva.
+  - ✅ Perna comprada: bloco de edição de voo salva os 4 campos num clique
+    só; a data/hora volta correta ao recarregar (round-trip `-03:00` →
+    `America/Sao_Paulo` confirmado).
+  - ✅ Desfazer e marcar de novo: o painel volta pré-preenchido com o que
     tinha sido salvo antes (snapshot preservado através do desfazer).
-  - Linha `👥 ... já comprou` do outro usuário: só verificável de fato na
-    Etapa 7, quando a segunda conta existir. Até lá, o comportamento
-    observável correto é ausência total — nenhuma linha deve aparecer em
-    nenhum card.
+  - Linha `👥 ... já comprou` do outro usuário: comportamento de ausência
+    confirmado (nenhuma linha aparece em nenhum card, como esperado com um
+    usuário só) — **a verificação positiva (linha aparecendo de fato) só é
+    possível na Etapa 7, quando a segunda conta existir.** Não é uma
+    pendência desta fatia, é um limite estrutural do que dá para testar
+    hoje.
 - **Telegram** — fica para a Etapa 6, fora do escopo desta fatia.
 
 **Nada tocado nesta fatia:** `weekend_leg_effective`, `weekend_legs`,
@@ -1016,9 +1022,11 @@ compartilhado.
 | V4 (prova de isolamento, rollback) | `uid_visto = 00000000-...-0001`, `papel_efetivo = authenticated`, `projecao_esp_1 = 1`, `estado_pessoal_esp_0 = 0`, `view_efetiva_esp_0_sem_valor_probatorio = 0`, `escrita_direta_esp_bloqueada = 'bloqueado 42501'` — bate 100%. **A asserção com valor probatório de isolamento é `estado_pessoal_esp_0`** — `view_efetiva_esp_0_sem_valor_probatorio` bateu 0 como esperado, mas esse zero não prova RLS (o UUID fictício não tem linha em `settings`, então o `cross join` de `weekend_leg_effective` já dá 0 mesmo com a RLS inteira desligada — ressalva escrita no próprio script) |
 
 **Parte 1 CONCLUÍDA e verificada em produção (10/08/2026). Parte 2
-(frontend) IMPLEMENTADA (11/08/2026), aguardando o roteiro de verificação
-manual em produção listado acima antes de considerar a fatia inteira
-fechada.**
+(frontend) CONCLUÍDA e verificada em produção (11/08/2026), roteiro de
+verificação manual listado acima 100% passado. FATIA C INTEIRA CONCLUÍDA
+(11/08/2026)** — resta só, fora do escopo desta fatia, a verificação
+positiva da linha do outro usuário, que depende da Etapa 7 (segunda
+conta), e o Telegram, que fica para a Etapa 6.
 
 ---
 

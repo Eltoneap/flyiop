@@ -1,7 +1,26 @@
 # STATE.md — FlyIop
 
 > Atualizado em: 11/08/2026
-> Última sessão: Claude Code (11/08/2026) — **Fatia C, Parte 2 (frontend)
+> Última sessão: Claude Code (11/08/2026) — **FATIA C CONCLUÍDA (Parte 1
+> banco + Parte 2 frontend).** Roteiro de verificação manual em produção da
+> Parte 2, rodado pelo usuário: todos os itens passaram, sem erro no
+> console, sem regressão visível — painel de confirmação de compra abre
+> pré-preenchido corretamente (hora batendo com o Google Flights, confirma
+> o achado de fuso), confirmar em branco funciona, hora sem data avisa e
+> não salva, edição pós-compra salva os 4 campos num clique só com
+> round-trip de fuso correto, desfazer/recomprar preserva o snapshot
+> salvo. A visibilidade da linha "outro usuário já comprou" segue sem
+> verificação positiva possível — depende da Etapa 7 (segunda conta),
+> registrado como limite estrutural, não como pendência da fatia. Fatia C
+> inteira encerrada: `docs/js/compras.js`/`docs/css/style.css` publicados
+> em produção desde `ca54dd8` (11/08/2026), banco publicado e verificado
+> desde 10/08/2026. Restam fora do escopo desta fatia: Telegram (Etapa 6)
+> e a segunda conta em si (Etapa 7). Ainda sem decisão sobre mover a seção
+> "Fatia C" do `PLANO-ATIVO.md` para o `HISTORICO.md` (padrão do
+> `PROTOCOLO-DE-TRABALHO.md` ao concluir uma Parte) — aguardando
+> confirmação explícita do usuário antes de tocar em arquivo append-only.
+> Detalhe completo em `PLANO-ATIVO.md`, seção "Fatia C".
+> Sessão anterior: Claude Code (11/08/2026) — **Fatia C, Parte 2 (frontend)
 > IMPLEMENTADA, aguardando verificação manual em produção.** Planejada em
 > Plan Mode (diagnóstico read-only inicial, plano escrito e aprovado com 4
 > ajustes do usuário antes da implementação) e implementada em
@@ -291,7 +310,7 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 
    **Etapa 5** (frontend por usuário) — ainda não iniciada, exige revisão explícita no chat de planejamento antes de começar (ver seção 4). Etapas 4 e 5 são modelo de dados e interface, valem independente de o alerta de perna funcionar.
 
-   **Fatia C — visibilidade de compra entre usuários (ATIVA, 09/08/2026), Parte 1 (banco) CONCLUÍDA e verificada em produção (10/08/2026), Parte 2 (frontend) IMPLEMENTADA (11/08/2026), aguardando verificação manual em produção.** Terceira fatia do handoff de UI multi-usuário (depois das Fatias A e B, `HISTORICO.md` itens 21/22) — a única que toca o banco. Regra de produto: o outro usuário vê QUE você comprou uma perna e EM QUAL VOO, nunca quanto pagou/teto/localizador, só depois de `status = 'purchased'`. Mecanismo: tabela de projeção (`weekend_leg_purchase_shared`) mantida por trigger `security definer`, com só os 3 campos de voo — nenhum campo sensível chega a existir na tabela compartilhada; view/função `security definer` avaliadas e descartadas por serem bypass de RLS. Script [sql/fatia_c_visibilidade_compra.sql](sql/fatia_c_visibilidade_compra.sql) rodado manualmente no SQL Editor de produção em 10/08/2026, os 5 blocos de verificação (G0 + V1-V4) batendo 100% com o esperado. **Parte 2 (frontend) implementada em 11/08/2026** (`docs/js/compras.js`, `docs/css/style.css`; `docs/compras.html` não tocado) — painel de confirmação de compra, bloco de edição pós-compra, linha "outro usuário já comprou" no card, todos aguardando o roteiro de verificação manual em produção antes de a fatia inteira ser considerada fechada (o item mais sensível, a linha do outro usuário, só é verificável de fato na Etapa 7, quando a segunda conta existir). Detalhe completo, resultado real bloco a bloco e roteiro de verificação, em `PLANO-ATIVO.md`, seção "Fatia C".
+   **Fatia C — visibilidade de compra entre usuários — CONCLUÍDA (Parte 1 banco 10/08/2026, Parte 2 frontend 11/08/2026).** Terceira fatia do handoff de UI multi-usuário (depois das Fatias A e B, `HISTORICO.md` itens 21/22) — a única que toca o banco. Regra de produto: o outro usuário vê QUE você comprou uma perna e EM QUAL VOO, nunca quanto pagou/teto/localizador, só depois de `status = 'purchased'`. Mecanismo: tabela de projeção (`weekend_leg_purchase_shared`) mantida por trigger `security definer`, com só os 3 campos de voo — nenhum campo sensível chega a existir na tabela compartilhada; view/função `security definer` avaliadas e descartadas por serem bypass de RLS. Script [sql/fatia_c_visibilidade_compra.sql](sql/fatia_c_visibilidade_compra.sql) rodado manualmente no SQL Editor de produção em 10/08/2026, os 5 blocos de verificação (G0 + V1-V4) batendo 100% com o esperado. **Parte 2 (frontend)** (`docs/js/compras.js`, `docs/css/style.css`; `docs/compras.html` não tocado) — painel de confirmação de compra, bloco de edição pós-compra, linha "outro usuário já comprou" no card — commitada/enviada (`ca54dd8`, 11/08/2026) e com roteiro de verificação manual em produção **100% passado** (sem erro no console, sem regressão). O item mais sensível, a linha do outro usuário, segue sem verificação positiva possível (só na Etapa 7, quando a segunda conta existir) — limite estrutural, não pendência. Detalhe completo, resultado real bloco a bloco e roteiro de verificação, em `PLANO-ATIVO.md`, seção "Fatia C".
 
    **Desejo do usuário, registrado em 02/08/2026: criar a conta do segundo usuário — objetivo ativo, não recusado.** Bloqueado pela regra dura da Etapa 7 (`PLANO-ATIVO.md`), que exige 4.2/4.3/5/6 concluídas antes. **Os dois desejos registrados em 02/08/2026 (aumentar frequência do scraping, item 1 acima, e criar a conta do segundo usuário) são objetivos ativos, nenhum recusado — o caminho para os dois é concluir a Etapa 4.2.**
 3. ✅ **Concluído (04/08/2026, corrigido em 05/08/2026, verificado em produção em 06/08/2026).** Teto padrão recalibrado de R$250 para R$300 — ver seção 2, "Decisões vivas", pelo incidente de gravação, a correção manual e a prova final de produção.
@@ -335,7 +354,7 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 
 - Repo: github.com/Eltoneap/flyiop (público)
 - `STATE.md` — este arquivo: orientação de alto nível, lido no início de qualquer sessão nova
-- `PLANO-ATIVO.md` — plano técnico detalhado só da Parte em execução agora. **Não está vazio (11/08/2026):** contém a iniciativa multi-usuário (Etapa 4.2 com as 13 pendências nomeadas — 12 concluídas, 1–11 e 13, restando só a 12, backlog de UI — e o histórico da regra de janela aberta, encerrada; Etapas 4.3 e 4.4 concluídas e verificadas em produção), o que restou do diagnóstico de alerta de perna (item (e), perguntas abertas), as pendências de escopo separado, e a **Fatia C (visibilidade de compra entre usuários) ativa — Parte 1 (banco) concluída e verificada em produção, Parte 2 (frontend) implementada (11/08/2026), aguardando verificação manual em produção** — ver seção 3.
+- `PLANO-ATIVO.md` — plano técnico detalhado só da Parte em execução agora. **Não está vazio (11/08/2026):** contém a iniciativa multi-usuário (Etapa 4.2 com as 13 pendências nomeadas — 12 concluídas, 1–11 e 13, restando só a 12, backlog de UI — e o histórico da regra de janela aberta, encerrada; Etapas 4.3 e 4.4 concluídas e verificadas em produção), o que restou do diagnóstico de alerta de perna (item (e), perguntas abertas), as pendências de escopo separado, e a **Fatia C (visibilidade de compra entre usuários), CONCLUÍDA (Parte 1 banco + Parte 2 frontend), ainda não movida para o `HISTORICO.md`** — ver seção 3.
 - `HISTORICO.md` — tudo já decidido/implementado, cronológico
 - `CLAUDE.md` — escopo geral do projeto (lido automaticamente pelo Claude Code)
 - `PROTOCOLO-DE-TRABALHO.md` — como usuário e Claude Code trabalham juntos (Plan Mode, gatilhos de revisão, regra de manutenção dos três arquivos de documentação)
