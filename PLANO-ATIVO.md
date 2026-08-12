@@ -637,11 +637,12 @@ cada passo futuro é discutido quando chegar a vez dele.
    resultado real da mensagem de resumo semanal do Telegram** (contagem de
    pernas compradas — esperado: 0, sem erro) **e o resultado é registrado
    neste item.**
-   - **Resultado de 10/08/2026: ✅ confirmado.** Resumo semanal do Telegram
-     relatou `0/132` pernas compradas, sem erro — bate exato com o esperado,
-     fecha de vez a pendência 13 da Etapa 4.2 (`get_weekend_leg_counts`,
-     commit `b22a569`) com prova de produção real, não só verificação por
-     SQL.
+   - **Resultado de 10/08/2026: ✅ confirmado.** O resumo semanal do Telegram
+     de segunda-feira 10/08/2026, 08:42 BRT, foi recebido pelo usuário e
+     exibiu `0 de 132 pernas compradas`, sem erro na montagem da mensagem —
+     resultado idêntico ao esperado. Fecha de vez a pendência 13 da Etapa 4.2
+     (`get_weekend_leg_counts`, commit `b22a569`), aberta desde 06/08/2026,
+     com prova de produção real, não só verificação por SQL.
    - **Achado lateral registrado na mesma checagem (09/08/2026 à noite):** o
      detector de bloqueio de scraping disparou e se recuperou corretamente
      — parou o lote após 5 consultas consecutivas sem dado, avisou no
@@ -888,145 +889,9 @@ efetivamente barra, confirmado pela Parte B. Fecha a pendência de RLS
 
 ---
 
-## Fatia C — visibilidade de compra entre usuários (CONCLUÍDA — desenhada 09/08/2026, Parte 1/banco 10/08/2026, Parte 2/frontend 11/08/2026)
+## Fatia C — visibilidade de compra entre usuários
 
-Terceira fatia do handoff de UI multi-usuário (depois da Fatia A, item 21 do
-`HISTORICO.md`, e da Fatia B, item 22) — a única das três que toca o banco,
-não só a UI. Motivo adicional registrado em 08/08/2026: além de sincronia
-geral entre os dois usuários, serve para logística de táxi (nota acima,
-"Nota (08/08/2026)").
-
-**Regra de produto (aprovada no chat de planejamento):** o outro usuário vê
-QUE você comprou uma perna e EM QUAL VOO. Nunca quanto você pagou, qual seu
-teto, nem seu localizador. Visibilidade só depois de `status = 'purchased'`
-— nunca antes (a alternativa de expor antes da compra foi descartada em
-08/08/2026, ver nota acima).
-
-**Mecanismo escolhido: tabela de projeção mantida por trigger.**
-`weekend_leg_purchase_shared`, alimentada por uma trigger `security definer`
-em `weekend_leg_user_state`, contendo só os 3 campos de voo (companhia,
-aeroporto, horário) + chave + timestamps — nenhum campo sensível (teto, valor
-pago, notas) chega a existir nessa tabela. Princípio: a garantia é
-**estrutural** (o dado sensível não está lá), não depende de um `WHERE`
-correto numa view ou função.
-
-**Duas alternativas avaliadas e descartadas**, e por quê:
-- **View com `security_invoker = off`** — daria à view acesso irrestrito às
-  tabelas de baixo, ignorando a RLS de `weekend_leg_user_state`; um `WHERE`
-  errado (ou um `select *` futuro) vazaria teto/pago/notas do outro usuário.
-  Bypass de RLS.
-- **Função RPC `security definer`** — mesmo problema: a função rodaria com o
-  privilégio de quem a criou, não de quem chama, e teria que reimplementar à
-  mão exatamente o filtro que a RLS já faz de graça. Bypass de RLS.
-
-Ambas descartadas pelo mesmo motivo de fundo, achado no diagnóstico desta
-fatia (08/08/2026): **todo objeto novo em `public` neste projeto nasce com os
-7 privilégios para `anon` e `authenticated`** — o Supabase aplica `alter
-default privileges grant all` no schema `public`. Isso já tinha corrigido a
-leitura do "Achado lateral" da Etapa 4.4 acima (grant da view nunca foi só
-`SELECT` por padrão; era só `SELECT` funcional porque a view não é
-atualizável, não porque o grant fosse restrito). Numa tabela de projeção, sem
-esse achado, o `revoke all` explícito não seria óbvio — e sem ele, `anon`
-teria os 7 privilégios sobre um objeto pensado para ser só-leitura de dado
-compartilhado.
-
-**Escopo, em duas partes:**
-- **Parte 1 (banco) — CONCLUÍDA e verificada em produção (10/08/2026).**
-  [sql/fatia_c_visibilidade_compra.sql](sql/fatia_c_visibilidade_compra.sql):
-  3 colunas de snapshot em `weekend_leg_user_state` (`purchased_airline`,
-  `purchased_airport`, `purchased_departure_time` — fotografia do voo
-  comprado, independente das colunas `current_*` que o robô reescreve);
-  tabela `weekend_leg_purchase_shared` (chave `leg_id`+`user_id`, FKs `on
-  delete cascade`); trigger `flyiop_sync_purchase_shared` (grava/atualiza a
-  projeção quando `status = 'purchased'`, remove em qualquer outro status ou
-  `DELETE` — o botão "desfazer" do painel limpa a projeção sozinho); RLS
-  ligada, `revoke all` explícito de `anon`/`authenticated` antes de qualquer
-  grant, `grant select` só para `authenticated`, uma única policy de
-  `SELECT` (`auth.uid() is not null`), nenhuma policy de escrita (só a
-  trigger grava); backfill idempotente a partir do que já está `purchased`
-  hoje (0 linhas). Guarda de inventário no início, 4 blocos de verificação no
-  fim (estrutura, grants/policies, prova de comportamento com rollback, prova
-  de isolamento com rollback).
-- **Parte 2 (frontend) — CONCLUÍDA e verificada em produção (11/08/2026).**
-  Planejada e implementada em sessão de Plan Mode própria (11/08/2026),
-  revisada em rodadas sucessivas de diff antes da aprovação do usuário,
-  commitada (`ca54dd8`) e enviada ao remoto no mesmo dia. **Roteiro de
-  verificação manual em produção concluído (11/08/2026): todos os itens
-  passaram, sem erro no console, sem regressão visível.** Arquivos
-  alterados:
-  - [docs/js/compras.js](docs/js/compras.js) — toda a lógica: 5 consultas
-    independentes em `loadWeekends` (`weekends`, `weekend_leg_effective`,
-    `weekend_legs` só com `current_airline`/`current_departure_time`,
-    `weekend_leg_purchase_shared` filtrada com `.neq('user_id', ...)` pra
-    excluir a própria linha, `weekend_leg_user_state` pro snapshot próprio);
-    `USER_LABELS` hardcoded (uuid do usuário → "Você", fallback "Outro
-    usuário"); linha `👥 ... já comprou` no card, condicional à existência de
-    linha na projeção; painel de confirmação de compra (abre em vez de
-    salvar direto, pré-preenche por snapshot → voo monitorado → vazio,
-    aeroporto com toggle GIG/SDU que desmarca no segundo clique, validação
-    de hora-sem-data); bloco de edição pós-compra (4 campos, 1 botão Salvar
-    só, não recarrega a página — snapshot em memória atualizado manualmente
-    no sucesso do save); helpers de assimetria de fuso (ver abaixo).
-  - [docs/css/style.css](docs/css/style.css) — classes novas pro painel de
-    confirmação, bloco de edição de voo e linha do outro usuário, todas
-    reaproveitando variáveis de cor já existentes (nenhuma nova); as 11
-    variáveis usadas foram conferidas uma a uma nos dois temas (claro e
-    escuro) antes do commit.
-  - `docs/compras.html` — **não tocado.** Os cards são montados 100% em JS;
-    confirmado que o arquivo não aparece em `git status`/`git diff`.
-  - Banco, RLS, trigger, `weekend_leg_effective`, `dashboard.js`,
-    `config.html`, Telegram — nenhum tocado, como o escopo previa.
-
-  **Achado que mudou o desenho, documentado em comentário no próprio
-  código:** `current_departure_time` (gravado pelo robô a partir da `fli`) é
-  datetime NAIVE rotulado como UTC pelo Postgres — ler cru (`HH:MM`/data sem
-  conversão de fuso) é o comportamento CORRETO, não bug a corrigir depois.
-  Já `purchased_departure_time` (gravado por esta fatia) tem offset `-03:00`
-  real e É convertido para `America/Sao_Paulo` na leitura. As duas funções
-  fazem o oposto uma da outra de propósito.
-
-  **Roteiro de verificação manual — ✅ CONCLUÍDO em produção (11/08/2026),
-  todos os itens abaixo passaram, sem erro no console, sem regressão
-  visível:**
-  - ✅ Perna não comprada: "Marcar como comprada" abre o painel
-    pré-preenchido pelo voo monitorado, hora batendo com o Google Flights
-    (confirma o achado de fuso). Cancelar não salva nada.
-  - ✅ Confirmar com tudo em branco: marca como comprada mesmo assim.
-  - ✅ Confirmar com hora preenchida e data vazia: avisa e não salva.
-  - ✅ Perna comprada: bloco de edição de voo salva os 4 campos num clique
-    só; a data/hora volta correta ao recarregar (round-trip `-03:00` →
-    `America/Sao_Paulo` confirmado).
-  - ✅ Desfazer e marcar de novo: o painel volta pré-preenchido com o que
-    tinha sido salvo antes (snapshot preservado através do desfazer).
-  - Linha `👥 ... já comprou` do outro usuário: comportamento de ausência
-    confirmado (nenhuma linha aparece em nenhum card, como esperado com um
-    usuário só) — **a verificação positiva (linha aparecendo de fato) só é
-    possível na Etapa 7, quando a segunda conta existir.** Não é uma
-    pendência desta fatia, é um limite estrutural do que dá para testar
-    hoje.
-- **Telegram** — fica para a Etapa 6, fora do escopo desta fatia.
-
-**Nada tocado nesta fatia:** `weekend_leg_effective`, `weekend_legs`,
-`settings`, as policies existentes de `weekend_leg_user_state`,
-`flyiop_audit_leg_ceiling`, `flyiop_touch_updated_at`, `docs/`, `src/`.
-
-**Resultado real, rodado manualmente no SQL Editor de produção em
-10/08/2026:**
-
-| bloco | resultado |
-|---|---|
-| G0 (inventário) | `colunas_snapshot_hoje = 0`, `projecao_existe_hoje = false`, `compradas_hoje = 0`, `linhas_estado_hoje = 5`, `pernas_hoje = 132`, `triggers_wlus_hoje = trg_audit_leg_ceiling,trg_wlus_touch` — bate 100% com o esperado |
-| V1 (estrutura) | `colunas_snapshot = 3`, `projecao_existe = true`, `colunas_projecao = 7`, `colunas_sensiveis_na_projecao = 0`, `triggers_wlus = trg_audit_leg_ceiling,trg_sync_purchase_shared,trg_wlus_touch` — bate 100% |
-| V2 (grants/policies) | `anon_privilegios = 0`, `authenticated_privilegios = 1`, `authenticated_so_select = true`, `rls_ligada = true`, `rls_forcada = false`, `policies = 1`, `policy_cmd = SELECT` — bate 100%. **Este é o bloco que prova que o achado do Bloco J do diagnóstico (objeto novo em `public` nasce com os 7 privilégios para `anon`) foi neutralizado nesta tabela** — `anon` termina com zero privilégio, como desenhado |
-| V3 (prova de comportamento, rollback) | `apos_compra = 1`, `voo_gravado = 'LATAM,GIG,2026-09-09 15:53:02.554533+00'`, `apos_desfazer = 0`, `apos_recomprar = 1`, `apos_delete_estado = 0` — bate 100%, os três ramos da trigger confirmados (insert-purchased, update-sai-de-purchased, delete) |
-| V4 (prova de isolamento, rollback) | `uid_visto = 00000000-...-0001`, `papel_efetivo = authenticated`, `projecao_esp_1 = 1`, `estado_pessoal_esp_0 = 0`, `view_efetiva_esp_0_sem_valor_probatorio = 0`, `escrita_direta_esp_bloqueada = 'bloqueado 42501'` — bate 100%. **A asserção com valor probatório de isolamento é `estado_pessoal_esp_0`** — `view_efetiva_esp_0_sem_valor_probatorio` bateu 0 como esperado, mas esse zero não prova RLS (o UUID fictício não tem linha em `settings`, então o `cross join` de `weekend_leg_effective` já dá 0 mesmo com a RLS inteira desligada — ressalva escrita no próprio script) |
-
-**Parte 1 CONCLUÍDA e verificada em produção (10/08/2026). Parte 2
-(frontend) CONCLUÍDA e verificada em produção (11/08/2026), roteiro de
-verificação manual listado acima 100% passado. FATIA C INTEIRA CONCLUÍDA
-(11/08/2026)** — resta só, fora do escopo desta fatia, a verificação
-positiva da linha do outro usuário, que depende da Etapa 7 (segunda
-conta), e o Telegram, que fica para a Etapa 6.
+Concluída (Parte 1/banco 10/08/2026, Parte 2/frontend 11/08/2026). Detalhe completo movido para `HISTORICO.md`, item 23.
 
 ---
 
