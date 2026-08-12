@@ -1,7 +1,41 @@
 # STATE.md — FlyIop
 
-> Atualizado em: 10/08/2026
-> Última sessão: Claude Code (10/08/2026, documentação apenas — nenhum
+> Atualizado em: 11/08/2026
+> Última sessão: Claude Code (11/08/2026) — **Fatia C, Parte 2 (frontend)
+> IMPLEMENTADA, aguardando verificação manual em produção.** Planejada em
+> Plan Mode (diagnóstico read-only inicial, plano escrito e aprovado com 4
+> ajustes do usuário antes da implementação) e implementada em
+> `docs/js/compras.js` + `docs/css/style.css` (`docs/compras.html` não
+> tocado — cards são montados 100% em JS). Entrega: painel de confirmação
+> de compra (abre em vez de salvar direto, pré-preenchido por
+> snapshot→voo monitorado→vazio), bloco de edição pós-compra (4 campos,
+> 1 botão Salvar), linha "outro usuário já comprou" no card (consome a
+> projeção `weekend_leg_purchase_shared` da Parte 1, filtrada no front pra
+> excluir a própria linha), toggle GIG/SDU que desmarca no segundo clique,
+> `USER_LABELS` hardcoded (uuid → "Você"). Achado registrado em comentário
+> no código: `current_departure_time` (robô) é datetime naive rotulado
+> como UTC — lido cru, sem conversão de fuso, de propósito; já
+> `purchased_departure_time` (esta fatia) tem offset `-03:00` real e É
+> convertido para `America/Sao_Paulo` na leitura — as duas funções fazem o
+> oposto uma da outra, comportamento correto, não bug. Revisão em 2
+> rodadas de diff completo com o usuário antes da aprovação (1ª rodada:
+> reposicionamento do bloco CSS + auditoria de variáveis de tema; 2ª
+> rodada: 4 correções — snapshot em memória não atualizava após salvar o
+> bloco de edição, `hourCycle: 'h23'` em vez de `hour12: false` por
+> precaução com Safari/iOS, `display: ''` em vez de `'block'` ao cancelar,
+> check-mark do bloco de edição não devia aparecer com os 4 campos vazios).
+> Sem `node` disponível no ambiente para `node --check`; verificação de
+> sintaxe feita manualmente (balanço de parênteses/chaves/colchetes e
+> contagem de crases). Detalhe completo, roteiro de verificação manual
+> pendente e lista de arquivos, em `PLANO-ATIVO.md`, seção "Fatia C".
+> Registradas também, sem ação: pergunta sobre a execução extra do dia
+> aparentemente pular Travelpayouts (seção 4) e confirmação de que o
+> resumo semanal do Telegram de 10/08/2026 bateu `0/132` sem erro,
+> fechando a pendência 13 da Etapa 4.2 com prova de produção, mais o
+> detector de bloqueio de scraping de 09/08 à noite tendo funcionado
+> corretamente (parou, avisou, recuperou sozinho) — ambos em
+> `PLANO-ATIVO.md`.
+> Sessão anterior: Claude Code (10/08/2026, documentação apenas — nenhum
 > comando executado contra o Supabase) — **Fatia C, Parte 1 (banco)
 > CONCLUÍDA E VERIFICADA EM PRODUÇÃO.** O usuário rodou
 > `sql/fatia_c_visibilidade_compra.sql` manualmente no SQL Editor; os 5
@@ -257,7 +291,7 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 
    **Etapa 5** (frontend por usuário) — ainda não iniciada, exige revisão explícita no chat de planejamento antes de começar (ver seção 4). Etapas 4 e 5 são modelo de dados e interface, valem independente de o alerta de perna funcionar.
 
-   **Fatia C — visibilidade de compra entre usuários (ATIVA, 09/08/2026), Parte 1 (banco) CONCLUÍDA e verificada em produção (10/08/2026).** Terceira fatia do handoff de UI multi-usuário (depois das Fatias A e B, `HISTORICO.md` itens 21/22) — a única que toca o banco. Regra de produto: o outro usuário vê QUE você comprou uma perna e EM QUAL VOO, nunca quanto pagou/teto/localizador, só depois de `status = 'purchased'`. Mecanismo: tabela de projeção (`weekend_leg_purchase_shared`) mantida por trigger `security definer`, com só os 3 campos de voo — nenhum campo sensível chega a existir na tabela compartilhada; view/função `security definer` avaliadas e descartadas por serem bypass de RLS. Script [sql/fatia_c_visibilidade_compra.sql](sql/fatia_c_visibilidade_compra.sql) rodado manualmente no SQL Editor de produção em 10/08/2026, os 5 blocos de verificação (G0 + V1-V4) batendo 100% com o esperado. **Parte 2 (frontend) segue sem prompt escrito** — aguardando início no chat de planejamento. Detalhe completo, resultado real bloco a bloco, em `PLANO-ATIVO.md`, seção "Fatia C".
+   **Fatia C — visibilidade de compra entre usuários (ATIVA, 09/08/2026), Parte 1 (banco) CONCLUÍDA e verificada em produção (10/08/2026), Parte 2 (frontend) IMPLEMENTADA (11/08/2026), aguardando verificação manual em produção.** Terceira fatia do handoff de UI multi-usuário (depois das Fatias A e B, `HISTORICO.md` itens 21/22) — a única que toca o banco. Regra de produto: o outro usuário vê QUE você comprou uma perna e EM QUAL VOO, nunca quanto pagou/teto/localizador, só depois de `status = 'purchased'`. Mecanismo: tabela de projeção (`weekend_leg_purchase_shared`) mantida por trigger `security definer`, com só os 3 campos de voo — nenhum campo sensível chega a existir na tabela compartilhada; view/função `security definer` avaliadas e descartadas por serem bypass de RLS. Script [sql/fatia_c_visibilidade_compra.sql](sql/fatia_c_visibilidade_compra.sql) rodado manualmente no SQL Editor de produção em 10/08/2026, os 5 blocos de verificação (G0 + V1-V4) batendo 100% com o esperado. **Parte 2 (frontend) implementada em 11/08/2026** (`docs/js/compras.js`, `docs/css/style.css`; `docs/compras.html` não tocado) — painel de confirmação de compra, bloco de edição pós-compra, linha "outro usuário já comprou" no card, todos aguardando o roteiro de verificação manual em produção antes de a fatia inteira ser considerada fechada (o item mais sensível, a linha do outro usuário, só é verificável de fato na Etapa 7, quando a segunda conta existir). Detalhe completo, resultado real bloco a bloco e roteiro de verificação, em `PLANO-ATIVO.md`, seção "Fatia C".
 
    **Desejo do usuário, registrado em 02/08/2026: criar a conta do segundo usuário — objetivo ativo, não recusado.** Bloqueado pela regra dura da Etapa 7 (`PLANO-ATIVO.md`), que exige 4.2/4.3/5/6 concluídas antes. **Os dois desejos registrados em 02/08/2026 (aumentar frequência do scraping, item 1 acima, e criar a conta do segundo usuário) são objetivos ativos, nenhum recusado — o caminho para os dois é concluir a Etapa 4.2.**
 3. ✅ **Concluído (04/08/2026, corrigido em 05/08/2026, verificado em produção em 06/08/2026).** Teto padrão recalibrado de R$250 para R$300 — ver seção 2, "Decisões vivas", pelo incidente de gravação, a correção manual e a prova final de produção.
@@ -286,6 +320,7 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 - **DETECTOR DE BLOQUEIO POSSIVELMENTE MAL CALIBRADO:** o limiar documentado (sucesso <50% com amostra ≥8) não disparou apesar de 85% de falha no dia. **Não investigado a fundo** — mas a investigação do item de volume abaixo já apurou um dado relevante: o detector (`live_check.py:218-220`) calcula `success_rate` só sobre o lote `fli` do dia, nunca sobre o total (o lote cache, que historicamente erra ~98% das pernas, não entra nessa conta). Se essa leitura estiver certa, não é miscalibração de limiar — é escopo: o detector nunca teve a intenção de olhar o dia inteiro, só o lote que ele mesmo executa. Revisar essa leitura antes de mexer no limiar.
 - **VOLUME DE CHECAGENS ACIMA DO PREVISTO — investigado e explicado (02/08/2026).** 152 checagens/dia contra `batch_size` 20 e ~43 pernas elegíveis pareciam divergentes. Leitura de código (`weekends.py`, `live_check.py`, `scrape_schedule.py`) explica o número: são dois lotes com escopos diferentes somados, cada um gravando 1 linha por perna, sem retentativa gerando linha extra — **cache** (`process_all_weekend_legs`/`get_active_legs`) roda TODA perna `monitoring` não expirada, **sem limite de janela de meses à frente** (~132 pernas), e **lote ao vivo** (`run_daily_batch`/`select_batch`) é o único limitado por `batch_size` (20) e pela janela de 183 dias. 132 + 20 = 152, bate exato. **IMPEDITIVO ATUAL para aumentar a frequência do cron:** enquanto não se souber se o volume do cache (sem limite de janela, ~132/dia, roda 1x/dia independente do estágio) muda com o aumento de frequência do lote `fli`, multiplicar a frequência viola a regra de scraping discreto. Achado registrado, decisão não tomada nesta tarefa.
 - **ALERTA DE OPORTUNIDADE FORA DA JANELA DE COMPRA** — ver item acima ("ACHADO NOVO A DECIDIR"), continua listado, sem decisão.
+- **PERGUNTA ABERTA, REGISTRADA 11/08/2026 — "execução extra do dia" parece pular Travelpayouts, não só rotas flexíveis.** O item 1 da seção 1 já documenta que só a primeira execução do dia roda "rotas flexíveis/cache Travelpayouts/notificações", com as execuções extras rodando só o lote `fli`. Em observação recente, o usuário notou que a execução extra também não roda Travelpayouts — ainda não está claro se isso é exatamente esse comportamento já documentado (e portanto intencional) ou um achado novo/divergente. **Travelpayouts deve continuar rodando normalmente** — não é decisão de reduzir seu uso. **Sem ação agora** — só registrado para não esquecer; investigar em sessão futura antes de tirar conclusão.
 
 ## 5. Fora de escopo (lembrete de disciplina)
 
@@ -300,7 +335,7 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 
 - Repo: github.com/Eltoneap/flyiop (público)
 - `STATE.md` — este arquivo: orientação de alto nível, lido no início de qualquer sessão nova
-- `PLANO-ATIVO.md` — plano técnico detalhado só da Parte em execução agora. **Não está vazio (10/08/2026):** contém a iniciativa multi-usuário (Etapa 4.2 com as 13 pendências nomeadas — 12 concluídas, 1–11 e 13, restando só a 12, backlog de UI — e o histórico da regra de janela aberta, encerrada; Etapas 4.3 e 4.4 concluídas e verificadas em produção), o que restou do diagnóstico de alerta de perna (item (e), perguntas abertas), as pendências de escopo separado, e a **Fatia C (visibilidade de compra entre usuários) ativa — Parte 1 (banco) concluída e verificada em produção, Parte 2 (frontend) ainda sem prompt escrito** — ver seção 3.
+- `PLANO-ATIVO.md` — plano técnico detalhado só da Parte em execução agora. **Não está vazio (11/08/2026):** contém a iniciativa multi-usuário (Etapa 4.2 com as 13 pendências nomeadas — 12 concluídas, 1–11 e 13, restando só a 12, backlog de UI — e o histórico da regra de janela aberta, encerrada; Etapas 4.3 e 4.4 concluídas e verificadas em produção), o que restou do diagnóstico de alerta de perna (item (e), perguntas abertas), as pendências de escopo separado, e a **Fatia C (visibilidade de compra entre usuários) ativa — Parte 1 (banco) concluída e verificada em produção, Parte 2 (frontend) implementada (11/08/2026), aguardando verificação manual em produção** — ver seção 3.
 - `HISTORICO.md` — tudo já decidido/implementado, cronológico
 - `CLAUDE.md` — escopo geral do projeto (lido automaticamente pelo Claude Code)
 - `PROTOCOLO-DE-TRABALHO.md` — como usuário e Claude Code trabalham juntos (Plan Mode, gatilhos de revisão, regra de manutenção dos três arquivos de documentação)

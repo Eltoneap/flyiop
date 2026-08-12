@@ -637,7 +637,19 @@ cada passo futuro é discutido quando chegar a vez dele.
    resultado real da mensagem de resumo semanal do Telegram** (contagem de
    pernas compradas — esperado: 0, sem erro) **e o resultado é registrado
    neste item.**
-   - Resultado de 10/08/2026: _(aguardando)_
+   - **Resultado de 10/08/2026: ✅ confirmado.** Resumo semanal do Telegram
+     relatou `0/132` pernas compradas, sem erro — bate exato com o esperado,
+     fecha de vez a pendência 13 da Etapa 4.2 (`get_weekend_leg_counts`,
+     commit `b22a569`) com prova de produção real, não só verificação por
+     SQL.
+   - **Achado lateral registrado na mesma checagem (09/08/2026 à noite):** o
+     detector de bloqueio de scraping disparou e se recuperou corretamente
+     — parou o lote após 5 consultas consecutivas sem dado, avisou no
+     Telegram, e o lote voltou ao normal sozinho na execução seguinte (dia
+     seguinte), sem intervenção manual. Registrado como prova de que o
+     mecanismo de proteção (kill automático + aviso, sem tentativa de
+     contornar) funciona como desenhado — não é incidente, é o
+     comportamento correto sob bloqueio real.
 3. ✅ **CONCLUÍDO (06/08/2026).** Backup + `DROP` das 5 colunas legadas
    executados em produção pelo usuário, no SQL Editor. Script:
    `sql/etapa4_3_drop_colunas_legadas.sql` — Bloco 0 (inventário de definição,
@@ -935,7 +947,57 @@ compartilhado.
   hoje (0 linhas). Guarda de inventário no início, 4 blocos de verificação no
   fim (estrutura, grants/policies, prova de comportamento com rollback, prova
   de isolamento com rollback).
-- **Parte 2 (frontend)** — prompt separado, ainda não escrito.
+- **Parte 2 (frontend) — IMPLEMENTADA (11/08/2026), aguardando verificação
+  manual em produção.** Planejada e implementada em sessão de Plan Mode
+  própria (11/08/2026), revisada em rodadas sucessivas de diff antes da
+  aprovação do usuário. Arquivos alterados:
+  - [docs/js/compras.js](docs/js/compras.js) — toda a lógica: 5 consultas
+    independentes em `loadWeekends` (`weekends`, `weekend_leg_effective`,
+    `weekend_legs` só com `current_airline`/`current_departure_time`,
+    `weekend_leg_purchase_shared` filtrada com `.neq('user_id', ...)` pra
+    excluir a própria linha, `weekend_leg_user_state` pro snapshot próprio);
+    `USER_LABELS` hardcoded (uuid do usuário → "Você", fallback "Outro
+    usuário"); linha `👥 ... já comprou` no card, condicional à existência de
+    linha na projeção; painel de confirmação de compra (abre em vez de
+    salvar direto, pré-preenche por snapshot → voo monitorado → vazio,
+    aeroporto com toggle GIG/SDU que desmarca no segundo clique, validação
+    de hora-sem-data); bloco de edição pós-compra (4 campos, 1 botão Salvar
+    só, não recarrega a página — snapshot em memória atualizado manualmente
+    no sucesso do save); helpers de assimetria de fuso (ver abaixo).
+  - [docs/css/style.css](docs/css/style.css) — classes novas pro painel de
+    confirmação, bloco de edição de voo e linha do outro usuário, todas
+    reaproveitando variáveis de cor já existentes (nenhuma nova); as 11
+    variáveis usadas foram conferidas uma a uma nos dois temas (claro e
+    escuro) antes do commit.
+  - `docs/compras.html` — **não tocado.** Os cards são montados 100% em JS;
+    confirmado que o arquivo não aparece em `git status`/`git diff`.
+  - Banco, RLS, trigger, `weekend_leg_effective`, `dashboard.js`,
+    `config.html`, Telegram — nenhum tocado, como o escopo previa.
+
+  **Achado que mudou o desenho, documentado em comentário no próprio
+  código:** `current_departure_time` (gravado pelo robô a partir da `fli`) é
+  datetime NAIVE rotulado como UTC pelo Postgres — ler cru (`HH:MM`/data sem
+  conversão de fuso) é o comportamento CORRETO, não bug a corrigir depois.
+  Já `purchased_departure_time` (gravado por esta fatia) tem offset `-03:00`
+  real e É convertido para `America/Sao_Paulo` na leitura. As duas funções
+  fazem o oposto uma da outra de propósito.
+
+  **Roteiro de verificação manual (produção, pendente — exige login, o
+  Claude Code não tenta obter/preencher credencial):**
+  - Perna não comprada: "Marcar como comprada" abre o painel pré-preenchido
+    pelo voo monitorado (conferir se a hora bate com o Google Flights — é o
+    teste do achado de fuso). Cancelar não salva nada.
+  - Confirmar com tudo em branco: marca como comprada mesmo assim.
+  - Confirmar com hora preenchida e data vazia: avisa e não salva.
+  - Perna comprada: bloco de edição de voo salva os 4 campos num clique só;
+    a data/hora volta correta ao recarregar (prova o round-trip `-03:00` →
+    `America/Sao_Paulo`).
+  - Desfazer e marcar de novo: o painel volta pré-preenchido com o que
+    tinha sido salvo antes (snapshot preservado através do desfazer).
+  - Linha `👥 ... já comprou` do outro usuário: só verificável de fato na
+    Etapa 7, quando a segunda conta existir. Até lá, o comportamento
+    observável correto é ausência total — nenhuma linha deve aparecer em
+    nenhum card.
 - **Telegram** — fica para a Etapa 6, fora do escopo desta fatia.
 
 **Nada tocado nesta fatia:** `weekend_leg_effective`, `weekend_legs`,
@@ -954,8 +1016,9 @@ compartilhado.
 | V4 (prova de isolamento, rollback) | `uid_visto = 00000000-...-0001`, `papel_efetivo = authenticated`, `projecao_esp_1 = 1`, `estado_pessoal_esp_0 = 0`, `view_efetiva_esp_0_sem_valor_probatorio = 0`, `escrita_direta_esp_bloqueada = 'bloqueado 42501'` — bate 100%. **A asserção com valor probatório de isolamento é `estado_pessoal_esp_0`** — `view_efetiva_esp_0_sem_valor_probatorio` bateu 0 como esperado, mas esse zero não prova RLS (o UUID fictício não tem linha em `settings`, então o `cross join` de `weekend_leg_effective` já dá 0 mesmo com a RLS inteira desligada — ressalva escrita no próprio script) |
 
 **Parte 1 CONCLUÍDA e verificada em produção (10/08/2026). Parte 2
-(frontend) segue sem prompt escrito — aguardando início no chat de
-planejamento.**
+(frontend) IMPLEMENTADA (11/08/2026), aguardando o roteiro de verificação
+manual em produção listado acima antes de considerar a fatia inteira
+fechada.**
 
 ---
 

@@ -878,3 +878,79 @@ button.small.dirty {
 
 .count-part { color: var(--amber); }
 .count-done { color: var(--good); }
+
+/* Fatia C, Parte 2 — visibilidade de compra entre usuários (linha do outro
+   usuário no card, painel de confirmação de compra, bloco de edição
+   pós-compra). Reaproveita as variáveis de cor já existentes acima, nenhuma
+   nova. */
+
+.leg-shared {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.leg-row-flight,
+.leg-row-confirm {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.leg-flight-label,
+.leg-confirm-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0;
+  white-space: nowrap;
+}
+
+.leg-flight-input,
+.leg-confirm-input {
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.leg-flight-input--text,
+.leg-confirm-input--text { width: 100px; }
+.leg-flight-input--date,
+.leg-confirm-input--date { width: 130px; }
+.leg-flight-input--time,
+.leg-confirm-input--time { width: 90px; }
+
+.leg-airport-btn {
+  padding: 5px 10px;
+  font-size: 12px;
+  margin-right: 0;
+  background: var(--card);
+  color: var(--text);
+  border: 1.5px solid var(--border);
+}
+
+.leg-airport-btn:hover { background: var(--neutral-bg); }
+
+.leg-airport-btn.is-selected {
+  background: var(--primary-tint-bg);
+  color: var(--primary-dark);
+  border-color: var(--outline-border);
+}
+
+.leg-confirm-actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.leg-confirm-hint {
+  font-size: 11px;
+  color: var(--muted);
+  font-style: italic;
+  width: 100%;
+}

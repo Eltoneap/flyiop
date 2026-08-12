@@ -5,9 +5,16 @@ import { weekendTags } from './holidays.js';
 const VALID_FILTERS = ['todas', 'abaixo-do-teto', 'sem-preco', 'feriado-alta-temporada', 'proximos-60-dias'];
 const URGENCY_WINDOW_DAYS = 60;
 
+// Fatia C, Parte 2 — rótulo de usuário na linha de compra do outro usuário.
+// Hardcoded, igual ao chat_id do Telegram: sem tabela nova, sem UI de
+// cadastro. Ganha a segunda entrada quando a segunda conta existir (Etapa 7).
+const USER_LABELS = { 'c72bf50e-16f7-48fd-9c86-7b49dea1551e': 'Você' };
+const DEFAULT_USER_LABEL = 'Outro usuário';
+
 let allWeekends = [];
 let currentTab = 'active';
 let currentFilter = 'todas';
+let currentUserId = null;
 
 function showFlash(text) {
   const flash = document.getElementById('flash');
@@ -54,6 +61,57 @@ async function updateLegState(legId, fields) {
 
 function escapeAttr(text) {
   return String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+// Fatia C, Parte 2 — assimetria de fuso deliberada entre dois campos que
+// parecem iguais mas não são:
+//
+// current_departure_time (robô, fli): a fli devolve datetime NAIVE — hora
+// LOCAL do voo, sem offset (tests/test_live_check.py: "2026-09-04T08:30:00").
+// Ao gravar numa coluna timestamptz, o Postgres rotula como +00. Um voo que
+// sai 08:30 de Brasília fica gravado como 08:30+00. Ler o HH:MM/data CRUS da
+// string, SEM conversão de fuso, é o comportamento CORRETO aqui — converter
+// para America/Sao_Paulo daria 05:30, errado por 3h.
+function rawDateFromRobotTimestamp(iso) {
+  return iso ? iso.slice(0, 10) : null;
+}
+function rawTimeFromRobotTimestamp(iso) {
+  return iso ? iso.slice(11, 16) : null;
+}
+
+// purchased_departure_time (esta fatia): gravado com offset -03:00 real —
+// timestamptz correto. Aqui SIM convertemos para America/Sao_Paulo na
+// leitura. Brasil não tem horário de verão desde 2019, então -03:00 fixo
+// cobre toda a janela 2026-2027 monitorada.
+const SP_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
+});
+// hourCycle: 'h23' em vez de hour12: false — com hour12 alguns motores
+// (historicamente Safari/iOS) devolvem "24:00" para meia-noite, que é valor
+// inválido num <input type="time">. Precaução, não bug reproduzido.
+const SP_TIME_FORMATTER = new Intl.DateTimeFormat('pt-BR', {
+  timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+});
+function spDateTimeParts(iso) {
+  if (!iso) return { date: null, time: null };
+  const d = new Date(iso);
+  return { date: SP_DATE_FORMATTER.format(d), time: SP_TIME_FORMATTER.format(d) };
+}
+
+function composeDepartureTimestamp(date, time) {
+  return date && time ? `${date}T${time}:00-03:00` : null;
+}
+
+function formatSharedFlight(row) {
+  const label = USER_LABELS[row.user_id] || DEFAULT_USER_LABEL;
+  const { date, time } = spDateTimeParts(row.purchased_departure_time);
+  const bits = [
+    row.purchased_airline,
+    row.purchased_airport,
+    date && time ? `${formatDateBr(date)}, ${time}` : null,
+  ].filter(Boolean);
+  if (bits.length === 0) return `👥 ${label} já comprou · voo não informado`;
+  return `👥 ${label} já comprou · ${bits.join(' · ')}`;
 }
 
 function formatLastCheck(iso) {
@@ -146,6 +204,13 @@ function renderLegRow(leg, weekend) {
   const notesFilled = !!(leg.notes ?? '').toString().trim();
   const paidFilled = leg.paid_price != null && leg.paid_price !== '';
 
+  // Linha do outro usuário (item 3) — só existe se houver linha na projeção
+  // filtrada (loadWeekends já removeu a própria linha via .neq). Nunca entra
+  // em contadores/progresso/abas/filtros, que continuam lendo só leg.status.
+  const sharedHtml = (leg.shared_purchases || [])
+    .map((sharedRow) => `<span class="leg-shared">${escapeAttr(formatSharedFlight(sharedRow))}</span>`)
+    .join('');
+
   row.innerHTML = `
     <div class="leg-row-main">
       <span class="leg-title">${title}${date ? ' ' + formatDateBr(date) : ''}</span>
@@ -155,6 +220,7 @@ function renderLegRow(leg, weekend) {
       <span class="leg-updated">atualizado ${formatLastCheck(leg.last_live_check_at)}</span>
       <a class="small leg-buy-link" href="${purchaseLink}" target="_blank" rel="noopener">Ver/comprar</a>
     </div>
+    ${sharedHtml}
     <div class="leg-row-controls">
       <label class="leg-ceiling-label">
         teto R$ <input type="number" step="1" min="0" value="${leg.price_ceiling}" class="leg-ceiling-input field-filled">
@@ -162,10 +228,10 @@ function renderLegRow(leg, weekend) {
       </label>
       <button type="button" class="small leg-ceiling-save">Salvar</button>
       <span class="badge ${badge.cls}">${badge.text}</span>
-      ${isPurchased ? '<button type="button" class="leg-action btn-undo">Desfazer compra</button>' : ''}
+      ${isPurchased ? '<button type="button" class="btn-undo">Desfazer compra</button>' : ''}
     </div>
     <div class="leg-row-notes">
-      <input type="text" class="leg-notes-input ${notesFilled ? 'field-filled' : 'field-empty'}" placeholder="localizador, horário..." value="${escapeAttr(leg.notes ?? '')}">
+      <input type="text" class="leg-notes-input ${notesFilled ? 'field-filled' : 'field-empty'}" placeholder="localizador, observações..." value="${escapeAttr(leg.notes ?? '')}">
       <span class="save-check leg-notes-check">✓</span>
       <button type="button" class="small leg-notes-save">Salvar</button>
     </div>
@@ -177,8 +243,48 @@ function renderLegRow(leg, weekend) {
       <button type="button" class="small leg-paid-save">Salvar</button>
       <span class="leg-paid-hint">valor real, com taxas — diferente do preço monitorado</span>
     </div>
+    <div class="leg-row-flight">
+      <label class="leg-flight-label">Companhia
+        <input type="text" class="leg-flight-airline leg-flight-input leg-flight-input--text" placeholder="ex: LATAM">
+      </label>
+      <div class="leg-flight-label">Aeroporto
+        <button type="button" class="leg-airport-btn leg-flight-airport" data-airport="GIG">GIG</button>
+        <button type="button" class="leg-airport-btn leg-flight-airport" data-airport="SDU">SDU</button>
+      </div>
+      <label class="leg-flight-label">Data
+        <input type="date" class="leg-flight-date leg-flight-input leg-flight-input--date">
+      </label>
+      <label class="leg-flight-label">Hora
+        <input type="time" class="leg-flight-time leg-flight-input leg-flight-input--time">
+      </label>
+      <button type="button" class="small leg-flight-save">Salvar</button>
+      <span class="save-check leg-flight-check">✓</span>
+      <span class="leg-flight-hint leg-confirm-hint" style="display:none;">Informe a data para salvar o horário.</span>
+    </div>
     ` : ''}
-    ${!isPurchased ? '<button type="button" class="leg-action btn-outline-full">Marcar como comprada</button>' : ''}
+    ${!isPurchased ? `
+    <button type="button" class="btn-outline-full leg-mark-bought">Marcar como comprada</button>
+    <div class="leg-row-confirm" style="display:none;">
+      <label class="leg-confirm-label">Companhia
+        <input type="text" class="leg-confirm-airline leg-confirm-input leg-confirm-input--text" placeholder="ex: LATAM">
+      </label>
+      <div class="leg-confirm-label">Aeroporto
+        <button type="button" class="leg-airport-btn leg-confirm-airport" data-airport="GIG">GIG</button>
+        <button type="button" class="leg-airport-btn leg-confirm-airport" data-airport="SDU">SDU</button>
+      </div>
+      <label class="leg-confirm-label">Data
+        <input type="date" class="leg-confirm-date leg-confirm-input leg-confirm-input--date">
+      </label>
+      <label class="leg-confirm-label">Hora
+        <input type="time" class="leg-confirm-time leg-confirm-input leg-confirm-input--time">
+      </label>
+      <div class="leg-confirm-actions">
+        <button type="button" class="small leg-confirm-save">Confirmar compra</button>
+        <button type="button" class="small leg-confirm-cancel">Cancelar</button>
+      </div>
+      <span class="leg-confirm-hint" style="display:none;">Informe a data para salvar o horário.</span>
+    </div>
+    ` : ''}
   `;
 
   // Estado visual "salvo" (botão discreto + ✓) vs "não salvo, alteração
@@ -277,19 +383,172 @@ function renderLegRow(leg, weekend) {
     paidBtn.addEventListener('click', savePaid);
   }
 
-  row.querySelector('.leg-action').addEventListener('click', async () => {
-    const nextStatus = isPurchased ? 'monitoring' : 'purchased';
-    const error = await updateLegState(leg.id, {
-      status: nextStatus,
-      purchased_at: isPurchased ? null : new Date().toISOString(),
+  // Desfazer compra (item 6) — sem mudança de comportamento: um clique, sem
+  // diálogo. A trigger flyiop_sync_purchase_shared limpa a projeção sozinha;
+  // as 3 colunas de snapshot permanecem na linha do usuário (não tocadas
+  // aqui), o que é o que sustenta a recompra pré-preenchida (item 7).
+  const undoBtn = row.querySelector('.btn-undo');
+  if (undoBtn) {
+    undoBtn.addEventListener('click', async () => {
+      const error = await updateLegState(leg.id, { status: 'monitoring', purchased_at: null });
+      if (error) {
+        alert('Erro ao desfazer: ' + error.message);
+        return;
+      }
+      showFlash('Desfeito — voltou para monitoramento.');
+      await loadWeekends();
     });
-    if (error) {
-      alert('Erro ao atualizar: ' + error.message);
-      return;
-    }
-    showFlash(isPurchased ? 'Desfeito — voltou para monitoramento.' : 'Marcada como comprada — pode desfazer quando quiser.');
-    await loadWeekends();
-  });
+  }
+
+  // Toggle de seleção única com "clicar de novo desmarca" (ajuste B) —
+  // reaproveitado no painel de confirmação e no bloco de edição pós-compra.
+  const wireAirportToggle = (buttons, initial, onChange) => {
+    let selected = initial;
+    const paint = () => buttons.forEach((b) => b.classList.toggle('is-selected', b.dataset.airport === selected));
+    paint();
+    buttons.forEach((btn) => btn.addEventListener('click', () => {
+      selected = selected === btn.dataset.airport ? null : btn.dataset.airport;
+      paint();
+      onChange(selected);
+    }));
+    return () => selected;
+  };
+
+  // Painel de confirmação de compra (item 4) — substitui o clique direto:
+  // "Marcar como comprada" abre o painel, só o botão Confirmar salva.
+  const markBoughtBtn = row.querySelector('.leg-mark-bought');
+  if (markBoughtBtn) {
+    const confirmPanel = row.querySelector('.leg-row-confirm');
+    const airlineInput = row.querySelector('.leg-confirm-airline');
+    const dateInput = row.querySelector('.leg-confirm-date');
+    const timeInput = row.querySelector('.leg-confirm-time');
+    const confirmHint = row.querySelector('.leg-row-confirm .leg-confirm-hint');
+    const confirmSaveBtn = row.querySelector('.leg-confirm-save');
+    const confirmCancelBtn = row.querySelector('.leg-confirm-cancel');
+    const airportButtons = Array.from(row.querySelectorAll('.leg-confirm-airport'));
+
+    const snapshot = leg.purchased_snapshot;
+    const snapshotParts = spDateTimeParts(snapshot?.purchased_departure_time);
+    const robotDate = rawDateFromRobotTimestamp(leg.current_departure_time);
+    const robotTime = rawTimeFromRobotTimestamp(leg.current_departure_time);
+
+    // Ajuste A: sempre que a hora vier pré-preenchida a partir do voo
+    // monitorado, a data precisa vir junto — senão o painel nasce num estado
+    // que a própria validação de baixo bloqueia (hora sem data). Cadeia:
+    // snapshot → data da perna → data crua do voo monitorado → vazio.
+    airlineInput.value = snapshot?.purchased_airline ?? leg.current_airline ?? '';
+    dateInput.value = snapshotParts.date ?? date ?? robotDate ?? '';
+    timeInput.value = snapshotParts.time ?? robotTime ?? '';
+    const getSelectedAirport = wireAirportToggle(
+      airportButtons,
+      snapshot?.purchased_airport ?? leg.current_airport ?? null,
+      () => {},
+    );
+
+    markBoughtBtn.addEventListener('click', () => {
+      markBoughtBtn.style.display = 'none';
+      confirmPanel.style.display = 'flex';
+    });
+
+    confirmCancelBtn.addEventListener('click', () => {
+      confirmPanel.style.display = 'none';
+      markBoughtBtn.style.display = ''; // remove o inline, devolve o botão ao que o CSS define
+    });
+
+    confirmSaveBtn.addEventListener('click', async () => {
+      const purchasedDate = dateInput.value || null;
+      const purchasedTime = timeInput.value || null;
+      if (purchasedTime && !purchasedDate) {
+        confirmHint.style.display = 'block';
+        return;
+      }
+      confirmHint.style.display = 'none';
+      const error = await updateLegState(leg.id, {
+        status: 'purchased',
+        purchased_at: new Date().toISOString(),
+        purchased_airline: airlineInput.value.trim() || null,
+        purchased_airport: getSelectedAirport(),
+        purchased_departure_time: composeDepartureTimestamp(purchasedDate, purchasedTime),
+      });
+      if (error) {
+        alert('Erro ao marcar como comprada: ' + error.message);
+        return;
+      }
+      showFlash('Marcada como comprada — pode desfazer quando quiser.');
+      await loadWeekends();
+    });
+  }
+
+  // Bloco de edição pós-compra (item 5) — 1 botão Salvar para os 4 campos
+  // juntos (diferente de paid/notes, que têm 1 por campo): data e hora se
+  // combinam num timestamptz só, salvar separado quebraria o valor.
+  const flightAirlineInput = row.querySelector('.leg-flight-airline');
+  if (flightAirlineInput) {
+    const flightDateInput = row.querySelector('.leg-flight-date');
+    const flightTimeInput = row.querySelector('.leg-flight-time');
+    const flightHint = row.querySelector('.leg-flight-hint');
+    const flightSaveBtn = row.querySelector('.leg-flight-save');
+    const flightCheck = row.querySelector('.leg-flight-check');
+    const flightAirportButtons = Array.from(row.querySelectorAll('.leg-flight-airport'));
+    const flightInputs = [flightAirlineInput, flightDateInput, flightTimeInput];
+
+    const snapshot = leg.purchased_snapshot;
+    const snapshotParts = spDateTimeParts(snapshot?.purchased_departure_time);
+    flightAirlineInput.value = snapshot?.purchased_airline ?? '';
+    flightDateInput.value = snapshotParts.date ?? '';
+    flightTimeInput.value = snapshotParts.time ?? '';
+
+    let flightSaved = true;
+    // Mesmo padrão de markFieldState (saved && hasValue): o ✓ só aparece se
+    // houver de fato algo salvo — bloco inteiro em branco não ganha check.
+    const markFlightState = (saved) => {
+      flightSaveBtn.classList.toggle('saved', saved);
+      flightSaveBtn.classList.toggle('dirty', !saved);
+      flightInputs.forEach((input) => input.classList.toggle('field-dirty', !saved));
+      const hasValue = flightInputs.some((input) => input.value !== '') || !!getSelectedAirport();
+      flightCheck.style.display = saved && hasValue ? 'inline' : 'none';
+    };
+
+    const getSelectedAirport = wireAirportToggle(flightAirportButtons, snapshot?.purchased_airport ?? null, () => {
+      flightSaved = false;
+      markFlightState(false);
+    });
+    markFlightState(true); // depois do toggle: markFlightState lê getSelectedAirport
+
+    flightInputs.forEach((input) => input.addEventListener('input', () => {
+      flightSaved = false;
+      markFlightState(false);
+    }));
+
+    flightSaveBtn.addEventListener('click', async () => {
+      if (flightSaved) return;
+      const purchasedDate = flightDateInput.value || null;
+      const purchasedTime = flightTimeInput.value || null;
+      if (purchasedTime && !purchasedDate) {
+        flightHint.style.display = 'block';
+        return;
+      }
+      flightHint.style.display = 'none';
+      const flight = {
+        purchased_airline: flightAirlineInput.value.trim() || null,
+        purchased_airport: getSelectedAirport(),
+        purchased_departure_time: composeDepartureTimestamp(purchasedDate, purchasedTime),
+      };
+      const error = await updateLegState(leg.id, flight);
+      if (error) {
+        alert('Erro ao salvar dados do voo: ' + error.message);
+        return;
+      }
+      // Este bloco não recarrega a página (igual a paid/notes), então o
+      // snapshot em memória precisa acompanhar: sem isso, um re-render sem
+      // reload (trocar de aba, trocar de filtro) redesenharia os campos com o
+      // valor ANTIGO, parecendo que o salvamento falhou.
+      leg.purchased_snapshot = { ...(leg.purchased_snapshot || {}), ...flight };
+      flightSaved = true;
+      markFlightState(true);
+      showFlash('Dados do voo salvos.');
+    });
+  }
 
   return row;
 }
@@ -446,30 +705,57 @@ function normalizeLegRow(row) {
 }
 
 async function loadWeekends() {
-  const { data: weekends, error: wErr } = await supabase
-    .from('weekends')
-    .select('*')
-    .order('outbound_date', { ascending: true });
-  if (wErr) {
-    alert('Erro ao carregar fins de semana: ' + wErr.message);
+  // Fatia C, Parte 2 — 5 consultas independentes, nenhuma misturada num
+  // select('*') só. As 2 primeiras mantêm o comportamento de erro bloqueante
+  // de antes (sem elas o painel não tem o que mostrar); as 3 novas falham
+  // suave — funcionalidade nova não deve derrubar o painel inteiro.
+  const [wRes, lRes, legsRes, sharedRes, snapshotRes] = await Promise.all([
+    supabase.from('weekends').select('*').order('outbound_date', { ascending: true }),
+    supabase.from('weekend_leg_effective').select('*'),
+    supabase.from('weekend_legs').select('id, current_airline, current_departure_time'),
+    supabase.from('weekend_leg_purchase_shared')
+      .select('leg_id, user_id, purchased_airline, purchased_airport, purchased_departure_time')
+      .neq('user_id', currentUserId), // policy devolve a própria linha também — filtro no front é obrigatório
+    supabase.from('weekend_leg_user_state')
+      .select('leg_id, purchased_airline, purchased_airport, purchased_departure_time'),
+  ]);
+
+  if (wRes.error) {
+    alert('Erro ao carregar fins de semana: ' + wRes.error.message);
     return;
+  }
+  if (lRes.error) {
+    alert('Erro ao carregar tetos e status: ' + lRes.error.message);
+    return;
+  }
+  if (legsRes.error) console.error('Erro ao carregar dados de voo (weekend_legs):', legsRes.error);
+  if (sharedRes.error) console.error('Erro ao carregar compras de outros usuários:', sharedRes.error);
+  if (snapshotRes.error) console.error('Erro ao carregar snapshot de compra:', snapshotRes.error);
+  if (legsRes.error || sharedRes.error || snapshotRes.error) {
+    showFlash('Alguns dados de compra podem não ter carregado — veja o console.');
   }
 
-  const { data: legRows, error: lErr } = await supabase
-    .from('weekend_leg_effective')
-    .select('*');
-  if (lErr) {
-    alert('Erro ao carregar tetos e status: ' + lErr.message);
-    return;
-  }
+  const flightById = {};
+  for (const row of legsRes.data || []) flightById[row.id] = row;
+
+  const sharedByLeg = {};
+  for (const row of sharedRes.data || []) (sharedByLeg[row.leg_id] ??= []).push(row);
+
+  const snapshotByLeg = {};
+  for (const row of snapshotRes.data || []) snapshotByLeg[row.leg_id] = row;
 
   const legsByWeekend = {};
-  for (const row of legRows || []) {
+  for (const row of lRes.data || []) {
     const leg = normalizeLegRow(row);
+    const flight = flightById[leg.id];
+    leg.current_airline = flight?.current_airline ?? null;
+    leg.current_departure_time = flight?.current_departure_time ?? null;
+    leg.shared_purchases = sharedByLeg[leg.id] || [];
+    leg.purchased_snapshot = snapshotByLeg[leg.id] || null;
     (legsByWeekend[leg.weekend_id] ??= []).push(leg);
   }
 
-  allWeekends = (weekends || []).map((w) => ({ ...w, weekend_legs: legsByWeekend[w.id] || [] }));
+  allWeekends = (wRes.data || []).map((w) => ({ ...w, weekend_legs: legsByWeekend[w.id] || [] }));
   renderWeekends();
 }
 
@@ -509,6 +795,7 @@ function wireTabs() {
 }
 
 async function initPage(session) {
+  currentUserId = session.user.id;
   wireLogout('logout');
   wireTabs();
   wireFilterChips();
