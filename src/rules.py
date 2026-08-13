@@ -5,22 +5,42 @@ from supabase_client import DEFAULT_SETTINGS
 from telegram_notifier import hours_since_found
 
 
-def is_good_price(current_price: float, history_prices: list[float], target_price: float | None,
-                   target_percent_below_avg: float | None) -> tuple[bool, str]:
-    """Verifica se o preço atual bate a meta configurada (valor fixo e/ou % abaixo da média)."""
-    reasons = []
+def evaluate_good_price(current_price: float, history_prices: list[float], target_price: float | None,
+                         target_percent_below_avg: float | None) -> tuple[bool, str, bool, bool]:
+    """Verifica se o preço atual bate a meta configurada (valor fixo e/ou % abaixo da média).
 
-    if target_price is not None and current_price <= target_price:
+    Devolve (good, reason, ceiling_hit, opportunity_hit) — as duas últimas são
+    a fonte estruturada de `is_ceiling_alert`/`is_opportunity_alert` em
+    `alert_log` (Fatia D2, 13/08/2026): antes, essa informação só existia
+    dentro do texto de `reason`, e derivar dela por substring é a mesma
+    fragilidade que motivou duas colunas booleanas em vez de uma coluna de
+    tipo. `is_good_price` abaixo é um wrapper fino sobre esta função, mantido
+    por compatibilidade com os outros dois chamadores (rota em main.py,
+    `/precos` em bot_commands.py) que não precisam das flags."""
+    reasons = []
+    ceiling_hit = target_price is not None and current_price <= target_price
+    if ceiling_hit:
         reasons.append(f"abaixo da meta fixa (R$ {target_price})")
 
+    opportunity_hit = False
     if target_percent_below_avg is not None and history_prices:
         avg = mean(history_prices)
         threshold = avg * (1 - target_percent_below_avg / 100)
         if current_price <= threshold:
+            opportunity_hit = True
             pct_below = (1 - current_price / avg) * 100
             reasons.append(f"{pct_below:.1f}% abaixo da média histórica (R$ {avg:.2f})")
 
-    return (len(reasons) > 0, "; ".join(reasons))
+    return (len(reasons) > 0, "; ".join(reasons), ceiling_hit, opportunity_hit)
+
+
+def is_good_price(current_price: float, history_prices: list[float], target_price: float | None,
+                   target_percent_below_avg: float | None) -> tuple[bool, str]:
+    """Verifica se o preço atual bate a meta configurada (valor fixo e/ou % abaixo da média)."""
+    good, reason, _ceiling_hit, _opportunity_hit = evaluate_good_price(
+        current_price, history_prices, target_price, target_percent_below_avg
+    )
+    return good, reason
 
 
 def staleness(found_at: str | None, freshness_hours_limit: float) -> tuple[bool, float | None]:

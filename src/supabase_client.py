@@ -152,9 +152,21 @@ def get_recent_run_outcomes(route_id: str, limit: int = 30) -> list[str]:
     return [r["outcome"] for r in resp.json()]
 
 
-def insert_alert_log(route_id: str, price: float, reason: str | None = None) -> None:
-    """Registra um alerta efetivamente enviado (Etapa 3), pra calcular o cooldown."""
-    payload = {"route_id": route_id, "price": price, "reason": reason}
+def insert_alert_log(route_id: str, price: float, reason: str | None, *,
+                     is_ceiling_alert: bool, is_opportunity_alert: bool) -> None:
+    """Registra um alerta efetivamente enviado (Etapa 3), pra calcular o cooldown.
+
+    `is_ceiling_alert`/`is_opportunity_alert` (Fatia D2, 13/08/2026):
+    keyword-only e sem default de propósito — sem isso seria possível
+    adicionar um caminho de gravação novo e esquecer de classificar o
+    alerta, a mesma classe de bug que esta fatia corrige. Cooldown de rota
+    (`get_last_alert`) continua por `route_id` só, fora do escopo da D2; as
+    colunas são gravadas aqui por consistência de schema com `alert_log` de
+    perna, não porque o cooldown de rota as use ainda."""
+    payload = {
+        "route_id": route_id, "price": price, "reason": reason,
+        "is_ceiling_alert": is_ceiling_alert, "is_opportunity_alert": is_opportunity_alert,
+    }
     resp = requests.post(_url("alert_log"), headers=_headers(), json=payload, timeout=30)
     resp.raise_for_status()
 
@@ -286,9 +298,18 @@ def get_weekend_leg_price_history(leg_id: str, days: int | None = None) -> list[
     return resp.json()
 
 
-def insert_weekend_alert_log(leg_id: str, price: float, reason: str | None = None) -> None:
-    """Mesma tabela alert_log das rotas flexíveis (Etapa 3), só que via leg_id."""
-    payload = {"leg_id": leg_id, "price": price, "reason": reason}
+def insert_weekend_alert_log(leg_id: str, price: float, reason: str | None, *,
+                             is_ceiling_alert: bool, is_opportunity_alert: bool) -> None:
+    """Mesma tabela alert_log das rotas flexíveis (Etapa 3), só que via leg_id.
+
+    `is_ceiling_alert`/`is_opportunity_alert` (Fatia D2, 13/08/2026):
+    keyword-only e sem default — ver `insert_alert_log` acima, mesmo motivo.
+    Um alerta composto (as duas razões concatenadas por `;` numa linha só,
+    nunca duas linhas separadas) grava as duas flags `true`."""
+    payload = {
+        "leg_id": leg_id, "price": price, "reason": reason,
+        "is_ceiling_alert": is_ceiling_alert, "is_opportunity_alert": is_opportunity_alert,
+    }
     resp = requests.post(_url("alert_log"), headers=_headers(), json=payload, timeout=30)
     resp.raise_for_status()
 
@@ -332,9 +353,24 @@ def get_weekend_leg_counts(cutoff: str) -> tuple[int, int]:
     return len(legs), purchased
 
 
-def get_last_weekend_leg_alert(leg_id: str) -> dict | None:
+def get_last_weekend_leg_alert(leg_id: str, alert_type: str) -> dict | None:
+    """Último alerta enviado da perna, DO TIPO PEDIDO (Fatia D2, 13/08/2026:
+    antes só filtrava por `leg_id`, deixando um alerta de teto segurar um de
+    oportunidade e vice-versa — bug estrutural documentado em `STATE.md`,
+    seção 2). `alert_type` é obrigatório e sem default, exatamente 'ceiling'
+    ou 'opportunity' — a coluna filtrada é `is_ceiling_alert` ou
+    `is_opportunity_alert`, sempre `is.true` (nunca `is.false`, que
+    devolveria o último alerta que NÃO foi desse tipo, sem sentido pra
+    cooldown)."""
+    if alert_type == "ceiling":
+        type_column = "is_ceiling_alert"
+    elif alert_type == "opportunity":
+        type_column = "is_opportunity_alert"
+    else:
+        raise ValueError(f"alert_type inválido: {alert_type!r} (esperado 'ceiling' ou 'opportunity')")
     params = {
         "leg_id": f"eq.{leg_id}",
+        type_column: "is.true",
         "select": "sent_at,price",
         "order": "sent_at.desc",
         "limit": 1,

@@ -224,7 +224,10 @@ com nome+valor") vira 4 fatias menores e sequenciais:
 - **D2 — `alert_log` ganha coluna de tipo de alerta.** Corrige o bug
   estrutural já registrado (`STATE.md`, seção 2, investigação de 12/08/2026):
   hoje o cooldown não distingue alerta de teto de alerta de oportunidade — um
-  pode segurar o outro sem que devesse. Plan Mode ainda não escrito.
+  pode segurar o outro sem que devesse. **IMPLEMENTADA, SQL EXECUTADO E
+  VERIFICADO EM PRODUÇÃO (13/08/2026), AGUARDANDO PRIMEIRA EXECUÇÃO DO ROBÔ
+  COM O CÓDIGO NOVO PARA FECHAR A VERIFICAÇÃO PÓS-DEPLOY.** Detalhe completo
+  na subseção "Fatia D2" abaixo.
 - **D3 — `alert_log` ganha `user_id`.** Plan Mode ainda não escrito.
 - **D4 — avaliação por usuário.** Aposenta o MIN de teto de
   `weekends.resolve_effective_leg_state` (regra provisória desde a Etapa 4.2,
@@ -351,6 +354,182 @@ sair; coleta continua 100% intacta (132 pernas).
 **A Fatia D1 só deve ser marcada como CONCLUÍDA depois que os 4 itens acima
 forem confirmados** — não está marcada como concluída nesta rodada de
 documentação.
+
+**Achado adicional, registrado durante a verificação da D1 (13/08/2026):**
+o log do Actions da execução primária de 13/08/2026 08:37 BRT (primeira
+pós-deploy do commit `757ab3e`) confirma 7 prints de supressão por janela de
+compra com o corte correto (2027-01-29), zero aviso de fallback do
+`system_config`, 20/20 pernas checadas, zero erro, zero alerta enviado —
+`alert_log` permaneceu em 74 linhas. O mesmo log confirma que uma mesma
+perna É avaliada duas vezes no mesmo dia (passada de cache + lote `fli`):
+`return 2026-12-25` aparece suprimida duas vezes na mesma execução (uma via
+cache, outra via live) — responde uma pergunta aberta da subseção (e) do
+diagnóstico do topo deste arquivo, e é consistente com o desenho de
+`dedupe_weekend_reports` (main.py): duas avaliações, um report escolhido, um
+único insert em `alert_log`.
+
+---
+
+### Fatia D2 — `alert_log` ganha tipo de alerta (implementado 13/08/2026, SQL executado e verificado em produção, aguardando primeira execução do robô com o código novo)
+
+**Decisão de origem:** `STATE.md`, seção 2, investigação de 12/08/2026 — o
+cooldown de perna (`get_last_weekend_leg_alert`) filtra hoje só por
+`leg_id`, não por tipo de alerta (teto vs. oportunidade). Um alerta de
+oportunidade pode segurar um de teto da mesma perna, e vice-versa. O bug é
+real no código mas **não produziu perda observável nos últimos 14 dias**
+(zero hits de teto no período — preço travado em R$334 contra teto R$300
+desde 05/08/2026 — logo nenhuma colisão de fato ocorreu). Não é urgente;
+precisa ser corrigido antes de D3 (`user_id` em `alert_log`) e D4 (avaliação
+por usuário), que mexem no mesmo schema.
+
+**Decisão de arquitetura — duas colunas booleanas, não uma coluna de tipo:**
+`is_ceiling_alert boolean not null default false` e
+`is_opportunity_alert boolean not null default false`, em vez de uma coluna
+única de tipo (enum ou texto). Motivo: existem linhas reais com AMBOS os
+motivos na mesma linha (`reason` composto por `;` — 2 de 52 linhas de perna,
+5 de 22 linhas de rota). Uma coluna única forçaria um valor especial tipo
+`'both'`, frágil para quem esquecer de tratá-lo no filtro de cooldown —
+exatamente a classe de bug que esta fatia corrige. `reason` CONVIVE com as
+colunas novas (não é substituído nem removido) — segue como texto livre de
+forense; as colunas novas são a chave estruturada usada no cooldown.
+
+**As decisões de desenho do Plan Mode:**
+1. **Fonte das flags, não derivação por texto:** `src/rules.py` ganhou
+   `evaluate_good_price(...)`, que devolve `(good, reason, ceiling_hit,
+   opportunity_hit)` — as duas últimas são a fonte estruturada das colunas
+   novas. `is_good_price` (assinatura antiga, 2 outros chamadores) virou um
+   wrapper fino sobre ela, sem mudar comportamento. Derivar as flags de
+   volta por substring do `reason` (a alternativa mais simples) foi
+   descartada: acoplar a chave de cooldown a um texto de mensagem é a mesma
+   fragilidade que motivou as duas colunas em vez de uma coluna de tipo.
+2. **Cooldown por tipo, com `all()` e guarda de lista vazia:**
+   `get_last_weekend_leg_alert(leg_id, alert_type)` ganhou o parâmetro
+   `alert_type` obrigatório (`'ceiling'` ou `'opportunity'`, sem default).
+   Em `weekends.py`, um alerta só é segurado por cooldown se **TODOS** os
+   tipos que dispararam nesta avaliação estiverem em cooldown — um alerta de
+   teto liberado nunca mais é segurado por uma oportunidade recente em
+   cooldown, e vice-versa. `cooldown_blocks_alert` (rules.py) não mudou uma
+   linha — continua recebendo `last_alert` já resolvido, compartilhada com o
+   cooldown de rota.
+3. **Consequência aceita, registrada explicitamente:** um alerta composto
+   (teto E oportunidade na mesma avaliação) sai inteiro se **pelo menos um**
+   dos tipos estiver liberado, e grava as **duas** flags `true` — inclusive
+   renovando o relógio de cooldown do tipo que estava em cooldown. Não é bug
+   nem gap de cobertura: é a leitura direta de "a mensagem inteira foi
+   enviada, com as duas razões" — a alternativa (podar a razão em cooldown
+   do texto da mensagem) foi descartada por reintroduzir manipulação de
+   texto no caminho de decisão para ganhar quase nada.
+4. **Índice novo, sem a coluna de tipo:**
+   `alert_log_leg_sent_at_idx (leg_id, sent_at desc)` — um índice só serve
+   os dois tipos de cooldown (o planner varre a perna já ordenada e aplica o
+   filtro booleano por cima). Registro explícito, decisão aceita de
+   antemão: a D3 (`user_id` em `alert_log`) provavelmente vai querer
+   recriar este índice como `(leg_id, user_id, sent_at desc)` — não é
+   pendência desta fatia.
+5. **Flags gravadas também no caminho de rota** (`insert_alert_log`), não
+   só no de perna — decisão aprovada explicitamente no chat de planejamento,
+   para o backfill não envelhecer no primeiro dia. O cooldown de rota
+   (`get_last_alert`) **não muda** — continua filtrando só por `route_id`,
+   fora de escopo desta fatia.
+
+**Débito técnico de nomenclatura, registrado — NÃO é bug:** o report de
+ROTA usa as chaves `is_ceiling_alert`/`is_opportunity_alert` (mesmo nome das
+colunas do banco, porque `main.py` lê essas chaves direto do report antes
+de gravar), enquanto o report de PERNA usa `is_ceiling_hit`/
+`is_opportunity_hit` (nome preexistente desde antes da D2 — `is_ceiling_hit`
+já era lido por `telegram_notifier.py` para escolher o cabeçalho da
+mensagem, 🎯 vs. 📉). São o mesmo conceito ("esta razão bateu nesta
+avaliação") com nomes diferentes por domínio — inconsistência de
+nomenclatura entre os dois caminhos de report, não uma divergência de
+comportamento. Unificar o nome exigiria tocar `telegram_notifier.py` e os
+testes que já dependem de `is_ceiling_hit`, fora do escopo mínimo desta
+fatia; fica registrado para quando D3/D4 mexerem de novo nesses reports.
+
+**Achado que mudaria o desenho, verificado e DESCARTADO:** o prompt do
+Plan Mode pedia checar se a mesma perna pode gerar duas linhas separadas em
+`alert_log` na mesma execução (em vez de uma composta) — rastreei o caminho
+inteiro (`is_good_price`/`evaluate_good_price` → 1 `reason` composto por
+`evaluate_and_record_leg_price` → 1 report por `dedupe_weekend_reports` → 1
+`insert_weekend_alert_log`) e confirmei que isso NÃO acontece. O desenho de
+duas colunas booleanas por linha (em vez de duas linhas por avaliação) está
+correto.
+
+**Arquivos alterados:** `sql/fatia_d2_tipo_de_alerta.sql` (novo — Parte 1);
+`src/rules.py`, `src/supabase_client.py`, `src/weekends.py`, `src/main.py`
+(Parte 2); `tests/test_etapa3_cooldown.py`, `tests/test_supabase_client.py`,
+`tests/test_weekends.py` (Parte 3, +11 testes novos, 220 no total — nenhuma
+mudança de comportamento além de 2 asserções de assinatura atualizadas,
+avisadas de antemão). `src/telegram_notifier.py` e `src/bot_commands.py`
+**não mudaram** — o primeiro continua lendo `is_ceiling_hit` do report (o
+valor é idêntico); o segundo continua chamando `is_good_price`, que
+sobrevive como wrapper.
+
+**Validação do SQL antes da execução manual:** rodado ponta a ponta contra
+um Postgres 16 local descartável (schema stand-in de `alert_log`/
+`weekend_legs`/`routes`, mesma distribuição de dados do G0 — 10/40/2 de
+perna, 17/0/5 de rota) — todo bloco bateu com o valor declarado como
+esperado, incluindo a prova sintética V6 (transação com rollback) e o
+rollback restaurando a contagem original de linhas. Instância apagada
+depois. Isso validou sintaxe e lógica antes da execução real.
+
+**EXECUÇÃO MANUAL EM PRODUÇÃO — CONCLUÍDA E VERIFICADA (13/08/2026).**
+Todos os blocos bateram com o esperado, com uma única divergência esperada
+e já prevista no cabeçalho do script (crescimento orgânico entre a medição
+do chat de planejamento e a execução real — o robô roda 2x/dia):
+
+| bloco | resultado |
+|---|---|
+| G0 (inventário) | colunas sem as novas, RLS/policy/grants idênticos ao previsto |
+| Backfill, perna | **10/41/2 (53 total, 0 órfã)** — 1 linha de oportunidade a mais que o previsto (10/40/2, 52 total); soma bate, nenhuma órfã, divergência é crescimento orgânico entre 12/08 e 13/08, não erro |
+| Backfill, rota | 17/0/5 (22 total) — bate exatamente com o previsto |
+| V3 (idempotência) | `UPDATE 0` na re-rodada |
+| V4 (índice) | `alert_log_leg_sent_at_idx` criado com a definição certa, 2 índices no total |
+| V5 (RLS/grants) | idênticos ao G0 — nenhuma mudança de postura de acesso |
+| V6 (prova sintética) | confirmou o bug antigo e a correção nos dois lados (consulta velha confundiria oportunidade com teto; consulta nova resolve certo dos dois lados); `rollback` sem resíduo |
+
+Não houve execução do robô entre o SQL e a publicação do código — commit
+único, dentro da mesma janela.
+
+**⚠️ ORDEM E JANELA DE DEPLOY — diferente da D1:** na D1 bastava rodar o SQL
+antes do código. Aqui existe uma janela adicional: entre rodar o SQL e
+publicar o código da Parte 2, o robô continua gravando pelo caminho antigo
+— linhas nascem `false/false` mesmo com `reason` classificável (é
+exatamente o que o V2 do script define como defeito). O cabeçalho do script
+e o bloco V3 documentam a janela seguindo o exemplo concreto de 13/08/2026
+(entre duas execuções consecutivas do robô, ~08:40–20:00 BRT) e o
+procedimento de recuperação (re-rodar o Bloco 3, que só toca linha ainda
+não classificada) se uma execução cair no meio.
+
+**VERIFICAÇÃO EM PRODUÇÃO — PARCIAL.** Itens 1-2 concluídos neste commit;
+3-6 seguem pendentes:
+1. ✅ Rodar o SQL (`sql/fatia_d2_tipo_de_alerta.sql`) e conferir G0-V6 contra
+   os esperados declarados no próprio script, dentro da janela entre
+   execuções do robô. **Concluído e verificado em 13/08/2026** — tabela de
+   resultado acima.
+2. ✅ Publicar o código da Parte 2, na mesma janela. **Este commit.**
+3. Falta: **evidência primária de curto prazo: a próxima linha de ROTA
+   gravada em `alert_log`** (aparece com regularidade, ~1/dia, e não passa
+   pelo filtro de janela de compra da D1) — confirmar que nasce com pelo
+   menos uma flag `true` quando o `reason` é classificável. É a fonte de
+   evidência rápida de que a gravação com as flags novas funciona de ponta a
+   ponta com o código publicado.
+4. Falta: linha nova de PERNA pode não aparecer por dias — com a D1 no ar,
+   as pernas alertáveis de hoje estavam todas fora da janela de compra
+   (nenhuma entrou). Não usar como critério de aceite de prazo curto.
+5. Falta: "volume de alertas de oportunidade não muda" — valor probatório
+   baixo hoje (volume atual = zero desde 05/08). Manter como observação, não
+   como critério de aceite.
+6. Falta, **e é o que só uma colisão real confirma:** um alerta de teto
+   saindo mesmo tendo havido oportunidade recente na mesma perna, com dado
+   escrito pelo próprio robô — depende de um primeiro hit de teto, que não
+   ocorre desde 30/07/2026 (preço travado em R$334 contra teto R$300). A
+   prova sintética (V6, rollback, já confirmada em produção) cobre a
+   semântica da consulta; não substitui essa confirmação.
+
+**A Fatia D2 só deve ser marcada como CONCLUÍDA depois que os itens 3-6
+acima forem confirmados** — SQL executado e código publicado, mas a
+verificação pós-deploy com o robô rodando o código novo ainda não
+aconteceu. Não está marcada como concluída nesta rodada de documentação.
 
 ---
 

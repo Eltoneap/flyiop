@@ -131,6 +131,10 @@ class AlertLogWiringTest(unittest.TestCase):
         route = {"id": "rota-1", "user_id": "user-1", "origin": "BSB", "destination": "GIG"}
         report = {
             "route": route, "status": "ok", "should_alert": True, "price": 520.0, "reason": "abaixo da meta",
+            # Fatia D2 (13/08/2026): main.py lê essas flags do report pra
+            # gravar em alert_log — sem elas o dict simulado não representa
+            # mais o formato real de process_route.
+            "is_ceiling_alert": True, "is_opportunity_alert": False,
         }
         with patch("main.get_routes", return_value=[route]), \
              patch("main.get_all_settings", return_value=[{"user_id": "user-1", "notification_mode": "alert_only"}]), \
@@ -150,7 +154,9 @@ class AlertLogWiringTest(unittest.TestCase):
             main.main()
 
         mock_send.assert_called_once_with("msg")
-        mock_insert_alert.assert_called_once_with("rota-1", 520.0, "abaixo da meta")
+        mock_insert_alert.assert_called_once_with(
+            "rota-1", 520.0, "abaixo da meta", is_ceiling_alert=True, is_opportunity_alert=False
+        )
 
     def test_daily_summary_mode_never_inserts_alert_log(self):
         route = {"id": "rota-1", "user_id": "user-1", "origin": "BSB", "destination": "GIG"}
@@ -183,6 +189,7 @@ class AlertLogWiringTest(unittest.TestCase):
         weekend_report = {
             "leg": {"id": "leg-1", "effective_ceiling": 200}, "status": "ok", "price": 150.0,
             "should_alert": True, "reason": "abaixo da meta fixa (R$ 200)",
+            "is_ceiling_hit": True, "is_opportunity_hit": False,
         }
         with patch("main.get_routes", return_value=[]), \
              patch("main.get_all_settings", return_value=[]), \
@@ -201,7 +208,43 @@ class AlertLogWiringTest(unittest.TestCase):
             main.main()
 
         mock_send.assert_called_once_with("msg-fds")
-        mock_insert_weekend_alert.assert_called_once_with("leg-1", 150.0, "abaixo da meta fixa (R$ 200)")
+        mock_insert_weekend_alert.assert_called_once_with(
+            "leg-1", 150.0, "abaixo da meta fixa (R$ 200)",
+            is_ceiling_alert=True, is_opportunity_alert=False,
+        )
+
+    def test_weekend_composite_alert_grava_as_duas_flags_true(self):
+        """Fatia D2 (13/08/2026): quando a mesma perna dispara teto E
+        oportunidade na mesma avaliação, evaluate_and_record_leg_price já
+        compõe uma única mensagem com as duas razões concatenadas por `;`
+        (não duas linhas separadas) — a linha gravada em alert_log leva as
+        duas flags true."""
+        weekend_report = {
+            "leg": {"id": "leg-1", "effective_ceiling": 300}, "status": "ok", "price": 150.0,
+            "should_alert": True,
+            "reason": "abaixo da meta fixa (R$ 300); 23.1% abaixo da média histórica (R$ 232.62)",
+            "is_ceiling_hit": True, "is_opportunity_hit": True,
+        }
+        with patch("main.get_routes", return_value=[]), \
+             patch("main.get_all_settings", return_value=[]), \
+             patch("main.get_system_config", return_value=SYSTEM_CONFIG), \
+             patch("main.process_all_weekend_legs", return_value=[weekend_report]), \
+             patch("main.run_daily_batch", return_value=([], False)), \
+             patch("main.current_brt_date", return_value=TODAY), \
+             patch("main.get_weekend_scrape_state", return_value=SCRAPE_STATE_STAGE_0), \
+             patch("main.set_weekend_scrape_state"), \
+             patch("main.date") as mock_date, \
+             patch("main.send_message"), \
+             patch("main.insert_weekend_alert_log") as mock_insert_weekend_alert, \
+             patch("main.build_package_comparison", return_value=None), \
+             patch("main.build_weekend_alert_message", return_value="msg-fds"):
+            mock_date.today.return_value.weekday.return_value = 2
+            main.main()
+
+        mock_insert_weekend_alert.assert_called_once_with(
+            "leg-1", 150.0, "abaixo da meta fixa (R$ 300); 23.1% abaixo da média histórica (R$ 232.62)",
+            is_ceiling_alert=True, is_opportunity_alert=True,
+        )
 
 
 if __name__ == "__main__":

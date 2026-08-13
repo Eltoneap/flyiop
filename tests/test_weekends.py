@@ -392,6 +392,116 @@ class ProcessWeekendLegTest(unittest.TestCase):
         fields = mock_update.call_args[1]
         self.assertNotIn("lowest_seen", fields)
 
+    def test_composite_hit_records_both_flags(self):
+        # leg com effective_ceiling=200; preço 150 bate teto E oportunidade
+        # (avg 400, 15% -> limiar 340). evaluate_and_record_leg_price compõe
+        # uma única mensagem (rules.is_good_price junta com "; "); a linha
+        # gravada em alert_log deve carregar as duas flags.
+        month_cache = {("2026-09", "GIG", "outbound"): [entry(150.0, "2026-09-04")]}
+        report, _, _, _ = self.run_process(month_cache, history_prices=[400.0])
+        self.assertTrue(report["is_ceiling_hit"])
+        self.assertTrue(report["is_opportunity_hit"])
+        self.assertIn("abaixo da meta fixa", report["reason"])
+        self.assertIn("abaixo da média histórica", report["reason"])
+
+    def test_opportunity_only_does_not_set_ceiling_hit(self):
+        leg = {**OUTBOUND_LEG, "effective_ceiling": 100}  # preço 150 não bate o teto
+        month_cache = {("2026-09", "GIG", "outbound"): [entry(150.0, "2026-09-04")]}
+        report, _, _, _ = self.run_process(month_cache, history_prices=[400.0], leg=leg)
+        self.assertFalse(report["is_ceiling_hit"])
+        self.assertTrue(report["is_opportunity_hit"])
+
+
+class LegCooldownByTypeTest(unittest.TestCase):
+    """Fatia D2 (13/08/2026): cooldown de perna passa a ser POR TIPO — um
+    alerta de oportunidade em cooldown não segura mais um de teto liberado
+    (e vice-versa), corrigindo o bug estrutural de STATE.md, seção 2, onde
+    o cooldown só filtrava por leg_id."""
+
+    def run_process(self, price: float, history_prices: list[float], last_alerts_by_type: dict[str, dict | None]):
+        history = [{"price": p, "checked_at": "2026-08-01T10:00:00Z"} for p in history_prices]
+        month_cache = {("2026-09", "GIG", "outbound"): [entry(price, "2026-09-04")]}
+
+        def fake_last_alert(leg_id, alert_type):
+            return last_alerts_by_type.get(alert_type)
+
+        with patch("weekends.insert_weekend_leg_price"), \
+             patch("weekends.get_weekend_leg_price_history", return_value=history), \
+             patch("weekends.get_last_weekend_leg_alert", side_effect=fake_last_alert) as mock_get_last, \
+             patch("weekends.update_weekend_leg"), \
+             patch("weekends.insert_weekend_leg_run_log"):
+            report = weekends.process_weekend_leg(OUTBOUND_LEG, SETTINGS, month_cache)
+        return report, mock_get_last
+
+    def test_ceiling_alert_not_blocked_by_recent_opportunity_cooldown(self):
+        # OUTBOUND_LEG: effective_ceiling=200; preço 150 só bate teto (avg
+        # alto o bastante pra não bater oportunidade). Só existe cooldown
+        # recente do tipo OPORTUNIDADE — o alerta de teto não pode ser
+        # bloqueado por ele. Esse é o caso que hoje não tem cobertura
+        # (bug: get_last_weekend_leg_alert só filtrava por leg_id).
+        report, mock_get_last = self.run_process(
+            150.0, history_prices=[155.0, 156.0],
+            last_alerts_by_type={"opportunity": {"price": 150.0, "sent_at": iso_days_ago(0.1)}},
+        )
+        self.assertTrue(report["is_ceiling_hit"])
+        self.assertFalse(report["is_opportunity_hit"])
+        self.assertTrue(report["should_alert"])
+        mock_get_last.assert_called_once_with("leg-out-1", "ceiling")
+
+    def test_opportunity_alert_not_blocked_by_recent_ceiling_cooldown(self):
+        # leg sem teto efetivo -> só a regra de oportunidade decide. Só
+        # existe cooldown recente do tipo TETO — não pode segurar oportunidade.
+        leg = {**OUTBOUND_LEG, "effective_ceiling": None}
+        month_cache = {("2026-09", "GIG", "outbound"): [entry(150.0, "2026-09-04")]}
+        history = [{"price": p, "checked_at": "2026-08-01T10:00:00Z"} for p in [400.0, 420.0]]
+
+        def fake_last_alert(leg_id, alert_type):
+            return {"price": 150.0, "sent_at": iso_days_ago(0.1)} if alert_type == "ceiling" else None
+
+        with patch("weekends.insert_weekend_leg_price"), \
+             patch("weekends.get_weekend_leg_price_history", return_value=history), \
+             patch("weekends.get_last_weekend_leg_alert", side_effect=fake_last_alert) as mock_get_last, \
+             patch("weekends.update_weekend_leg"), \
+             patch("weekends.insert_weekend_leg_run_log"):
+            report = weekends.process_weekend_leg(leg, SETTINGS, month_cache)
+
+        self.assertFalse(report["is_ceiling_hit"])
+        self.assertTrue(report["is_opportunity_hit"])
+        self.assertTrue(report["should_alert"])
+        mock_get_last.assert_called_once_with("leg-out-1", "opportunity")
+
+    def test_same_type_recent_alert_still_blocks(self):
+        # Regressão: cooldown do MESMO tipo continua funcionando.
+        report, _ = self.run_process(
+            150.0, history_prices=[155.0, 156.0],
+            last_alerts_by_type={"ceiling": {"price": 150.0, "sent_at": iso_days_ago(0.1)}},
+        )
+        self.assertTrue(report["is_ceiling_hit"])
+        self.assertFalse(report["should_alert"])
+
+    def test_composite_alert_blocked_only_when_both_types_in_cooldown(self):
+        # Composto (teto E oportunidade): sai se PELO MENOS UM tipo estiver
+        # liberado — só é segurado quando os DOIS estão em cooldown.
+        report, _ = self.run_process(
+            150.0, history_prices=[400.0],
+            last_alerts_by_type={"ceiling": {"price": 150.0, "sent_at": iso_days_ago(0.1)}, "opportunity": None},
+        )
+        self.assertTrue(report["is_ceiling_hit"])
+        self.assertTrue(report["is_opportunity_hit"])
+        self.assertTrue(report["should_alert"])  # oportunidade liberada -> sai
+
+    def test_composite_alert_blocked_when_both_types_recently_alerted(self):
+        report, _ = self.run_process(
+            150.0, history_prices=[400.0],
+            last_alerts_by_type={
+                "ceiling": {"price": 150.0, "sent_at": iso_days_ago(0.1)},
+                "opportunity": {"price": 150.0, "sent_at": iso_days_ago(0.1)},
+            },
+        )
+        self.assertTrue(report["is_ceiling_hit"])
+        self.assertTrue(report["is_opportunity_hit"])
+        self.assertFalse(report["should_alert"])
+
 
 class ProcessAllWeekendLegsTest(unittest.TestCase):
     def test_shared_fetch_key_used_once_across_legs(self):

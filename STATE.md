@@ -366,6 +366,29 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
   hoje ainda estão, em sua maioria, fora da janela de compra (< 29/01/2027) —
   o mercado real da rota, no período observado, não chegou perto do teto de
   R$300. Sem ação corretiva necessária; registrado como linha de base.
+- **Fatia D2 — `alert_log` ganha tipo de alerta (13/08/2026): IMPLEMENTADO,
+  SQL EXECUTADO E VERIFICADO EM PRODUÇÃO, AGUARDANDO PRIMEIRA EXECUÇÃO DO
+  ROBÔ COM O CÓDIGO NOVO PARA FECHAR A VERIFICAÇÃO PÓS-DEPLOY — não marcada
+  como concluída.** Corrige o bug estrutural descrito acima (cooldown de
+  perna não distinguia teto de oportunidade). Duas colunas booleanas
+  (`is_ceiling_alert`, `is_opportunity_alert`), cooldown por tipo com
+  `all()` + guarda de lista vazia, índice `(leg_id, sent_at desc)`. 220
+  testes passando (209 preexistentes + 11 novos). SQL validado ponta a ponta
+  contra Postgres local descartável antes da execução real, e depois **rodado
+  manualmente em produção e verificado em 13/08/2026** — todos os blocos
+  (G0, backfill, índice, RLS/grants, prova sintética V6) bateram com o
+  esperado; backfill real de perna veio 10/41/2 (53 total, 0 órfã) contra o
+  previsto 10/40/2 (52 total) — 1 linha de oportunidade a mais, crescimento
+  orgânico entre a medição de 12/08 e a execução de 13/08, já previsto no
+  cabeçalho do script, não erro; rota bateu exatamente (17/0/5, 22 total).
+  Detalhe completo, incluindo a lista de verificação pendente, em
+  `PLANO-ATIVO.md`, "Etapa 6" → "Fatia D2".
+  - **Débito técnico de nomenclatura, registrado — não é bug:** report de
+    rota usa `is_ceiling_alert`/`is_opportunity_alert` (mesmo nome das
+    colunas do banco); report de perna usa `is_ceiling_hit`/
+    `is_opportunity_hit` (nome preexistente, já lido por
+    `telegram_notifier.py`). Mesmo conceito, nomes diferentes por domínio —
+    unificar tocaria código fora do escopo mínimo da fatia.
 
 ## 3. Próximos passos (ordem sugerida)
 

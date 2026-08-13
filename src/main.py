@@ -6,7 +6,7 @@ from datetime import date
 from rules import (
     cooldown_blocks_alert,
     detect_trend,
-    is_good_price,
+    evaluate_good_price,
     is_suspicious_price,
     should_suppress_alert,
     staleness,
@@ -173,7 +173,9 @@ def process_route(route: dict, settings: dict) -> dict:
 
     target_price = _to_float(route.get("target_price"))
     target_percent = _to_float(route.get("target_percent_below_avg"))
-    good, good_reason = is_good_price(price, history_prices, target_price, target_percent)
+    good, good_reason, ceiling_hit, opportunity_hit = evaluate_good_price(
+        price, history_prices, target_price, target_percent
+    )
 
     history_7d = get_price_history(route["id"], days=7)
     recent = [(h["checked_at"], float(h["price"])) for h in history_7d]
@@ -221,6 +223,12 @@ def process_route(route: dict, settings: dict) -> dict:
         "suspicious": suspicious,
         "should_alert": would_alert and not stale_suppressed and not cooldown_suppressed,
         "reason": good_reason if good else (trend_reason if trending else None),
+        # Fatia D2 (13/08/2026): false/false quando o alerta saiu só por
+        # tendência (detect_trend) — órfã LEGÍTIMA na classificação
+        # teto/oportunidade, o cooldown de rota não usa essas colunas ainda
+        # (fora de escopo da D2, get_last_alert continua só por route_id).
+        "is_ceiling_alert": ceiling_hit,
+        "is_opportunity_alert": opportunity_hit,
     }
 
 
@@ -457,7 +465,10 @@ def main() -> None:
                 for r in reports:
                     if r["status"] == "ok" and r["should_alert"]:
                         send_message(build_alert_message(r))
-                        insert_alert_log(r["route"]["id"], r["price"], r.get("reason"))
+                        insert_alert_log(
+                            r["route"]["id"], r["price"], r.get("reason"),
+                            is_ceiling_alert=r["is_ceiling_alert"], is_opportunity_alert=r["is_opportunity_alert"],
+                        )
                 if notes:
                     send_message("\n".join(notes))
         elif notes:
@@ -472,7 +483,10 @@ def main() -> None:
         if wr["status"] == "ok" and wr["should_alert"]:
             comparison = build_package_comparison(wr, weekend_settings)
             send_message(build_weekend_alert_message(wr, comparison))
-            insert_weekend_alert_log(wr["leg"]["id"], wr["price"], wr.get("reason"))
+            insert_weekend_alert_log(
+                wr["leg"]["id"], wr["price"], wr.get("reason"),
+                is_ceiling_alert=wr["is_ceiling_hit"], is_opportunity_alert=wr["is_opportunity_hit"],
+            )
 
     if primary_run and date.today().weekday() == 0:  # segunda-feira
         total, purchased = get_weekend_leg_counts(buying_cutoff)

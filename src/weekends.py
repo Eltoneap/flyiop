@@ -20,9 +20,10 @@ mesma chave (todas as pernas 'outbound' de setembro, por exemplo), então
 cada chave é buscada uma única vez e reusada — não uma chamada por perna.
 
 Reusa direto as funções de decisão já testadas em produção (rules.py):
-is_good_price (teto = meta fixa, oportunidade = % abaixo da média própria),
-is_suspicious_price (autocheck anti-preço-fantasma) e cooldown_blocks_alert
-(Etapa 3, aqui aplicado por perna via alert_log.leg_id).
+evaluate_good_price (teto = meta fixa, oportunidade = % abaixo da média
+própria), is_suspicious_price (autocheck anti-preço-fantasma) e
+cooldown_blocks_alert (Etapa 3, aqui aplicado por perna via alert_log.leg_id
++ tipo do alerta — Fatia D2, 13/08/2026).
 
 Checkpoint da Parte 2 (23/07/2026): resultado real de produção conferido —
 só 2 de 132 pernas bateram (cache insuficiente, mesmo padrão do RIO
@@ -36,7 +37,7 @@ import time
 import traceback
 from datetime import date, datetime, timedelta, timezone
 
-from rules import cooldown_blocks_alert, is_good_price, is_suspicious_price
+from rules import cooldown_blocks_alert, evaluate_good_price, is_suspicious_price
 from supabase_client import (
     DEFAULT_SETTINGS,
     DEFAULT_SYSTEM_CONFIG,
@@ -271,7 +272,7 @@ def evaluate_and_record_leg_price(leg: dict, settings: dict, price: float, airpo
     ceiling = leg.get("effective_ceiling")
     ceiling = float(ceiling) if ceiling is not None else None
     opportunity_pct = float(settings.get("weekend_opportunity_pct") or DEFAULT_SETTINGS["weekend_opportunity_pct"])
-    good, reason = is_good_price(price, history_prices, ceiling, opportunity_pct)
+    good, reason, ceiling_hit, opportunity_hit = evaluate_good_price(price, history_prices, ceiling, opportunity_pct)
 
     suspicious_threshold = float(
         settings.get("suspicious_below_avg_pct") or DEFAULT_SETTINGS["suspicious_below_avg_pct"]
@@ -293,8 +294,21 @@ def evaluate_and_record_leg_price(leg: dict, settings: dict, price: float, airpo
         print(f"[{direction} {leg['outbound_date']}] alerta suprimido — fim de semana fora da janela de compra (< {buying_cutoff})")
     cooldown_suppressed = False
     if would_alert:
-        last_alert = get_last_weekend_leg_alert(leg_id)
-        cooldown_suppressed = cooldown_blocks_alert(last_alert, price, settings)
+        # Fatia D2 (13/08/2026): cooldown avaliado POR TIPO — um alerta de
+        # oportunidade em cooldown não segura mais um de teto liberado, e
+        # vice-versa (bug estrutural documentado em STATE.md, seção 2).
+        # Segura só se TODOS os tipos que dispararam nesta avaliação estão em
+        # cooldown; `active_types` nunca fica vazia aqui (would_alert=True
+        # implica good=True, que implica ceiling_hit ou opportunity_hit), mas
+        # o `bool(...)` guarda contra all([]) == True mesmo assim — não
+        # confiar em invariante implícito num ponto que decide silêncio.
+        active_types = []
+        if ceiling_hit:
+            active_types.append("ceiling")
+        if opportunity_hit:
+            active_types.append("opportunity")
+        blocks = [cooldown_blocks_alert(get_last_weekend_leg_alert(leg_id, t), price, settings) for t in active_types]
+        cooldown_suppressed = bool(blocks) and all(blocks)
 
     lowest_seen = leg.get("lowest_seen")
     is_new_low = lowest_seen is None or price < float(lowest_seen)
@@ -330,7 +344,8 @@ def evaluate_and_record_leg_price(leg: dict, settings: dict, price: float, airpo
         "transfers": transfers,
         "source": source,
         "reason": reason,
-        "is_ceiling_hit": ceiling is not None and price <= ceiling,
+        "is_ceiling_hit": ceiling_hit,
+        "is_opportunity_hit": opportunity_hit,
         "suspicious": suspicious,
         "should_alert": would_alert and not cooldown_suppressed,
     }

@@ -87,5 +87,39 @@ class GetWeekendLegCountsTest(unittest.TestCase):
         self.assertEqual((total, purchased), (1, 0))
 
 
+class GetLastWeekendLegAlertTest(unittest.TestCase):
+    """Fatia D2 (13/08/2026): get_last_weekend_leg_alert ganhou o parâmetro
+    obrigatório `alert_type`, que filtra por is_ceiling_alert/
+    is_opportunity_alert além de leg_id — antes o cooldown só filtrava por
+    leg_id, deixando um alerta de teto segurar um de oportunidade e
+    vice-versa (STATE.md, seção 2)."""
+
+    ENV = {"SUPABASE_URL": "https://example.supabase.co", "SUPABASE_SERVICE_ROLE_KEY": "fake-key"}
+
+    def call(self, alert_type: str):
+        with patch.dict(os.environ, self.ENV), \
+             patch("supabase_client.requests.get") as mock_get:
+            mock_get.return_value.json.return_value = []
+            mock_get.return_value.raise_for_status.return_value = None
+            supabase_client.get_last_weekend_leg_alert("leg-1", alert_type)
+        return mock_get.call_args.kwargs["params"]
+
+    def test_ceiling_filters_by_is_ceiling_alert_true(self):
+        params = self.call("ceiling")
+        self.assertEqual(params["leg_id"], "eq.leg-1")
+        self.assertEqual(params["is_ceiling_alert"], "is.true")
+        self.assertNotIn("is_opportunity_alert", params)
+
+    def test_opportunity_filters_by_is_opportunity_alert_true(self):
+        params = self.call("opportunity")
+        self.assertEqual(params["leg_id"], "eq.leg-1")
+        self.assertEqual(params["is_opportunity_alert"], "is.true")
+        self.assertNotIn("is_ceiling_alert", params)
+
+    def test_invalid_alert_type_raises(self):
+        with self.assertRaises(ValueError):
+            supabase_client.get_last_weekend_leg_alert("leg-1", "both")
+
+
 if __name__ == "__main__":
     unittest.main()
