@@ -1,7 +1,29 @@
 # STATE.md — FlyIop
 
 > Atualizado em: 12/08/2026
-> Última sessão: Claude Code (12/08/2026, chat de planejamento — investigação
+> Última sessão: Claude Code (12/08/2026, chat de planejamento —
+> documentação apenas) — **Fatia D1 implementada e publicada (commit
+> `757ab3e`)**: o Telegram passa a respeitar a janela de compra (fins de
+> semana ≥ 29/01/2027) no alerta de perna (teto e oportunidade) e no resumo
+> semanal (as duas listas + o denominador). O SQL (
+> `sql/fatia_d1_janela_compra_telegram.sql`) foi rodado manualmente pelo
+> usuário em produção em 12/08/2026 — todos os blocos (G0, V1, V2, V3)
+> bateram 100% com o esperado; V4 (linha de base, informativo) mostrou 30
+> alertas de perna em 14 dias, 2 dentro da janela e 28 fora (93%),
+> consistente com a investigação de silêncio do Telegram da sessão anterior.
+> **Verificação de produção segue em andamento, sem fechar ainda** — falta
+> confirmar (1) o log da próxima execução do Actions, (2) 1-2 dias sem novo
+> alerta fora da janela, (3) o V4 repetido não crescendo além de 28, e (4)
+> **só na segunda-feira 17/08/2026**, o resumo semanal real (denominador
+> esperado: 90). **Fatiamento da Etapa 6 em D1-D4 registrado pela primeira
+> vez em qualquer arquivo do repositório**, em `PLANO-ATIVO.md`, seção
+> "Etapa 6" (D1 implementada/publicada; D2 `alert_log` ganha tipo de alerta;
+> D3 `alert_log` ganha `user_id`; D4 avaliação por usuário — os três
+> últimos ainda sem Plan Mode escrito). Detalhe completo em
+> `PLANO-ATIVO.md`. Sessão só de documentação: nenhum arquivo em `src/`,
+> `docs/` ou `sql/` tocado, nenhum SQL executado nesta rodada, nenhum
+> commit feito ainda (aguardando aprovação).
+> Sessão anterior: Claude Code (12/08/2026, chat de planejamento — investigação
 > apenas, read-only) — **silêncio recente do Telegram investigado: causa é
 > preço acima do teto, não perda de alerta.** Detalhe completo em "Decisões
 > vivas" (seção 2) e esclarecimento dos dois itens de `no_data`/detector de
@@ -303,7 +325,7 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
   - **Motivo:** fins de semana anteriores a 29/01/2027 são monitorados intencionalmente como fonte de histórico de preço (decisão de 28/07/2026) e nunca serão comprados; alertar/contabilizar sobre eles só polui o canal.
   - **Evidência observada (10-11/08/2026, resumo semanal e alerta reais):** "Mais baratas agora" listou 9 de 10 pernas anteriores a 29/01/2027 (só a de 29/01/2027 ida estava dentro da janela); "Mais próximas" listou as 10 pernas fora da janela (09/10/2026 a 04/12/2026, 100% fora); alerta de oportunidade recebido pro fim de semana de 25/12/2026, 19,6% abaixo da média (R$425,00 contra teto R$300) — fora da janela.
   - **Inconsistência que esta decisão corrige:** o Dashboard já conta progresso/orçamento só a partir de 29/01/2027; o Telegram contava as 132 pernas inteiras — os dois respondiam a mesma pergunta com números diferentes.
-  - **IMPORTANTE: a implementação desta decisão pertence à Etapa 6 e ainda NÃO foi feita.** Nenhum código mudou nesta rodada, só o registro da decisão.
+  - **✅ IMPLEMENTADA E PUBLICADA (Fatia D1, 12/08/2026, commit `757ab3e`).** Passou a fazer parte da Etapa 6, fatiada em D1-D4 (`PLANO-ATIVO.md`, seção "Etapa 6") — esta decisão (a+b) é a fatia D1, já em produção. SQL rodado e verificado pelo usuário em 12/08/2026 (todos os blocos batendo com o esperado). **Verificação de produção segue em andamento até 17/08/2026** (segunda-feira, resumo semanal real) — detalhe completo, incluindo o que falta confirmar, em `PLANO-ATIVO.md`, "Etapa 6" → "Fatia D1".
 - **INVESTIGAÇÃO (chat de planejamento, 12/08/2026) — silêncio recente do
   Telegram, causa identificada: preço acima do teto, não perda de alerta.**
   Motivada pelo usuário notar poucas mensagens recentes. Diagnóstico read-only
@@ -394,6 +416,14 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
    08:42 BRT, "0 de 132 pernas compradas", sem erro — fecha a prova de
    produção da pendência 13 da Etapa 4.2 (`get_weekend_leg_counts`, commit
    `b22a569`). Resultado completo em `PLANO-ATIVO.md`, Etapa 4.3, Passo 2.
+6. **Pendente — prazo 17/08/2026 (segunda-feira).** Trazer o resultado do
+   resumo semanal real do Telegram, primeira execução depois da Fatia D1
+   (filtro de janela de compra, commit `757ab3e`, 12/08/2026): denominador
+   esperado **90** (não mais 132), "Mais próximas" começando em 29/01/2027.
+   Mesmo padrão do item 5 acima (pendência 13 da Etapa 4.2) — fecha a
+   verificação de produção da Fatia D1. Detalhe completo, incluindo os
+   outros 3 itens de verificação que não dependem de segunda-feira, em
+   `PLANO-ATIVO.md`, "Etapa 6" → "Fatia D1".
 
 ## 4. Bloqueios / perguntas em aberto
 
@@ -406,12 +436,12 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 - **HIPÓTESE NÃO CONFIRMADA:** `alert_log` ter ficado com 0 registros de `leg_id` entre 23/07 e 31/07/2026 é provavelmente consequência do bug de agendamento corrigido em 30/07/2026 (item 15 do `HISTORICO.md`) — sem execução primária, nenhum alerta de perna chega a ser avaliado, silenciosamente e com exit 0. Reforça a hipótese o fato de 6 dos 13 alertas de 01/08/2026 serem orgânicos (`weekend_opportunity_pct`, teto normal), sem relação com o teste com tetos elevados artificialmente.
 - **Ponto de atenção aberto:** o cooldown/dedup de perna nunca operou com dado real (`alert_log` estava vazia até 01/08). A execução de 02/08/2026 é a primeira observação real desse mecanismo — verificar se os 6 alertas de oportunidade de 01/08 se repetem indevidamente. Restaurar o cron pra 3x/dia (seção 3, item 1) só depois dessa observação.
 - **OBSERVAÇÃO DO ROBÔ 02/08/2026, PARCIAL.** A execução das 08:54 BRT rodou e alertou (2 alertas de rota legado + 2 de oportunidade de perna). **A conclusão sobre cooldown/dedup NÃO foi tirada** — depende de consulta à `alert_log` comparando 01/08 e 02/08, ainda não feita. Continua valendo: não restaurar o cron para mais de 1x/dia antes dessa conclusão (seção 3, item 1).
-- **✅ DECIDIDO em 11/08/2026 (era "ACHADO NOVO A DECIDIR", 02/08/2026):** os 2 alertas de oportunidade da execução das 08:54 de 02/08 dispararam para o fim de semana de 18/09/2026 (ida R$424, volta R$423, teto R$250) — fim de semana **anterior** a 29/01/2027, ou seja, fora da janela de compra, que por decisão de escopo nunca será comprado. O caminho de oportunidade (`weekend_opportunity_pct`) alerta por queda percentual contra a média histórica, **independentemente do teto e da janela de compra**. O Dashboard já separa ação de informação para esse mesmo caso; o Telegram não. **Decidido em 11/08/2026** (ver seção 2, "Decisões vivas"): o alerta de oportunidade passa a respeitar a janela de compra — implementação pertence à Etapa 6, ainda não feita.
+- **✅ DECIDIDO em 11/08/2026 (era "ACHADO NOVO A DECIDIR", 02/08/2026):** os 2 alertas de oportunidade da execução das 08:54 de 02/08 dispararam para o fim de semana de 18/09/2026 (ida R$424, volta R$423, teto R$250) — fim de semana **anterior** a 29/01/2027, ou seja, fora da janela de compra, que por decisão de escopo nunca será comprado. O caminho de oportunidade (`weekend_opportunity_pct`) alerta por queda percentual contra a média histórica, **independentemente do teto e da janela de compra**. O Dashboard já separa ação de informação para esse mesmo caso; o Telegram não. **Decidido em 11/08/2026** (ver seção 2, "Decisões vivas"): o alerta de oportunidade passa a respeitar a janela de compra — **implementada e publicada (Fatia D1, 12/08/2026, commit `757ab3e`)**, verificação de produção em andamento até 17/08/2026 (`PLANO-ATIVO.md`, "Etapa 6" → "Fatia D1").
 - **EXPOSIÇÃO CONHECIDA E ACEITA:** o `user_id` do Supabase do usuário (`c72bf50e-…`) aparece por extenso na documentação de um repositório **público**. Risco avaliado como baixo — UUID não é credencial, e a RLS exige JWT assinado, que não se forja conhecendo o identificador. Registrado como decisão consciente, não como descuido.
 - **TAXA DE `no_data` DE 85% EM 02/08/2026 — ✅ ESCLARECIDO (12/08/2026).** 152 checagens no dia, 23 `ok`, 129 `no_data`. Detector de bloqueio **não disparou** (`bloqueio_detectado = false`, 4 dias limpos). Usuário avaliou que o scraping está funcionando bem e **decidiu não acionar o kill-switch**. Registrado como observação, não como incidente. **Esclarecido pela investigação de 12/08/2026** (ver seção 2, "Decisões vivas"): os 85% vinham inteiramente do cache Travelpayouts (que erra ~98% por desenho), não do lote `fli` (fonte primária, ~0% de falha em 13 dos 14 dias observados) — não indicava problema real. Não é mais dúvida em aberto.
 - **DETECTOR DE BLOQUEIO POSSIVELMENTE MAL CALIBRADO — ✅ ESCLARECIDO (12/08/2026).** O limiar documentado (sucesso <50% com amostra ≥8) não disparou apesar de 85% de falha no dia. O detector (`live_check.py:218-220`) calcula `success_rate` só sobre o lote `fli` do dia, nunca sobre o total (o lote cache, que historicamente erra ~98% das pernas, não entra nessa conta). **Confirmado pela investigação de 12/08/2026** (ver seção 2, "Decisões vivas"): essa leitura estava correta — não é miscalibração de limiar, é escopo pretendido (o detector nunca teve a intenção de olhar o dia inteiro, só o lote que ele mesmo executa). Não é mais dúvida em aberto.
 - **VOLUME DE CHECAGENS ACIMA DO PREVISTO — investigado e explicado (02/08/2026).** 152 checagens/dia contra `batch_size` 20 e ~43 pernas elegíveis pareciam divergentes. Leitura de código (`weekends.py`, `live_check.py`, `scrape_schedule.py`) explica o número: são dois lotes com escopos diferentes somados, cada um gravando 1 linha por perna, sem retentativa gerando linha extra — **cache** (`process_all_weekend_legs`/`get_active_legs`) roda TODA perna `monitoring` não expirada, **sem limite de janela de meses à frente** (~132 pernas), e **lote ao vivo** (`run_daily_batch`/`select_batch`) é o único limitado por `batch_size` (20) e pela janela de 183 dias. 132 + 20 = 152, bate exato. **IMPEDITIVO ATUAL para aumentar a frequência do cron:** enquanto não se souber se o volume do cache (sem limite de janela, ~132/dia, roda 1x/dia independente do estágio) muda com o aumento de frequência do lote `fli`, multiplicar a frequência viola a regra de scraping discreto. Achado registrado, decisão não tomada nesta tarefa.
-- **✅ DECIDIDO em 11/08/2026 — ALERTA DE OPORTUNIDADE (E RESUMO SEMANAL) FORA DA JANELA DE COMPRA** — ver item acima ("DECIDIDO em 11/08/2026") e seção 2, "Decisões vivas", para o texto completo da decisão (que passou a cobrir também o resumo semanal, não só o alerta de oportunidade). Implementação pertence à Etapa 6, ainda não feita.
+- **✅ DECIDIDO em 11/08/2026 — ALERTA DE OPORTUNIDADE (E RESUMO SEMANAL) FORA DA JANELA DE COMPRA** — ver item acima ("DECIDIDO em 11/08/2026") e seção 2, "Decisões vivas", para o texto completo da decisão (que passou a cobrir também o resumo semanal, não só o alerta de oportunidade). **Implementada e publicada (Fatia D1, 12/08/2026, commit `757ab3e`)**, verificação de produção em andamento até 17/08/2026 (`PLANO-ATIVO.md`, "Etapa 6" → "Fatia D1").
 - **PERGUNTA ABERTA, REGISTRADA 11/08/2026 — "execução extra do dia" parece pular Travelpayouts, não só rotas flexíveis.** O item 1 da seção 1 já documenta que só a primeira execução do dia roda "rotas flexíveis/cache Travelpayouts/notificações", com as execuções extras rodando só o lote `fli`. Em observação recente, o usuário notou que a execução extra também não roda Travelpayouts — ainda não está claro se isso é exatamente esse comportamento já documentado (e portanto intencional) ou um achado novo/divergente. **Travelpayouts deve continuar rodando normalmente** — não é decisão de reduzir seu uso. **Sem ação agora** — só registrado para não esquecer; investigar em sessão futura antes de tirar conclusão.
 
 ## 5. Fora de escopo (lembrete de disciplina)

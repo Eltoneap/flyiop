@@ -209,6 +209,151 @@ atendida manualmente pelo usuário principal.
 
 ---
 
+## Etapa 6 — Telegram multi-usuário, fatiada em D1-D4 (12/08/2026)
+
+Decidido no chat de planejamento em 12/08/2026 — **primeira vez que este
+fatiamento aparece em qualquer arquivo do repositório**; até esta rodada só
+existia no chat. O item 6 da "Ordem de execução" acima ("Telegram:
+cooldown/dedup de `alert_log` por perna × usuário; composição de mensagem
+com nome+valor") vira 4 fatias menores e sequenciais:
+
+- **D1 — filtro de janela de compra.** Alerta de perna (teto e oportunidade)
+  e resumo semanal passam a considerar só fins de semana ≥ data de corte.
+  **IMPLEMENTADA E PUBLICADA (commit `757ab3e`, 12/08/2026)** — verificação
+  de produção em andamento. Detalhe completo na subseção "Fatia D1" abaixo.
+- **D2 — `alert_log` ganha coluna de tipo de alerta.** Corrige o bug
+  estrutural já registrado (`STATE.md`, seção 2, investigação de 12/08/2026):
+  hoje o cooldown não distingue alerta de teto de alerta de oportunidade — um
+  pode segurar o outro sem que devesse. Plan Mode ainda não escrito.
+- **D3 — `alert_log` ganha `user_id`.** Plan Mode ainda não escrito.
+- **D4 — avaliação por usuário.** Aposenta o MIN de teto de
+  `weekends.resolve_effective_leg_state` (regra provisória desde a Etapa 4.2,
+  documentada como tal no próprio código), individualiza os limiares gerais
+  hoje escolhidos de forma determinística por menor `user_id`
+  (`weekend_opportunity_pct`, cooldown/re-alerta, modo de notificação — ver
+  "JANELA ABERTA 2" acima), e a mensagem passa a identificar quem disparou.
+  Plan Mode ainda não escrito.
+
+**D1 e D2 valem por si mesmas mesmo sem a Etapa 7 (segunda conta)
+acontecer** — D1 já está em produção com uma conta só; D2 corrige um bug de
+schema independente de quantos usuários existem. **D3 e D4 são a Etapa 6
+propriamente dita** (fan-out por usuário) e não fazem sentido isoladas de
+uma segunda conta real para testar contra.
+
+**Ordem D1→D2→D3→D4, e por quê:**
+- D2 antes de D3: as duas mexem no mesmo schema (`alert_log`) — não vale a
+  pena tocar a tabela duas vezes em fatias separadas quando dá para
+  sequenciar.
+- D4 por último: é o bloco maior e mais sensível (aposenta uma regra
+  provisória que hoje governa a fila e o teto com mais de um usuário), e tem
+  um **problema de verificação conhecido, sem solução decidida ainda**: o
+  fan-out por usuário é estruturalmente não verificável com uma conta só —
+  mesmo limite já registrado na Fatia C, cuja linha "outro usuário já
+  comprou" segue "sem verificação positiva possível" até a Etapa 7
+  (`HISTORICO.md`, item 23). Opções levantadas no chat de planejamento, **a
+  decidir quando chegarmos lá**:
+  - fixture temporária em `settings` (linha de usuário fictício só para
+    teste, removida depois);
+  - teste fora de produção com dados falsos (ambiente descartável, no
+    padrão já usado na investigação dos blocos E/F da Etapa 4.1);
+  - aceitar explicitamente como limite estrutural até a Etapa 7 (segunda
+    conta real), documentando a lacuna em vez de simular uma prova fraca.
+
+### Fatia D1 — janela de compra no Telegram (implementada 12/08/2026, verificação em produção em andamento)
+
+**Decisão de origem:** `STATE.md`, seção 2, 11/08/2026 — o Telegram passa a
+respeitar a janela de compra (fins de semana ≥ 29/01/2027) nos dois caminhos
+onde não respeitava (alerta de oportunidade e resumo semanal). **Ajuste de
+12/08/2026, no mesmo chat de planejamento:** o filtro passou a cobrir os
+DOIS tipos de alerta de perna — teto e oportunidade — não só oportunidade,
+porque um alerta de teto para um fim de semana fora da janela mandaria
+"compre" algo que por regra de escopo nunca será comprado.
+
+**Decisão de arquitetura:** o corte vive em `system_config`
+(`weekend_buying_cutoff_date`), não duplicado em Python — motivo já
+registrado em `STATE.md` (hoje só existia em `docs/js/dashboard.js:83`,
+inacessível do lado Python; duplicar recriaria a inconsistência que a fatia
+existe para corrigir).
+
+**As 4 decisões de desenho do Plan Mode:**
+1. **Onde filtrar:** `src/weekends.py`, dentro de
+   `evaluate_and_record_leg_price`, aplicado ao `would_alert` inteiro — não
+   em `main.py`, porque é o único ponto compartilhado pelos dois caminhos de
+   coleta (cache Travelpayouts e lote `fli`).
+2. **Select compartilhado, não consulta separada:** `get_effective_leg_state`
+   ganhou `outbound_date` no select (a view já expunha a coluna, nenhum
+   grant novo necessário) — evita duas definições divergentes de "quais
+   pernas existem".
+3. **Recorte pela `outbound_date` do fim de semana** (âncora), tanto para
+   ida quanto para volta — mesma coluna que o Dashboard já usa
+   (`docs/js/dashboard.js`), pra painel e Telegram responderem igual.
+4. **Degradação sempre mantém o filtro, nunca remove** — se a leitura do
+   corte falhar ou a chave não existir, cai no fallback embutido
+   (`2027-01-29`) e avisa 1x por execução no Telegram; nunca volta a
+   alertar/contar as 132 pernas inteiras em silêncio.
+
+**Arquivos alterados:** `sql/fatia_d1_janela_compra_telegram.sql` (novo);
+`src/main.py`, `src/supabase_client.py`, `src/weekends.py`,
+`src/telegram_notifier.py`; `tests/test_main.py`,
+`tests/test_etapa3_cooldown.py`, `tests/test_supabase_client.py`,
+`tests/test_weekends.py`, `tests/test_telegram.py` (novo). Commit `757ab3e`,
+publicado em `origin/main`.
+
+**Achado corrigido durante a implementação:** a degradação precisa ler o
+`system_config` CRU (a resposta direta do banco, antes do merge com
+`DEFAULT_SYSTEM_CONFIG`) — senão o caso "tabela sem linha" fica
+indistinguível de um corte real configurado coincidentemente igual ao
+fallback, e o aviso de degradação nunca dispara.
+
+**Achados registrados sem ação nesta fatia:**
+- (a) Colisão de nome evitada com `src/buying_window.py` — conceito
+  diferente (antecedência recomendada de compra, 30–60 dias nacional, não
+  janela de compra).
+- (b) "Resumo semanal" na verdade resume só a execução de hoje, não acumula
+  a semana inteira — comportamento pré-existente, só ficou mais visível com
+  o filtro (listas ficam menores/vazias com mais frequência).
+- (c) `get_weekend_leg_counts` vai continuar contando fins de semana já
+  vencidos a partir de 2027 (a view não filtra expiração) — igual ao
+  Dashboard, mantido de propósito para os dois ficarem coerentes.
+- (d) Dashboard tem um terceiro lugar sem o corte (`renderAcaoDoDia`,
+  `docs/js/dashboard.js:107-115`) — fora do escopo desta fatia e da D1b
+  (migração do `dashboard.js` para ler `system_config`), anotado para
+  decisão futura.
+
+**Resultado real do SQL em produção**, rodado manualmente pelo usuário em
+12/08/2026, todos os blocos batendo com o esperado:
+
+| bloco | resultado |
+|---|---|
+| G0 (inventário) | colunas_system_config = 5 colunas sem o corte, coluna_corte_existe = false, linhas = 1, rls_ligada = true, política = `system_config_select_authenticated`, weekends_hoje = 66, pernas_hoje = 132, weekends_na_janela = 45, pernas_na_janela = 90, privilégios anon/authenticated/service_role = 7/7/7 (primeira medição) — bate 100% com o esperado |
+| V1 (coluna) | coluna_existe = true, tipo = date, aceita_nulo = NO, default = 2027-01-29, valor_atual = 2027-01-29, linhas = 1 — bate 100% |
+| V2 (grants/RLS inalterados) | rls_ligada = true, rls_forcada = false, política = `system_config_select_authenticated`, policy_cmd = SELECT, policies_update = 0, privilégios 7/7/7 idênticos ao G0 — bate 100% |
+| V3 (denominador novo) | corte_lido = 2027-01-29, pernas_na_janela = 90, compradas_na_janela = 0, pernas_totais = 132 (coleta intacta) — bate 100% |
+| V4 (linha de base, informativo) | 30 alertas de perna em 14 dias, 2 dentro da janela, 28 fora (93%) — consistente com o diagnóstico de silêncio do Telegram de 12/08/2026; valor de comparação para depois do deploy, não asserção |
+
+**Efeito esperado, registrado antes do deploy:** resumo semanal vai encolher
+muito (denominador 132→90; "mais próximas" só 2 fins de semana elegíveis
+hoje por causa do cruzamento com os 183 dias do lote `fli`, crescendo ~1 por
+semana); alertas de perna fora da janela (teto e oportunidade) param de
+sair; coleta continua 100% intacta (132 pernas).
+
+**VERIFICAÇÃO EM PRODUÇÃO — PENDENTE, ainda não fechada.** Falta:
+1. Confirmar no log do Actions da próxima execução (hoje/amanhã) que as ~20
+   pernas do lote continuam sendo checadas, o print de supressão aparece, e
+   NENHUM aviso de fallback do corte foi disparado.
+2. 1-2 dias: confirmar que alertas de perna fora da janela realmente
+   pararam de chegar no Telegram.
+3. Rodar o bloco V4 de novo e confirmar que `fora_da_janela` não cresceu
+   além de 28.
+4. **Só na segunda-feira 17/08/2026:** confirmar o resumo semanal real —
+   denominador em 90, "mais próximas" começando em 29/01/2027.
+
+**A Fatia D1 só deve ser marcada como CONCLUÍDA depois que os 4 itens acima
+forem confirmados** — não está marcada como concluída nesta rodada de
+documentação.
+
+---
+
 ## Etapa 4.2 — virada de leitura (pendências 1–11 e 13 concluídas; 12 em aberto)
 
 **Etapa 4.1 concluída e verificada em 01/08/2026.** A estrutura nova
