@@ -1,7 +1,39 @@
 # STATE.md — FlyIop
 
-> Atualizado em: 12/08/2026
-> Última sessão: Claude Code (12/08/2026, chat de planejamento —
+> Atualizado em: 14/08/2026
+> Última sessão: Claude Code (14/08/2026, chat de planejamento —
+> documentação apenas) — **verificação pós-deploy da Fatia D2 fechada: a
+> fatia passa a CONCLUÍDA (14/08/2026)**. Os itens 3-5 da lista fecharam com
+> dado real de produção, confirmado por SQL direto em `alert_log` (não só
+> pelo log do Actions): as 3 linhas gravadas na execução das 08:37 BRT de
+> 14/08 nasceram classificadas corretamente pelo código novo, sem depender
+> de backfill — 2 de rota (`abaixo da meta fixa`, `is_ceiling_alert=true`) e
+> 1 de perna (`15.3% abaixo da média histórica`,
+> `is_opportunity_alert=true`), zero órfã e zero flag errada. O item 6
+> (colisão real teto × oportunidade, que depende de um primeiro hit de teto
+> — não ocorre desde 30/07/2026) fica registrado como **lacuna de longo
+> prazo, não pendência ativa**: não bloqueia nada e pode ser fechado no
+> futuro só observando `alert_log`. Detalhe e tabela de evidência em
+> `PLANO-ATIVO.md`, "Etapa 6" → "Fatia D2". Sessão só de documentação:
+> nenhum arquivo em `src/`, `docs/` ou `sql/` tocado, nenhum SQL executado.
+> Sessão anterior: Claude Code (13/08/2026, implementação — commit
+> `1526751`) — **Fatia D2 implementada e publicada**: `alert_log` ganhou
+> `is_ceiling_alert`/`is_opportunity_alert` (duas colunas booleanas, não uma
+> coluna de tipo — existem linhas reais com os dois motivos na mesma linha)
+> e o cooldown de perna passou a ser avaliado por tipo, com `all()` + guarda
+> de lista vazia; `rules.is_good_price` virou wrapper de
+> `evaluate_good_price`, que expõe as duas flags como dado estruturado em
+> vez de derivá-las do texto de `reason`. O SQL
+> (`sql/fatia_d2_tipo_de_alerta.sql`) foi validado ponta a ponta contra um
+> Postgres local descartável antes do commit e rodado manualmente em
+> produção em 13/08/2026 — todos os blocos (G0, backfill, índice,
+> RLS/grants, prova sintética V6) bateram com o esperado; 220 testes
+> passando (209 preexistentes + 11 novos). Arquivos tocados: `STATE.md`,
+> `PLANO-ATIVO.md`, `sql/fatia_d2_tipo_de_alerta.sql` (novo), `src/main.py`,
+> `src/rules.py`, `src/supabase_client.py`, `src/weekends.py` e 3 arquivos
+> de teste. Fatia deixada como "aguardando primeira execução do robô com o
+> código novo" — fechada só na sessão seguinte (acima).
+> Sessão anterior: Claude Code (12/08/2026, chat de planejamento —
 > documentação apenas) — **Fatia D1 implementada e publicada (commit
 > `757ab3e`)**: o Telegram passa a respeitar a janela de compra (fins de
 > semana ≥ 29/01/2027) no alerta de perna (teto e oportunidade) e no resumo
@@ -366,10 +398,11 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
   hoje ainda estão, em sua maioria, fora da janela de compra (< 29/01/2027) —
   o mercado real da rota, no período observado, não chegou perto do teto de
   R$300. Sem ação corretiva necessária; registrado como linha de base.
-- **Fatia D2 — `alert_log` ganha tipo de alerta (13/08/2026): IMPLEMENTADO,
-  SQL EXECUTADO E VERIFICADO EM PRODUÇÃO, AGUARDANDO PRIMEIRA EXECUÇÃO DO
-  ROBÔ COM O CÓDIGO NOVO PARA FECHAR A VERIFICAÇÃO PÓS-DEPLOY — não marcada
-  como concluída.** Corrige o bug estrutural descrito acima (cooldown de
+- **Fatia D2 — `alert_log` ganha tipo de alerta: ✅ CONCLUÍDA (14/08/2026).**
+  Implementada e SQL executado em 13/08/2026; **verificação pós-deploy
+  fechada em 14/08/2026 com dado real de produção** (itens 1-5 da lista —
+  detalhe e tabela de evidência em `PLANO-ATIVO.md`, "Etapa 6" → "Fatia
+  D2"). Corrige o bug estrutural descrito acima (cooldown de
   perna não distinguia teto de oportunidade). Duas colunas booleanas
   (`is_ceiling_alert`, `is_opportunity_alert`), cooldown por tipo com
   `all()` + guarda de lista vazia, índice `(leg_id, sent_at desc)`. 220
@@ -381,8 +414,22 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
   previsto 10/40/2 (52 total) — 1 linha de oportunidade a mais, crescimento
   orgânico entre a medição de 12/08 e a execução de 13/08, já previsto no
   cabeçalho do script, não erro; rota bateu exatamente (17/0/5, 22 total).
-  Detalhe completo, incluindo a lista de verificação pendente, em
-  `PLANO-ATIVO.md`, "Etapa 6" → "Fatia D2".
+  Detalhe completo, incluindo a evidência de produção que fechou a
+  verificação, em `PLANO-ATIVO.md`, "Etapa 6" → "Fatia D2".
+  - **Prova de produção (14/08/2026, execução das 08:37 BRT):** as três
+    linhas gravadas pelo código novo nasceram classificadas corretamente,
+    sem depender de backfill — 2 de rota (`abaixo da meta fixa`,
+    `is_ceiling_alert=true`) e 1 de perna (`15.3% abaixo da média
+    histórica`, `is_opportunity_alert=true`); zero órfã, zero flag errada.
+    Confirmado por SQL direto em `alert_log`, não só pelo log do Actions.
+  - **Lacuna de longo prazo, registrada — não é pendência ativa e não
+    bloqueia nada:** a prova mais forte (colisão real teto × oportunidade
+    na mesma perna, com dado escrito pelo próprio robô) depende de um
+    primeiro hit de teto, que não ocorre desde 30/07/2026. A prova
+    sintética (V6, transação com rollback, confirmada em produção) cobre a
+    semântica da consulta. Se/quando um hit de teto acontecer, o item pode
+    ser fechado só observando o comportamento em `alert_log` — nenhuma
+    ação necessária agora.
   - **Débito técnico de nomenclatura, registrado — não é bug:** report de
     rota usa `is_ceiling_alert`/`is_opportunity_alert` (mesmo nome das
     colunas do banco); report de perna usa `is_ceiling_hit`/

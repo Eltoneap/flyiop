@@ -224,10 +224,10 @@ com nome+valor") vira 4 fatias menores e sequenciais:
 - **D2 — `alert_log` ganha coluna de tipo de alerta.** Corrige o bug
   estrutural já registrado (`STATE.md`, seção 2, investigação de 12/08/2026):
   hoje o cooldown não distingue alerta de teto de alerta de oportunidade — um
-  pode segurar o outro sem que devesse. **IMPLEMENTADA, SQL EXECUTADO E
-  VERIFICADO EM PRODUÇÃO (13/08/2026), AGUARDANDO PRIMEIRA EXECUÇÃO DO ROBÔ
-  COM O CÓDIGO NOVO PARA FECHAR A VERIFICAÇÃO PÓS-DEPLOY.** Detalhe completo
-  na subseção "Fatia D2" abaixo.
+  pode segurar o outro sem que devesse. **✅ CONCLUÍDA (14/08/2026)** —
+  implementada e SQL executado em 13/08/2026, verificação pós-deploy fechada
+  com dado real de produção em 14/08/2026. Detalhe completo na subseção
+  "Fatia D2" abaixo.
 - **D3 — `alert_log` ganha `user_id`.** Plan Mode ainda não escrito.
 - **D4 — avaliação por usuário.** Aposenta o MIN de teto de
   `weekends.resolve_effective_leg_state` (regra provisória desde a Etapa 4.2,
@@ -370,7 +370,7 @@ diagnóstico do topo deste arquivo, e é consistente com o desenho de
 
 ---
 
-### Fatia D2 — `alert_log` ganha tipo de alerta (implementado 13/08/2026, SQL executado e verificado em produção, aguardando primeira execução do robô com o código novo)
+### Fatia D2 — `alert_log` ganha tipo de alerta (✅ CONCLUÍDA em 14/08/2026; implementada e SQL executado em 13/08/2026, verificação pós-deploy fechada com dado real de produção em 14/08/2026)
 
 **Decisão de origem:** `STATE.md`, seção 2, investigação de 12/08/2026 — o
 cooldown de perna (`get_last_weekend_leg_alert`) filtra hoje só por
@@ -500,36 +500,54 @@ e o bloco V3 documentam a janela seguindo o exemplo concreto de 13/08/2026
 procedimento de recuperação (re-rodar o Bloco 3, que só toca linha ainda
 não classificada) se uma execução cair no meio.
 
-**VERIFICAÇÃO EM PRODUÇÃO — PARCIAL.** Itens 1-2 concluídos neste commit;
-3-6 seguem pendentes:
+**VERIFICAÇÃO EM PRODUÇÃO — FECHADA (14/08/2026).** Itens 1-5 concluídos; o
+item 6 fica registrado como lacuna de longo prazo, não como pendência ativa
+(ver abaixo):
 1. ✅ Rodar o SQL (`sql/fatia_d2_tipo_de_alerta.sql`) e conferir G0-V6 contra
    os esperados declarados no próprio script, dentro da janela entre
    execuções do robô. **Concluído e verificado em 13/08/2026** — tabela de
    resultado acima.
-2. ✅ Publicar o código da Parte 2, na mesma janela. **Este commit.**
-3. Falta: **evidência primária de curto prazo: a próxima linha de ROTA
-   gravada em `alert_log`** (aparece com regularidade, ~1/dia, e não passa
-   pelo filtro de janela de compra da D1) — confirmar que nasce com pelo
-   menos uma flag `true` quando o `reason` é classificável. É a fonte de
-   evidência rápida de que a gravação com as flags novas funciona de ponta a
-   ponta com o código publicado.
-4. Falta: linha nova de PERNA pode não aparecer por dias — com a D1 no ar,
-   as pernas alertáveis de hoje estavam todas fora da janela de compra
-   (nenhuma entrou). Não usar como critério de aceite de prazo curto.
-5. Falta: "volume de alertas de oportunidade não muda" — valor probatório
-   baixo hoje (volume atual = zero desde 05/08). Manter como observação, não
-   como critério de aceite.
-6. Falta, **e é o que só uma colisão real confirma:** um alerta de teto
-   saindo mesmo tendo havido oportunidade recente na mesma perna, com dado
-   escrito pelo próprio robô — depende de um primeiro hit de teto, que não
-   ocorre desde 30/07/2026 (preço travado em R$334 contra teto R$300). A
-   prova sintética (V6, rollback, já confirmada em produção) cobre a
-   semântica da consulta; não substitui essa confirmação.
+2. ✅ Publicar o código da Parte 2, na mesma janela. **Commit `1526751`.**
+3. ✅ **Evidência primária de curto prazo — CONFIRMADA (14/08/2026),
+   execução das 08:37 BRT.** Verificada por SQL direto em `alert_log` no
+   chat de planejamento, não só pelo log do Actions:
 
-**A Fatia D2 só deve ser marcada como CONCLUÍDA depois que os itens 3-6
-acima forem confirmados** — SQL executado e código publicado, mas a
-verificação pós-deploy com o robô rodando o código novo ainda não
-aconteceu. Não está marcada como concluída nesta rodada de documentação.
+   | sent_at (UTC) | price | reason | is_ceiling_alert | is_opportunity_alert | tipo |
+   |---|---|---|---|---|---|
+   | 2026-08-14 11:37:28 | 335.00 | 15.3% abaixo da média histórica (R$ 395.67) | false | **true** | perna |
+   | 2026-08-14 11:37:27 | 658.00 | abaixo da meta fixa (R$ 750.0) | **true** | false | rota |
+   | 2026-08-14 11:37:27 | 544.00 | abaixo da meta fixa (R$ 750.0) | **true** | false | rota |
+
+   As duas linhas de ROTA nasceram classificadas corretamente **pelo código
+   novo, sem depender de backfill** — é exatamente o que este item pedia.
+   Zero órfã e zero flag errada nas três linhas.
+4. ✅ **Linha nova de PERNA — CONFIRMADA na mesma execução, antes do
+   esperado.** A previsão era que pudesse demorar dias (com a D1 no ar, as
+   pernas alertáveis vinham ficando fora da janela de compra). A linha de
+   perna de 14/08 nasceu com `is_opportunity_alert=true` e `reason`
+   coerente — confirma o mesmo caminho de gravação funcionando também para
+   perna, não só para rota. Vai além do que o item 3 exigia.
+5. ✅ **"Volume de alertas de oportunidade não muda" — encerrado como
+   observação**, com o valor probatório baixo que já estava registrado
+   (volume praticamente nulo no período). Nunca foi critério de aceite e
+   não é tratado como tal aqui.
+6. **LACUNA DE LONGO PRAZO — não é pendência ativa, não bloqueia nada e não
+   impede a fatia de ser marcada como concluída.** A prova mais forte
+   possível seria uma colisão real: um alerta de teto saindo mesmo tendo
+   havido oportunidade recente na mesma perna, com dado escrito pelo próprio
+   robô. Ela depende de um primeiro hit de teto, que não ocorre desde
+   30/07/2026 (preço travado em R$334 contra teto R$300) — condição de
+   mercado, não trabalho pendente. A prova sintética (V6, transação com
+   rollback, já confirmada em produção) cobre a semântica da consulta, e os
+   itens 3/4 cobrem a gravação de ponta a ponta. **Se/quando um hit de teto
+   acontecer, este item pode ser fechado só observando o comportamento em
+   `alert_log` — nenhuma ação é necessária agora.**
+
+**Fatia D2 CONCLUÍDA em 14/08/2026** — SQL executado e verificado em
+13/08/2026, código publicado no mesmo dia (commit `1526751`), e verificação
+pós-deploy com o robô rodando o código novo fechada em 14/08/2026 com dado
+real de produção (itens 1-5). Resta apenas a lacuna de longo prazo do item
+6, registrada acima como tal.
 
 ---
 
