@@ -82,12 +82,13 @@
 -- uuid (sql/etapa3_cooldown.sql:5, gen_random_uuid()), que NÃO ordena — por
 -- isso a marca d'água é por sent_at, e max(id) não é registrado.
 --
---   >>> PREENCHER APÓS A EXECUÇÃO REAL (copiar o resultado do V6 para cá e
---   >>> para a subseção "Fatia D3" do PLANO-ATIVO.md):
---       marca_dagua_em          = ____________________
---       linhas_total            = ____________________
---       linhas_perna_sem_dono   = ____________________
---       max_sent_at             = ____________________
+--   RESULTADO REAL (V6, executado e verificado em produção em 15/08/2026):
+--       marca_dagua_em          = 2026-08-15 01:03:24.670155+00
+--       linhas_total            = 78
+--       linhas_perna            = 54
+--       linhas_perna_sem_dono   = 54
+--       linhas_rota_com_dono    = 24
+--       max_sent_at             = 2026-08-14 11:37:28.822753+00
 --
 -- IDEMPOTENTE E RE-RODÁVEL de ponta a ponta (`if not exists` no Bloco 1,
 -- guarda `user_id is null` no Bloco 2).

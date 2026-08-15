@@ -564,7 +564,7 @@ real de produção (itens 1-5). Resta apenas a lacuna de longo prazo do item
 
 ---
 
-### Fatia D3 — `alert_log` ganha `user_id` (implementada 14/08/2026; SQL a rodar manualmente, verificação pós-deploy em aberto)
+### Fatia D3 — `alert_log` ganha `user_id` (implementada 14/08/2026; SQL executado e verificado em produção em 15/08/2026, verificação pós-deploy em aberto)
 
 **Objetivo:** `alert_log` ganha `user_id`, preparando a D4 (avaliação por
 usuário) e a Etapa 7 (segundo usuário). Hoje cooldown e histórico de alerta
@@ -670,10 +670,12 @@ congela a fronteira: total de linhas e `max(sent_at)` no momento do deploy.
 `alert_log.id` é `uuid` (`gen_random_uuid()`), que não ordena — por isso
 `max(id)` não é registrado.
 
-> **PREENCHER APÓS A EXECUÇÃO REAL** (copiar o resultado do V6 também para o
-> cabeçalho de `sql/fatia_d3_user_id_alert_log.sql`):
-> `marca_dagua_em` = ____ · `linhas_total` = ____ ·
-> `linhas_perna_sem_dono` = ____ · `max_sent_at` = ____
+> **RESULTADO REAL (V6, executado e verificado em produção em 15/08/2026),
+> também copiado para o cabeçalho de `sql/fatia_d3_user_id_alert_log.sql`:**
+> `marca_dagua_em` = `2026-08-15 01:03:24.670155+00` ·
+> `linhas_total` = `78` · `linhas_perna` = `54` ·
+> `linhas_perna_sem_dono` = `54` · `linhas_rota_com_dono` = `24` ·
+> `max_sent_at` = `2026-08-14 11:37:28.822753+00`
 
 **Arquivos alterados:** `sql/fatia_d3_user_id_alert_log.sql` (novo — Parte 1);
 `src/supabase_client.py`, `src/main.py` (Parte 2);
@@ -696,25 +698,33 @@ nullable e o código antigo simplesmente não a envia, então a linha de rota
 nasce NULL e é recuperada re-rodando o Bloco 2 (idempotente, guarda
 `user_id is null`). Não existe aqui o análogo da "órfã classificável" da D2.
 
-**VERIFICAÇÃO — PENDENTE, nada executado ainda.** Falta:
-1. Rodar `sql/fatia_d3_user_id_alert_log.sql` no SQL Editor e conferir G0 e
-   V1-V6 contra os esperados declarados no próprio script.
-2. Publicar o código da Parte 2 e re-rodar o Bloco 2 se uma execução do robô
-   caiu entre o SQL e o deploy.
-3. Copiar o resultado do V6 (marca d'água) para o cabeçalho do script e para
-   a caixa acima.
-4. Evidência de curto prazo: a próxima linha de **rota** (~1/dia, não passa
-   pelo filtro de janela de compra da D1) nasce com `user_id` preenchido.
-5. A próxima linha de **perna** nasce com `user_id` NULL — comportamento
-   esperado, não defeito.
-6. **`had_error` não disparou** — explicitamente, não basta "sem traceback
-   novo": com o `try/except` da decisão 2, um deploy fora de ordem passa a
-   degradar quieto (todo insert de rota falharia, o cooldown de rota pararia
-   de ser alimentado), e o sinal fica no exit code e na linha
+**VERIFICAÇÃO — PARCIAL.** Itens 1-3 concluídos; 4-6 dependem da próxima
+execução do robô com o código publicado, ainda não aconteceu:
+1. ✅ Rodar `sql/fatia_d3_user_id_alert_log.sql` no SQL Editor e conferir G0 e
+   V1-V6 contra os esperados declarados no próprio script. **Concluído e
+   verificado em produção em 15/08/2026** — todos os blocos (G0, Bloco 1,
+   Bloco 2, V1-V6) bateram com o esperado.
+2. ✅ Publicar o código da Parte 2 e re-rodar o Bloco 2 se uma execução do
+   robô caiu entre o SQL e o deploy. **Código publicado no commit `5352e3f`**
+   — nenhuma execução do robô caiu entre o SQL e o commit, então o Bloco 2
+   não precisou ser re-rodado.
+3. ✅ Copiar o resultado do V6 (marca d'água) para o cabeçalho do script e
+   para a caixa acima. **Feito** — resultado real registrado nos dois
+   lugares.
+4. Falta: evidência de curto prazo — a próxima linha de **rota** (~1/dia,
+   não passa pelo filtro de janela de compra da D1) nasce com `user_id`
+   preenchido.
+5. Falta: a próxima linha de **perna** nasce com `user_id` NULL —
+   comportamento esperado, não defeito.
+6. Falta: **`had_error` não disparou** — explicitamente, não basta "sem
+   traceback novo": com o `try/except` da decisão 2, um deploy fora de ordem
+   passa a degradar quieto (todo insert de rota falharia, o cooldown de rota
+   pararia de ser alimentado), e o sinal fica no exit code e na linha
    `[alert_log] FALHA AO GRAVAR` do log do Actions.
 
-**A Fatia D3 só deve ser marcada como CONCLUÍDA depois dos 6 itens acima** —
-mesmo critério de D1 e D2.
+**A Fatia D3 só deve ser marcada como CONCLUÍDA depois dos itens 4-6
+acima** — mesmo critério de D1 e D2. SQL executado e código publicado, mas a
+verificação pós-deploy com o robô rodando o código novo ainda não aconteceu.
 
 ---
 
