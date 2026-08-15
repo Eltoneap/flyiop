@@ -19,6 +19,7 @@ from telegram_notifier import (  # noqa: E402
     build_block_alert_message,
     build_block_recovered_message,
     build_weekend_alert_message,
+    user_label,
 )
 
 
@@ -32,27 +33,33 @@ def days_from_today(n: int) -> str:
     return (date.today() + timedelta(days=n)).isoformat()
 
 
+USER_A = "user-a"
+
 OUTBOUND_LEG = {
     "id": "leg-out-1", "weekend_id": "wknd-1", "direction": "outbound",
     "outbound_date": days_from_today(10), "return_sunday": days_from_today(12),
-    "return_monday": days_from_today(13), "effective_ceiling": 200, "current_price": None,
+    "return_monday": days_from_today(13), "ceilings_by_user": {USER_A: 200},
+    "queue_ceiling": 200, "current_price": None,
     "lowest_seen": None, "last_live_check_at": None,
 }
 
 RETURN_LEG = {
     "id": "leg-ret-1", "weekend_id": "wknd-1", "direction": "return",
     "outbound_date": days_from_today(10), "return_sunday": days_from_today(12),
-    "return_monday": days_from_today(13), "effective_ceiling": 200, "current_price": None,
+    "return_monday": days_from_today(13), "ceilings_by_user": {USER_A: 200},
+    "queue_ceiling": 200, "current_price": None,
     "lowest_seen": None, "last_live_check_at": None,
 }
 
-SETTINGS = {
-    "notification_mode": "alert_only",
+# Fatia D4 (15/08/2026): o lote lê SÓ configuração de sistema. `SETTINGS_BY_USER`
+# é carga opaca que run_daily_batch transporta até a avaliação e nunca inspeciona.
+SYSTEM_SETTINGS = {
     "fast_flights_enabled": True,
     "fast_flights_daily_batch_size": 20,
-    "weekend_opportunity_pct": 15,
     "suspicious_below_avg_pct": 50,
 }
+
+SETTINGS_BY_USER = {USER_A: {"notification_mode": "alert_only", "weekend_opportunity_pct": 15}}
 
 
 class CheckLivePriceTest(unittest.TestCase):
@@ -124,7 +131,7 @@ class SelectBatchTest(unittest.TestCase):
         near = {**OUTBOUND_LEG, "id": "near", "outbound_date": days_from_today(30)}
         far = {**OUTBOUND_LEG, "id": "far", "outbound_date": days_from_today(300)}
         with patch("live_check.get_active_legs", return_value=[near, far]):
-            batch = live_check.select_batch(SETTINGS)
+            batch = live_check.select_batch(SYSTEM_SETTINGS)
         ids = [leg["id"] for leg in batch]
         self.assertIn("near", ids)
         self.assertNotIn("far", ids)
@@ -133,21 +140,48 @@ class SelectBatchTest(unittest.TestCase):
         checked = {**OUTBOUND_LEG, "id": "checked", "last_live_check_at": "2026-07-20T10:00:00Z"}
         never_checked = {**OUTBOUND_LEG, "id": "never", "last_live_check_at": None}
         with patch("live_check.get_active_legs", return_value=[checked, never_checked]):
-            batch = live_check.select_batch(SETTINGS)
+            batch = live_check.select_batch(SYSTEM_SETTINGS)
         self.assertEqual(batch[0]["id"], "never")
 
     def test_batch_size_respected(self):
         legs = [{**OUTBOUND_LEG, "id": f"leg-{i}", "outbound_date": days_from_today(10 + i)} for i in range(5)]
-        settings = {**SETTINGS, "fast_flights_daily_batch_size": 3}
+        settings = {**SYSTEM_SETTINGS, "fast_flights_daily_batch_size": 3}
         with patch("live_check.get_active_legs", return_value=legs):
             batch = live_check.select_batch(settings)
         self.assertEqual(len(batch), 3)
+
+    def test_queue_order_uses_queue_ceiling_not_a_per_user_decision(self):
+        """Fatia D4: `sort_key` passou a ler `queue_ceiling` (menor teto entre
+        os usuários) — heurística de PRIORIDADE de fila. Mesmo dia e mesmo
+        last_check: quem está mais perto de bater meta pra alguém vem antes."""
+        far_from_target = {**OUTBOUND_LEG, "id": "longe", "current_price": 900.0, "queue_ceiling": 200}
+        near_target = {**OUTBOUND_LEG, "id": "perto", "current_price": 210.0, "queue_ceiling": 200}
+        with patch("live_check.get_active_legs", return_value=[far_from_target, near_target]):
+            batch = live_check.select_batch(SYSTEM_SETTINGS)
+        self.assertEqual([leg["id"] for leg in batch], ["perto", "longe"])
+
+    def test_leg_without_queue_ceiling_sorts_last_without_crashing(self):
+        # Modo degradado (ninguém monitorando): sem teto não há "perto de bater
+        # meta" pra medir — desempata por último, como perna sem preço.
+        no_owner = {**OUTBOUND_LEG, "id": "sem-dono", "current_price": 210.0,
+                    "ceilings_by_user": {}, "queue_ceiling": None}
+        with_owner = {**OUTBOUND_LEG, "id": "com-dono", "current_price": 210.0, "queue_ceiling": 200}
+        with patch("live_check.get_active_legs", return_value=[no_owner, with_owner]):
+            batch = live_check.select_batch(SYSTEM_SETTINGS)
+        self.assertEqual([leg["id"] for leg in batch], ["com-dono", "sem-dono"])
+
+    def test_select_batch_never_receives_per_user_settings(self):
+        """A seleção do lote é sobre QUANTO o robô consulta, não sobre quem
+        alerta — `settings_by_user` não entra nesta função."""
+        import inspect
+        params = list(inspect.signature(live_check.select_batch).parameters)
+        self.assertEqual(params, ["system_settings"])
 
     def test_tie_break_prefers_nearest_date(self):
         far = {**OUTBOUND_LEG, "id": "far", "outbound_date": days_from_today(60)}
         near = {**OUTBOUND_LEG, "id": "near", "outbound_date": days_from_today(15)}
         with patch("live_check.get_active_legs", return_value=[far, near]):
-            batch = live_check.select_batch(SETTINGS)
+            batch = live_check.select_batch(SYSTEM_SETTINGS)
         self.assertEqual(batch[0]["id"], "near")
 
 
@@ -158,11 +192,12 @@ class CheckAndEvaluateLegTest(unittest.TestCase):
     def test_gig_success_never_tries_sdu(self, mock_check, mock_evaluate, mock_update):
         mock_check.return_value = {"price": 300.0, "transfers": 0, "airline": "GOL", "departure_time": "2026-09-04T07:00:00"}
         mock_evaluate.return_value = {"leg": OUTBOUND_LEG, "status": "ok", "should_alert": False}
-        report, ok = live_check.check_and_evaluate_leg(OUTBOUND_LEG, SETTINGS)
+        report, ok = live_check.check_and_evaluate_leg(OUTBOUND_LEG, SYSTEM_SETTINGS, SETTINGS_BY_USER)
         self.assertTrue(ok)
         mock_check.assert_called_once_with("GIG", "BSB", OUTBOUND_LEG["outbound_date"])
         mock_evaluate.assert_called_once_with(
-            OUTBOUND_LEG, SETTINGS, 300.0, "GIG", None, 0, "live", "GOL", "2026-09-04T07:00:00"
+            OUTBOUND_LEG, SYSTEM_SETTINGS, SETTINGS_BY_USER, 300.0, "GIG", None, 0, "live",
+            "GOL", "2026-09-04T07:00:00"
         )
 
     @patch("live_check.time.sleep", return_value=None)
@@ -172,12 +207,13 @@ class CheckAndEvaluateLegTest(unittest.TestCase):
     def test_falls_back_to_sdu_when_gig_empty(self, mock_check, mock_evaluate, mock_update, _sleep):
         mock_check.side_effect = [None, {"price": 280.0, "transfers": 1, "airline": "Azul", "departure_time": None}]
         mock_evaluate.return_value = {"leg": OUTBOUND_LEG, "status": "ok", "should_alert": False}
-        report, ok = live_check.check_and_evaluate_leg(OUTBOUND_LEG, SETTINGS)
+        report, ok = live_check.check_and_evaluate_leg(OUTBOUND_LEG, SYSTEM_SETTINGS, SETTINGS_BY_USER)
         self.assertTrue(ok)
         self.assertEqual(mock_check.call_args_list[0].args, ("GIG", "BSB", OUTBOUND_LEG["outbound_date"]))
         self.assertEqual(mock_check.call_args_list[1].args, ("SDU", "BSB", OUTBOUND_LEG["outbound_date"]))
         mock_evaluate.assert_called_once_with(
-            OUTBOUND_LEG, SETTINGS, 280.0, "SDU", None, 1, "live", "Azul", None
+            OUTBOUND_LEG, SYSTEM_SETTINGS, SETTINGS_BY_USER, 280.0, "SDU", None, 1, "live",
+            "Azul", None
         )
 
     @patch("live_check.time.sleep", return_value=None)
@@ -185,7 +221,7 @@ class CheckAndEvaluateLegTest(unittest.TestCase):
     @patch("live_check.update_weekend_leg")
     @patch("live_check.check_live_price", return_value=None)
     def test_both_airports_empty_is_no_data(self, mock_check, mock_update, mock_run_log, _sleep):
-        report, ok = live_check.check_and_evaluate_leg(OUTBOUND_LEG, SETTINGS)
+        report, ok = live_check.check_and_evaluate_leg(OUTBOUND_LEG, SYSTEM_SETTINGS, SETTINGS_BY_USER)
         self.assertFalse(ok)
         self.assertEqual(report["status"], "no_data")
         mock_update.assert_called_once()
@@ -197,7 +233,7 @@ class CheckAndEvaluateLegTest(unittest.TestCase):
     @patch("live_check.check_live_price", return_value={"price": 300.0, "transfers": 0})
     def test_return_leg_queries_bsb_to_airport(self, mock_check, mock_evaluate, mock_update):
         mock_evaluate.return_value = {"leg": RETURN_LEG, "status": "ok", "should_alert": False}
-        live_check.check_and_evaluate_leg(RETURN_LEG, SETTINGS)
+        live_check.check_and_evaluate_leg(RETURN_LEG, SYSTEM_SETTINGS, SETTINGS_BY_USER)
         mock_check.assert_called_once_with("BSB", "GIG", RETURN_LEG["return_sunday"])
 
 
@@ -206,10 +242,10 @@ class RunDailyBatchTest(unittest.TestCase):
         return [{**OUTBOUND_LEG, "id": f"leg-{i}", "outbound_date": days_from_today(10 + i)} for i in range(n)]
 
     def test_kill_switch_skips_entirely(self):
-        settings = {**SETTINGS, "fast_flights_enabled": False}
+        settings = {**SYSTEM_SETTINGS, "fast_flights_enabled": False}
         with patch("live_check.select_batch") as mock_select, \
              patch("live_check.check_and_evaluate_leg") as mock_check:
-            reports, blocked = live_check.run_daily_batch(settings)
+            reports, blocked = live_check.run_daily_batch(settings, SETTINGS_BY_USER)
         self.assertEqual(reports, [])
         self.assertFalse(blocked)
         mock_select.assert_not_called()
@@ -217,7 +253,7 @@ class RunDailyBatchTest(unittest.TestCase):
 
     def test_empty_batch_returns_empty(self):
         with patch("live_check.select_batch", return_value=[]):
-            reports, blocked = live_check.run_daily_batch(SETTINGS)
+            reports, blocked = live_check.run_daily_batch(SYSTEM_SETTINGS, SETTINGS_BY_USER)
         self.assertEqual(reports, [])
         self.assertFalse(blocked)
 
@@ -229,7 +265,7 @@ class RunDailyBatchTest(unittest.TestCase):
              patch("live_check.check_and_evaluate_leg", return_value=(ok_report, True)), \
              patch("live_check.get_weekend_block_streak", return_value=(0, None)), \
              patch("live_check.send_message") as mock_send:
-            reports, blocked = live_check.run_daily_batch(SETTINGS)
+            reports, blocked = live_check.run_daily_batch(SYSTEM_SETTINGS, SETTINGS_BY_USER)
         self.assertEqual(len(reports), 10)
         self.assertFalse(blocked)
         mock_send.assert_not_called()
@@ -249,7 +285,7 @@ class RunDailyBatchTest(unittest.TestCase):
              patch("live_check.build_block_alert_message", return_value="sentinel-message") as mock_build, \
              patch("live_check.send_message") as mock_send, \
              patch("live_check.set_weekend_batch_blocked_at") as mock_blocked_at:
-            reports, blocked = live_check.run_daily_batch(SETTINGS)
+            reports, blocked = live_check.run_daily_batch(SYSTEM_SETTINGS, SETTINGS_BY_USER)
         self.assertEqual(len(reports), 9)  # parou antes do 10º
         self.assertTrue(blocked)
         mock_send.assert_called_once_with("sentinel-message")
@@ -272,7 +308,7 @@ class RunDailyBatchTest(unittest.TestCase):
              patch("live_check.get_weekend_block_streak", return_value=(0, None)), \
              patch("live_check.send_message") as mock_send, \
              patch("live_check.set_weekend_batch_blocked_at") as mock_blocked_at:
-            _, blocked = live_check.run_daily_batch(SETTINGS)
+            _, blocked = live_check.run_daily_batch(SYSTEM_SETTINGS, SETTINGS_BY_USER)
         self.assertFalse(blocked)
         mock_send.assert_not_called()
         mock_blocked_at.assert_not_called()
@@ -297,7 +333,7 @@ class RunDailyBatchTest(unittest.TestCase):
              patch("live_check.build_block_alert_message", return_value="sentinel-message") as mock_build, \
              patch("live_check.send_message") as mock_send, \
              patch("live_check.set_weekend_batch_blocked_at") as mock_blocked_at:
-            reports, blocked = live_check.run_daily_batch(SETTINGS)
+            reports, blocked = live_check.run_daily_batch(SYSTEM_SETTINGS, SETTINGS_BY_USER)
         self.assertEqual(len(reports), 8)
         self.assertTrue(blocked)
         mock_send.assert_called_once_with("sentinel-message")
@@ -317,7 +353,7 @@ class RunDailyBatchTest(unittest.TestCase):
              patch("live_check.check_and_evaluate_leg", side_effect=results), \
              patch("live_check.get_weekend_block_streak", return_value=(0, None)), \
              patch("live_check.send_message") as mock_send:
-            reports, blocked = live_check.run_daily_batch(SETTINGS)
+            reports, blocked = live_check.run_daily_batch(SYSTEM_SETTINGS, SETTINGS_BY_USER)
         self.assertEqual(len(reports), 3)
         self.assertFalse(blocked)
         mock_send.assert_not_called()
@@ -334,7 +370,7 @@ class RunDailyBatchTest(unittest.TestCase):
              patch("live_check.build_block_alert_message", return_value="msg"), \
              patch("live_check.send_message"), \
              patch("live_check.set_weekend_batch_blocked_at"):
-            live_check.run_daily_batch(SETTINGS)
+            live_check.run_daily_batch(SYSTEM_SETTINGS, SETTINGS_BY_USER)
         mock_set_streak.assert_called_once_with(2, "2026-07-24")
 
     @patch("live_check.time.sleep", return_value=None)
@@ -347,7 +383,7 @@ class RunDailyBatchTest(unittest.TestCase):
              patch("live_check.set_weekend_block_streak") as mock_set_streak, \
              patch("live_check.build_block_recovered_message", return_value="recovered-message") as mock_build, \
              patch("live_check.send_message") as mock_send:
-            live_check.run_daily_batch(SETTINGS)
+            live_check.run_daily_batch(SYSTEM_SETTINGS, SETTINGS_BY_USER)
         mock_build.assert_called_once_with(3)
         mock_send.assert_called_once_with("recovered-message")
         mock_set_streak.assert_called_once_with(0, None)
@@ -361,7 +397,7 @@ class RunDailyBatchTest(unittest.TestCase):
              patch("live_check.get_weekend_block_streak", return_value=(0, None)), \
              patch("live_check.set_weekend_block_streak") as mock_set_streak, \
              patch("live_check.send_message") as mock_send:
-            live_check.run_daily_batch(SETTINGS)
+            live_check.run_daily_batch(SYSTEM_SETTINGS, SETTINGS_BY_USER)
         mock_send.assert_not_called()
         mock_set_streak.assert_not_called()
 
@@ -386,29 +422,98 @@ class BuildPackageComparisonTest(unittest.TestCase):
 
 class BuildWeekendAlertMessageComparisonTest(unittest.TestCase):
     REPORT = {
-        "leg": {"id": "leg-out-1", "effective_ceiling": 200}, "status": "ok", "direction": "outbound",
+        "leg": {"id": "leg-out-1"}, "status": "ok", "direction": "outbound",
         "outbound_date": "2026-09-04", "date": "2026-09-04", "price": 150.0, "airport": "GIG",
-        "variant": None, "transfers": 0, "source": "live", "reason": "abaixo da meta fixa (R$ 200)",
-        "is_ceiling_hit": True,
+        "variant": None, "transfers": 0, "source": "live",
+    }
+    # Fatia D4: a decisão de UM usuário — o que a mensagem diz depende de quem
+    # está olhando, então teto/razão/tipo vêm daqui, não do topo do report.
+    DECISION = {
+        "user_id": USER_A, "ceiling": 200, "reason": "abaixo da meta fixa (R$ 200)",
+        "is_ceiling_hit": True, "is_opportunity_hit": False, "should_alert": True,
     }
 
+    def build(self, comparison):
+        return build_weekend_alert_message(self.REPORT, self.DECISION, "Elton", comparison)
+
     def test_no_comparison_omits_line(self):
-        message = build_weekend_alert_message(self.REPORT, None)
-        self.assertNotIn("Avulso", message)
+        self.assertNotIn("Avulso", self.build(None))
 
     def test_comparison_with_both_values(self):
-        message = build_weekend_alert_message(self.REPORT, {"avulso": 430.0, "pacote": 380.0})
+        message = self.build({"avulso": 430.0, "pacote": 380.0})
         self.assertIn("💰 Avulso (2 pernas): R$ 430.00 · Pacote (ida+volta): R$ 380.00", message)
 
     def test_comparison_with_only_avulso(self):
-        message = build_weekend_alert_message(self.REPORT, {"avulso": 430.0, "pacote": None})
+        message = self.build({"avulso": 430.0, "pacote": None})
         self.assertIn("Avulso (2 pernas): R$ 430.00 — pacote indisponível agora", message)
         self.assertNotIn("Pacote (ida+volta)", message)
 
     def test_comparison_dict_without_avulso_is_ignored(self):
-        message = build_weekend_alert_message(self.REPORT, {"pacote": 380.0})
+        message = self.build({"pacote": 380.0})
         self.assertNotIn("Avulso", message)
         self.assertNotIn("Pacote", message)
+
+
+class WeekendAlertMessagePerUserTest(unittest.TestCase):
+    """Fatia D4 (15/08/2026): a mensagem passa a dizer DE QUEM é o alerta e a
+    mostrar o teto de quem disparou — não mais um teto colapsado por MIN."""
+
+    REPORT = BuildWeekendAlertMessageComparisonTest.REPORT
+
+    def test_shows_the_name_and_ceiling_of_whoever_triggered(self):
+        decision = {"ceiling": 300, "reason": "abaixo da meta fixa (R$ 300)", "is_ceiling_hit": True}
+        message = build_weekend_alert_message(self.REPORT, decision, "Elton")
+        self.assertIn("👤 Elton", message)
+        self.assertIn("teto R$ 300", message)
+
+    def test_two_users_get_different_ceilings_in_their_own_messages(self):
+        a = build_weekend_alert_message(
+            self.REPORT, {"ceiling": 300, "reason": "r", "is_ceiling_hit": True}, "Elton")
+        b = build_weekend_alert_message(
+            self.REPORT, {"ceiling": 180, "reason": "r", "is_ceiling_hit": True}, "user-b12")
+        self.assertIn("teto R$ 300", a)
+        self.assertIn("teto R$ 180", b)
+
+    def test_degraded_branch_has_no_name_line_and_no_ceiling_number(self):
+        # Ramo degradado: user_label=None e ceiling=None — a mensagem sai como
+        # antes da D4, sem nome e dizendo "indisponível" em vez de inventar.
+        degraded = {"ceiling": None, "reason": "20% abaixo da média histórica (R$ 400.00)",
+                    "is_ceiling_hit": False, "is_opportunity_hit": True}
+        message = build_weekend_alert_message(self.REPORT, degraded, None)
+        self.assertNotIn("👤", message)
+        self.assertIn("teto indisponível", message)
+        self.assertIn("Oportunidade", message)
+
+    def test_user_without_ceiling_gets_an_opportunity_message_without_a_number(self):
+        decision = {"ceiling": None, "reason": "20% abaixo da média histórica (R$ 400.00)",
+                    "is_ceiling_hit": False, "is_opportunity_hit": True}
+        message = build_weekend_alert_message(self.REPORT, decision, "Elton")
+        self.assertIn("👤 Elton", message)
+        self.assertIn("teto indisponível", message)
+
+
+class UserLabelTest(unittest.TestCase):
+    """Fatia D4 (15/08/2026): `settings.display_name` quando houver, senão os 8
+    primeiros caracteres do uuid. A mensagem nunca quebra por falta de nome."""
+
+    UUID = "c72bf50e-16f7-48fd-9c86-7b49dea1551e"
+
+    def test_display_name_wins_when_present(self):
+        self.assertEqual(user_label(self.UUID, {self.UUID: {"display_name": "Elton"}}), "Elton")
+
+    def test_missing_key_falls_back_to_first_8_chars(self):
+        self.assertEqual(user_label(self.UUID, {self.UUID: {}}), "c72bf50e")
+
+    def test_null_value_falls_back_to_first_8_chars(self):
+        # É o caso real de uma linha de settings antes de alguém preencher o
+        # nome — e o de rodar o código novo antes do SQL da fatia.
+        self.assertEqual(user_label(self.UUID, {self.UUID: {"display_name": None}}), "c72bf50e")
+
+    def test_blank_display_name_falls_back(self):
+        self.assertEqual(user_label(self.UUID, {self.UUID: {"display_name": "   "}}), "c72bf50e")
+
+    def test_user_absent_from_the_cache_falls_back(self):
+        self.assertEqual(user_label(self.UUID, {}), "c72bf50e")
 
 
 class DedupeWeekendReportsTest(unittest.TestCase):

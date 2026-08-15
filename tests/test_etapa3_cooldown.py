@@ -190,9 +190,12 @@ class AlertLogWiringTest(unittest.TestCase):
     def test_weekend_targets_processed_even_without_flexible_routes(self):
         """main() não pode ficar refém de existir alguma rota flexível cadastrada."""
         weekend_report = {
-            "leg": {"id": "leg-1", "effective_ceiling": 200}, "status": "ok", "price": 150.0,
-            "should_alert": True, "reason": "abaixo da meta fixa (R$ 200)",
-            "is_ceiling_hit": True, "is_opportunity_hit": False,
+            "leg": {"id": "leg-1"}, "status": "ok", "price": 150.0, "should_alert": True,
+            "degraded_alert": None,
+            "per_user": [{
+                "user_id": "user-1", "ceiling": 200, "reason": "abaixo da meta fixa (R$ 200)",
+                "is_ceiling_hit": True, "is_opportunity_hit": False, "should_alert": True,
+            }],
         }
         with patch("main.get_routes", return_value=[]), \
              patch("main.get_all_settings", return_value=[]), \
@@ -211,9 +214,10 @@ class AlertLogWiringTest(unittest.TestCase):
             main.main()
 
         mock_send.assert_called_once_with("msg-fds")
+        # Fatia D4 (15/08/2026): a linha de perna passa a nascer com dono.
         mock_insert_weekend_alert.assert_called_once_with(
             "leg-1", 150.0, "abaixo da meta fixa (R$ 200)",
-            is_ceiling_alert=True, is_opportunity_alert=False,
+            is_ceiling_alert=True, is_opportunity_alert=False, user_id="user-1",
         )
 
     def test_weekend_composite_alert_grava_as_duas_flags_true(self):
@@ -223,10 +227,13 @@ class AlertLogWiringTest(unittest.TestCase):
         (não duas linhas separadas) — a linha gravada em alert_log leva as
         duas flags true."""
         weekend_report = {
-            "leg": {"id": "leg-1", "effective_ceiling": 300}, "status": "ok", "price": 150.0,
-            "should_alert": True,
-            "reason": "abaixo da meta fixa (R$ 300); 23.1% abaixo da média histórica (R$ 232.62)",
-            "is_ceiling_hit": True, "is_opportunity_hit": True,
+            "leg": {"id": "leg-1"}, "status": "ok", "price": 150.0, "should_alert": True,
+            "degraded_alert": None,
+            "per_user": [{
+                "user_id": "user-1", "ceiling": 300,
+                "reason": "abaixo da meta fixa (R$ 300); 23.1% abaixo da média histórica (R$ 232.62)",
+                "is_ceiling_hit": True, "is_opportunity_hit": True, "should_alert": True,
+            }],
         }
         with patch("main.get_routes", return_value=[]), \
              patch("main.get_all_settings", return_value=[]), \
@@ -246,7 +253,7 @@ class AlertLogWiringTest(unittest.TestCase):
 
         mock_insert_weekend_alert.assert_called_once_with(
             "leg-1", 150.0, "abaixo da meta fixa (R$ 300); 23.1% abaixo da média histórica (R$ 232.62)",
-            is_ceiling_alert=True, is_opportunity_alert=True,
+            is_ceiling_alert=True, is_opportunity_alert=True, user_id="user-1",
         )
 
 
@@ -286,18 +293,17 @@ class AlertLogInsertFailureTest(unittest.TestCase):
         mock_send.assert_called_once_with("msg")          # a mensagem saiu mesmo assim
 
     def test_leg_insert_failure_does_not_cancel_following_legs(self):
-        reports = [
-            {
-                "leg": {"id": "leg-1", "effective_ceiling": 200}, "status": "ok", "price": 150.0,
-                "should_alert": True, "reason": "abaixo da meta fixa (R$ 200)",
-                "is_ceiling_hit": True, "is_opportunity_hit": False,
-            },
-            {
-                "leg": {"id": "leg-2", "effective_ceiling": 200}, "status": "ok", "price": 160.0,
-                "should_alert": True, "reason": "abaixo da meta fixa (R$ 200)",
-                "is_ceiling_hit": True, "is_opportunity_hit": False,
-            },
-        ]
+        def leg_report(leg_id, price):
+            return {
+                "leg": {"id": leg_id}, "status": "ok", "price": price, "should_alert": True,
+                "degraded_alert": None,
+                "per_user": [{
+                    "user_id": "user-1", "ceiling": 200, "reason": "abaixo da meta fixa (R$ 200)",
+                    "is_ceiling_hit": True, "is_opportunity_hit": False, "should_alert": True,
+                }],
+            }
+
+        reports = [leg_report("leg-1", 150.0), leg_report("leg-2", 160.0)]
         with patch("main.get_routes", return_value=[]), \
              patch("main.get_all_settings", return_value=[]), \
              patch("main.get_system_config", return_value=SYSTEM_CONFIG), \

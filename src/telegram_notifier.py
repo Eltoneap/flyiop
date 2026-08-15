@@ -151,11 +151,39 @@ def build_alert_message(report: dict) -> str:
     return header + "\n\n" + build_route_block(report)
 
 
-def build_weekend_alert_message(report: dict, comparison: dict | None = None) -> str:
+def user_label(user_id: str, settings_cache: dict) -> str:
+    """Rótulo de exibição do usuário na mensagem (Fatia D4, 15/08/2026):
+    `settings.display_name` quando houver, senão os 8 primeiros caracteres do
+    uuid. Chave ausente e valor NULL caem no mesmo fallback — a mensagem nunca
+    quebra por falta de nome, e nunca inventa um.
+
+    Sempre devolve string e nunca recebe `None`: o ramo degradado (perna sem
+    dono) não passa por aqui, ele chama build_weekend_alert_message com
+    `who=None` direto."""
+    row = settings_cache.get(user_id) or {}
+    name = row.get("display_name")
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    return user_id[:8]
+
+
+def build_weekend_alert_message(report: dict, decision: dict, who: str | None,
+                                comparison: dict | None = None) -> str:
     """Alerta de teto (compra imediata) ou de oportunidade (relativo ao
     próprio histórico da perna) — ida e volta avaliadas independentemente
     desde a revisão de 23/07/2026. Sempre imediato — não espera o resumo
     semanal, é esse o ponto do alerta de teto.
+
+    `decision` (Fatia D4, 15/08/2026): a decisão de UM usuário — uma entrada de
+    `report["per_user"]` (com `ceiling`, `reason`, `is_ceiling_hit`), ou o
+    `report["degraded_alert"]` do modo degradado. O que a mensagem diz depende
+    de quem está olhando, então esses campos vêm daqui e não mais do topo do
+    report.
+
+    `who`: o rótulo de quem disparou, vindo do helper `user_label` acima
+    (parâmetro com nome diferente do helper de propósito, para não sombreá-lo
+    dentro desta função). `None` no modo degradado (perna sem dono) — a
+    mensagem sai sem linha de nome, exatamente como antes da D4.
 
     `comparison` (Parte 4, regra 4): {'avulso': R$, 'pacote': R$|None} —
     avulso vem dos current_price já gravados das 2 pernas (sem busca nova);
@@ -166,14 +194,15 @@ def build_weekend_alert_message(report: dict, comparison: dict | None = None) ->
     outbound = report["outbound_date"]
     leg_date = report["date"]
     price = report["price"]
-    # Teto efetivo por usuário (Etapa 4.2) — None quando não há nenhum usuário
-    # em `settings`; nesse caso is_ceiling_hit é sempre False (a regra de teto
-    # não roda) e a mensagem diz isso em vez de exibir um número inventado.
-    ceiling = report["leg"].get("effective_ceiling")
+    # Teto DE QUEM DISPAROU (Fatia D4) — None quando o usuário monitora sem
+    # teto, ou no modo degradado (nenhum usuário em `settings`); nos dois casos
+    # is_ceiling_hit é False (a regra de teto não roda) e a mensagem diz
+    # "indisponível" em vez de exibir um número inventado.
+    ceiling = decision.get("ceiling")
     ceiling = float(ceiling) if ceiling is not None else None
     ceiling_label = f"R$ {ceiling:.0f}" if ceiling is not None else "indisponível"
 
-    if report.get("is_ceiling_hit"):
+    if decision.get("is_ceiling_hit"):
         header = (
             f"🎯 <b>{direction_label} — fim de semana {format_date_br(outbound)}: "
             f"R$ {price:.2f} ≤ teto {ceiling_label}</b>\n"
@@ -186,6 +215,9 @@ def build_weekend_alert_message(report: dict, comparison: dict | None = None) ->
         )
 
     lines = [header]
+
+    if who:
+        lines.append(f"👤 {who}")
 
     date_part = f"🗓 {format_date_br(leg_date)}"
     if report.get("variant"):
@@ -200,8 +232,8 @@ def build_weekend_alert_message(report: dict, comparison: dict | None = None) ->
     if airport:
         lines.append(f"📍 {'ida' if direction == 'outbound' else 'volta'} por {airport}")
 
-    if report.get("reason"):
-        lines.append(f"📌 {report['reason']}")
+    if decision.get("reason"):
+        lines.append(f"📌 {decision['reason']}")
 
     lines.append(f"📊 R$ {price:.2f} · teto {ceiling_label} · fonte: {report.get('source', 'cache')}")
 
@@ -336,10 +368,13 @@ def build_block_recovered_message(streak_days: int) -> str:
 
 
 # ----------------------------------------------------------------------------
-# Avisos de estado provisório da Etapa 4.2 (multiusuário parcial).
-# Os três são situações que NÃO podem seguir em silêncio: ou o dado está
-# quebrado, ou o robô está tomando uma decisão que só vale enquanto o fan-out
-# por usuário (Etapa 6) não existir. Todos saem no máximo 1x por execução.
+# Avisos de DEGRADAÇÃO — não são mais estado provisório (Fatia D4, 15/08/2026).
+# Os dois avisos que existiam por causa do multiusuário parcial da Etapa 4.2
+# (MIN de teto entre usuários e limiares gerais vindos de um usuário só) foram
+# REMOVIDOS junto com as regras que descreviam: a avaliação agora é por
+# usuário. Os dois que sobram descrevem degradação legítima — falta de dado que
+# o robô contorna sem inventar número, e que não pode seguir em silêncio.
+# Saem no máximo 1x por execução.
 # ----------------------------------------------------------------------------
 
 def build_no_effective_ceiling_message() -> str:
@@ -347,40 +382,23 @@ def build_no_effective_ceiling_message() -> str:
     vazia e não existe teto efetivo pra comparar. É erro de dado, não caso pra
     inventar um número: o robô segue gravando preço (o histórico é o ativo que
     não dá pra recuperar depois) e avaliando oportunidade, mas o alerta de teto
-    fica desligado até a linha de settings existir."""
+    fica desligado até a linha de settings existir.
+
+    Fatia D4 (15/08/2026) — DIFERENÇA REAL EM RELAÇÃO A ANTES, registrada de
+    propósito: neste modo o alerta enviado NÃO é gravado em `alert_log` (não há
+    dono para gravar, e gravar NULL colidiria com a marca d'água da D3), então
+    o cooldown não é alimentado e o mesmo alerta de oportunidade pode repetir a
+    cada execução até a linha de `settings` voltar a existir. Antes da D4 o
+    cooldown funcionava neste cenário. A troca é aceita porque o cenário exige
+    zero linha em `settings` e nunca ocorreu em produção, o modo já é anunciado
+    aqui a cada execução, e a alternativa (consultar `user_id is null`)
+    corromperia permanentemente a separação de significados da coluna."""
     return (
         "⚠️ <b>Teto indisponível — alerta de teto desligado hoje</b>\n"
         "Nenhum usuário registrado em <code>settings</code>, então não há teto efetivo "
         "pra comparar. Os preços continuam sendo gravados normalmente e o alerta de "
         "oportunidade (% abaixo da média) segue valendo — só a comparação com o teto "
         "não roda. Verifique o cadastro de configurações no painel."
-    )
-
-
-def build_multi_user_ceiling_message(leg_count: int) -> str:
-    """Mais de um usuário com teto na mesma perna. O robô usa o MENOR — regra
-    provisória da 4.2, porque o Telegram ainda é canal único."""
-    pernas = f"{leg_count} perna{'s' if leg_count != 1 else ''}"
-    return (
-        "ℹ️ <b>Mais de um usuário com teto na mesma perna</b>\n"
-        f"{pernas} com teto definido por mais de um usuário. Vale o <b>menor</b> teto "
-        "entre eles, tanto pro alerta quanto pra ordem da fila.\n"
-        "Regra provisória: enquanto o alerta não for individualizado por usuário "
-        "(Etapa 6), o Telegram é um canal só e não há como mandar o alerta de cada um."
-    )
-
-
-def build_shared_settings_message(chosen_user_id: str, total_users: int) -> str:
-    """Mais de um usuário registrado, mas os limiares gerais (oportunidade,
-    cooldown/realerta, modo de notificação) ainda vêm de um só."""
-    return (
-        "ℹ️ <b>Mais de um usuário registrado — limiares gerais vêm de um só</b>\n"
-        f"{total_users} usuários em <code>settings</code>. Os limiares gerais "
-        "(% de oportunidade, cooldown/re-alerta, modo de notificação) estão saindo das "
-        f"configurações de <code>{chosen_user_id}</code>, escolhido de forma "
-        "determinística (menor user_id).\n"
-        "O <b>teto não depende disso</b> — desde a Etapa 4.2 cada perna usa o teto "
-        "efetivo por usuário. Individualizar os demais limiares é a Etapa 6."
     )
 
 

@@ -96,12 +96,12 @@ class GetLastWeekendLegAlertTest(unittest.TestCase):
 
     ENV = {"SUPABASE_URL": "https://example.supabase.co", "SUPABASE_SERVICE_ROLE_KEY": "fake-key"}
 
-    def call(self, alert_type: str):
+    def call(self, alert_type: str, user_id: str = "user-1"):
         with patch.dict(os.environ, self.ENV), \
              patch("supabase_client.requests.get") as mock_get:
             mock_get.return_value.json.return_value = []
             mock_get.return_value.raise_for_status.return_value = None
-            supabase_client.get_last_weekend_leg_alert("leg-1", alert_type)
+            supabase_client.get_last_weekend_leg_alert("leg-1", alert_type, user_id)
         return mock_get.call_args.kwargs["params"]
 
     def test_ceiling_filters_by_is_ceiling_alert_true(self):
@@ -118,15 +118,39 @@ class GetLastWeekendLegAlertTest(unittest.TestCase):
 
     def test_invalid_alert_type_raises(self):
         with self.assertRaises(ValueError):
-            supabase_client.get_last_weekend_leg_alert("leg-1", "both")
+            supabase_client.get_last_weekend_leg_alert("leg-1", "both", "user-1")
+
+    # --- Fatia D4 (15/08/2026): o cooldown de perna passa a ser por usuário --
+
+    def test_user_id_is_part_of_the_cooldown_filter(self):
+        params = self.call("ceiling", user_id="user-1")
+        self.assertEqual(params["user_id"], "eq.user-1")
+
+    def test_user_id_is_required(self):
+        """Obrigatório e sem default: a função só é chamada de dentro do laço
+        por usuário, e um caminho novo não pode consultar cooldown global sem
+        dizer de quem é."""
+        with self.assertRaises(TypeError):
+            supabase_client.get_last_weekend_leg_alert("leg-1", "ceiling")
+
+    def test_filter_is_a_plain_equality_never_matching_null_rows(self):
+        """Predicado simples e permanente — SEM `or user_id is null`. As linhas
+        históricas com NULL são do usuário real, gravadas antes de a coluna
+        existir; casá-las com um filtro de 'sem dono' suprimiria alerta com base
+        em dado de outra era."""
+        params = self.call("opportunity", user_id="user-1")
+        self.assertEqual(params["user_id"], "eq.user-1")
+        self.assertNotIn("or", params)
 
 
 class AlertLogUserIdPayloadTest(unittest.TestCase):
     """Fatia D3 (14/08/2026): `alert_log` ganhou `user_id`, preenchido de forma
-    ASSIMÉTRICA por desenho — linha de rota leva o dono (`routes.user_id`),
-    linha de perna nasce NULL porque não há dono derivável (weekend_legs não
-    tem user_id e weekend_leg_effective resolve por cross join com settings, ou
-    seja N usuários, não um).
+    ASSIMÉTRICA — linha de rota levava o dono (`routes.user_id`) e linha de
+    perna nascia NULL, porque naquele momento não havia dono derivável.
+
+    Fatia D4 (15/08/2026): a ASSIMETRIA ACABOU. A avaliação passou a ser por
+    usuário, então a linha de perna também nasce com dono, e os dois testes que
+    a D3 deixou como marcadores da regra provisória foram INVERTIDOS abaixo.
 
     Estes testes batem na função REAL, não em mock: os testes de
     tests/test_etapa3_cooldown.py usam `patch(...)` sem autospec, então
@@ -168,23 +192,25 @@ class AlertLogUserIdPayloadTest(unittest.TestCase):
                 is_ceiling_alert=True, is_opportunity_alert=False,
             )
 
-    def test_leg_insert_omits_user_id_key_entirely(self):
-        """Não é esquecimento: a chave nem entra no payload, e a linha nasce
-        NULL. Quem escreve dono em linha de perna é a D4."""
+    def test_leg_insert_sends_user_id(self):
+        """INVERSÃO do marcador da D3 (que exigia a chave FORA do payload):
+        toda linha de perna gravada pelo caminho normal nasce com dono."""
         payload = self.post_payload(
             supabase_client.insert_weekend_alert_log, "leg-1", 150.0, "abaixo da meta fixa (R$ 200)",
-            is_ceiling_alert=True, is_opportunity_alert=False,
+            is_ceiling_alert=True, is_opportunity_alert=False, user_id="user-1",
         )
-        self.assertNotIn("user_id", payload)
+        self.assertEqual(payload["user_id"], "user-1")
         self.assertEqual(payload["leg_id"], "leg-1")
 
-    def test_leg_insert_rejects_user_id_kwarg(self):
-        """Trava de desenho: enquanto a D4 não chegar, passar dono para uma
-        linha de perna é erro, não opção silenciosa."""
+    def test_leg_insert_requires_user_id_keyword(self):
+        """INVERSÃO do outro marcador da D3 (que exigia TypeError ao PASSAR o
+        dono): agora o erro é OMITIR. Keyword-only e sem default, mesmo padrão
+        das flags da D2 e do insert de rota — um caminho de gravação novo não
+        pode esquecer o dono em silêncio e ressuscitar a linha NULL."""
         with self.assertRaises(TypeError):
             supabase_client.insert_weekend_alert_log(
                 "leg-1", 150.0, "abaixo da meta fixa (R$ 200)",
-                is_ceiling_alert=True, is_opportunity_alert=False, user_id="user-1",
+                is_ceiling_alert=True, is_opportunity_alert=False,
             )
 
 

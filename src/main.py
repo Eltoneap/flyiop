@@ -32,15 +32,14 @@ from supabase_client import (
 from telegram_notifier import (
     build_alert_message,
     build_buying_cutoff_fallback_message,
-    build_multi_user_ceiling_message,
     build_no_effective_ceiling_message,
     build_route_block,
-    build_shared_settings_message,
     build_stage_change_message,
     build_summary_message,
     build_weekend_alert_message,
     build_weekly_weekend_summary,
     send_message,
+    user_label,
 )
 from live_check import build_package_comparison, run_daily_batch
 from scrape_schedule import (
@@ -310,7 +309,11 @@ def main() -> None:
 
     routes = get_routes()
     raw_system_config = get_system_config()  # None = tabela sem linha (kill-switch etc. também degradam aqui)
-    system_config = raw_system_config or DEFAULT_SYSTEM_CONFIG
+    # Cópia, não referência: mais abaixo `weekend_buying_cutoff_date` é escrito
+    # aqui dentro, e sem a cópia o caso degradado (`raw_system_config is None`)
+    # escreveria no DEFAULT_SYSTEM_CONFIG do módulo — estado global mutado em
+    # silêncio, que sobrevive entre chamadas dentro do mesmo processo.
+    system_config = {**(raw_system_config or DEFAULT_SYSTEM_CONFIG)}
 
     # `settings` é o registro de usuários (mesma tabela do cross join da view
     # weekend_leg_effective) — carregada inteira, ordenada por user_id. NÃO
@@ -344,36 +347,27 @@ def main() -> None:
     else:
         print(f"[main] execução extra do dia ({today}) — pulando rotas flexíveis e cache Travelpayouts")
 
-    # Escolha ÚNICA e determinística de quem dita os limiares gerais (%
-    # oportunidade, cooldown/re-alerta, modo de notificação): o menor user_id.
-    # Antes era `next(iter(settings_cache.values()))` — o primeiro usuário que a
-    # ordem do dicionário devolvesse, escolha implícita e instável.
-    #
-    # ⚠️ PROVISÓRIO até a Etapa 6, que troca isto por um loop de verdade por
-    # usuário. O TETO já não passa por aqui: desde a Etapa 4.2 cada perna carrega
-    # seu próprio teto efetivo (weekends.get_active_legs). O que ainda é de um
-    # usuário só são os limiares gerais — e, quando há mais de um, o Telegram
-    # avisa em vez de escolher em silêncio.
-    settings_user_id = sorted(settings_cache)[0] if settings_cache else None
-    weekend_settings = (
-        settings_cache[settings_user_id] if settings_user_id
-        else {**DEFAULT_SETTINGS, **system_config}
-    )
-    if settings_user_id:
-        print(f"[main] limiares gerais: settings de {settings_user_id} ({len(settings_cache)} usuário(s))")
+    # Fatia D4 (15/08/2026): a escolha de UM usuário para ditar os limiares
+    # gerais (% oportunidade, cooldown/re-alerta, modo de notificação) foi
+    # EXTINTA — era o último resquício provisório da Etapa 4.2. Cada usuário
+    # passa a ser avaliado com as configurações dele, e o que segue viajando
+    # daqui para as pernas são duas coisas separadas e com papéis distintos:
+    # `system_config` (configuração do SISTEMA, igual pra todo mundo) e
+    # `settings_cache` (configuração POR USUÁRIO, consultada dentro do laço).
+    print(f"[main] {len(settings_cache)} usuário(s) em settings — avaliação por usuário")
 
     # Janela de compra (Fatia D1, 12/08/2026): resolvida uma única vez por
     # execução, a partir de `raw_system_config` (a resposta CRUA do banco, não
     # o `system_config` já mesclado com DEFAULT_SYSTEM_CONFIG acima) — se
-    # calculássemos a partir de `weekend_settings`, o caso "system_config sem
+    # calculássemos a partir do dict já mesclado, o caso "system_config sem
     # linha" ficaria indistinguível de um corte real configurado igual ao
     # fallback, e o aviso nunca dispararia. Resultado normalizado de volta em
-    # weekend_settings — é a mesma cópia que evaluate_and_record_leg_price
+    # `system_config` — é a mesma cópia que evaluate_and_record_leg_price
     # (weekends.py) vai ler para cada perna, então o valor usado no alerta e
     # o usado no resumo/contagem abaixo são garantidamente o mesmo.
     # Degradação nunca remove o filtro — cai no fallback embutido e avisa.
     buying_cutoff, buying_cutoff_degraded = resolve_buying_cutoff(raw_system_config or {})
-    weekend_settings["weekend_buying_cutoff_date"] = buying_cutoff
+    system_config["weekend_buying_cutoff_date"] = buying_cutoff
 
     if primary_run:
         # Novo dia de contagem começando — sempre reseta (idempotente se já
@@ -384,7 +378,7 @@ def main() -> None:
         set_weekend_scrape_state(blocked_today=False, last_primary_run_date=today)
         # Cache (Travelpayouts) — conferidor secundário desde a Parte 3
         # (23/07/2026: só 2/132 pernas bateram, insuficiente pra decidir sozinho).
-        cache_reports = process_all_weekend_legs(weekend_settings)
+        cache_reports = process_all_weekend_legs(system_config, settings_cache)
     else:
         cache_reports = []
 
@@ -394,7 +388,7 @@ def main() -> None:
         is_last_batch_of_day = is_last_expected_batch(initial_stage, scrape_state, today)
         # Live (fli) — fonte primária: quando encontra preço, sobrescreve
         # current_price/current_source da perna naquele dia.
-        live_reports, blocked = run_daily_batch(weekend_settings)
+        live_reports, blocked = run_daily_batch(system_config, settings_cache)
         scrape_state = record_batch_run(scrape_state, today)
         set_weekend_scrape_state(
             last_batch_run_date=today, batches_run_today=scrape_state["batches_run_today"],
@@ -428,15 +422,13 @@ def main() -> None:
         if scrape_state["changed"]:
             send_message(build_stage_change_message(scrape_state["stage"], scrape_state["reason"]))
 
-    # Avisos de estado provisório da Etapa 4.2 — no máximo um de cada por
-    # execução, mesmo que get_active_legs tenha rodado 2x (cache + lote fli):
-    # LEG_LOAD_DIAGNOSTICS é sobrescrito a cada carga, nunca acumulado.
+    # Avisos de degradação — no máximo um de cada por execução, mesmo que
+    # get_active_legs tenha rodado 2x (cache + lote fli): LEG_LOAD_DIAGNOSTICS
+    # é sobrescrito a cada carga, nunca acumulado. Os dois avisos de estado
+    # provisório da Etapa 4.2 (MIN de teto entre usuários, limiares gerais de
+    # um usuário só) saíram na Fatia D4 junto com as regras que descreviam.
     if LEG_LOAD_DIAGNOSTICS["degraded_no_settings"]:
         send_message(build_no_effective_ceiling_message())
-    if LEG_LOAD_DIAGNOSTICS["multi_user_ceiling_legs"]:
-        send_message(build_multi_user_ceiling_message(LEG_LOAD_DIAGNOSTICS["multi_user_ceiling_legs"]))
-    if len(settings_cache) > 1:
-        send_message(build_shared_settings_message(settings_user_id, len(settings_cache)))
     if buying_cutoff_degraded:
         send_message(build_buying_cutoff_fallback_message(buying_cutoff))
 
@@ -452,17 +444,35 @@ def main() -> None:
 
     if primary_run:
         if routes:
-            mode = weekend_settings["notification_mode"]  # mesma escolha determinística acima
-            if mode == "daily_summary":
-                blocks = [build_route_block(r) for r in reports if r["status"] == "ok"]
-                for r in reports:
-                    if r["status"] == "no_data":
-                        blocks.append(
-                            f"✈️ <b>{r['route']['origin']} → {r['route']['destination']}</b> — sem dados na fonte hoje"
-                        )
-                send_message(build_summary_message(blocks, notes))
-            else:
-                for r in reports:
+            # Fatia D4 (D-4b): `notification_mode` passa a sair do DONO REAL da
+            # rota, como as outras duas configurações de rota já faziam —
+            # `freshness_hours` e `stale_alert_policy` chegam a process_route
+            # via `settings_cache[route["user_id"]]`. `notification_mode` era a
+            # única das três lendo do "menor user_id", e perdeu a fonte quando a
+            # escolha única foi extinta. Com um usuário só, idêntico a hoje.
+            # Agrupado por dono, em ordem determinística de user_id: cada um
+            # recebe o formato que escolheu, com as notas das rotas dele.
+            reports_by_owner: dict[str, list[dict]] = {}
+            for r in reports:
+                reports_by_owner.setdefault(r["route"]["user_id"], []).append(r)
+
+            for owner, owned in sorted(reports_by_owner.items()):
+                owner_notes = build_notes(owned)
+                # Índice defensivo, mesmo padrão do resto do arquivo: hoje todo
+                # dono de rota está no cache (o laço acima o acrescenta), mas
+                # este ponto decide o envio de TODAS as rotas dele — um KeyError
+                # aqui derrubaria a execução inteira por uma chave faltando.
+                owner_settings = settings_cache.get(owner) or DEFAULT_SETTINGS
+                if owner_settings.get("notification_mode") == "daily_summary":
+                    blocks = [build_route_block(r) for r in owned if r["status"] == "ok"]
+                    for r in owned:
+                        if r["status"] == "no_data":
+                            blocks.append(
+                                f"✈️ <b>{r['route']['origin']} → {r['route']['destination']}</b> — sem dados na fonte hoje"
+                            )
+                    send_message(build_summary_message(blocks, owner_notes))
+                    continue
+                for r in owned:
                     if r["status"] == "ok" and r["should_alert"]:
                         send_message(build_alert_message(r))
                         # Fatia D3 (14/08/2026): a gravação do log de alerta é
@@ -487,8 +497,8 @@ def main() -> None:
                                 f"[alert_log] FALHA AO GRAVAR (rota {r['route']['id']}) — "
                                 f"mensagem já enviada, cooldown não alimentado:\n{traceback.format_exc()}"
                             )
-                if notes:
-                    send_message("\n".join(notes))
+                if owner_notes:
+                    send_message("\n".join(owner_notes))
         elif notes:
             send_message("\n".join(notes))
 
@@ -498,25 +508,48 @@ def main() -> None:
     # primary_run. Resumo semanal curado só às segundas-feiras, só na
     # execução primária (senão mandaria 3x no mesmo dia).
     for wr in weekend_reports:
-        if wr["status"] == "ok" and wr["should_alert"]:
-            comparison = build_package_comparison(wr, weekend_settings)
-            send_message(build_weekend_alert_message(wr, comparison))
+        if wr["status"] != "ok" or not wr["should_alert"]:
+            continue
+        comparison = build_package_comparison(wr, system_config)
+
+        # Perna SEM DONO (modo degradado: nenhum usuário em `settings`) —
+        # caminho separado. `degraded_alert` não-None implica `per_user == []`.
+        # Já passou pelos mesmos filtros do ramo normal (janela de compra e
+        # suspeita), calculados uma vez por perna antes da bifurcação. Manda a
+        # mensagem e NÃO grava em alert_log: não há user_id para gravar, e
+        # gravar NULL colidiria com a marca d'água da D3. Sem try/except porque
+        # não há insert a proteger — é ausência deliberada, não esquecimento.
+        degraded = wr.get("degraded_alert")
+        if degraded is not None:
+            send_message(build_weekend_alert_message(wr, degraded, None, comparison))
+            continue
+
+        # Fatia D4 (15/08/2026): O LEQUE ABRE AQUI, E SÓ AQUI. Uma mensagem e
+        # uma linha em alert_log por (perna × usuário que disparou) — nenhuma
+        # consulta de preço acontece dentro deste laço.
+        for u in wr["per_user"]:
+            if not u["should_alert"]:
+                continue
+            send_message(build_weekend_alert_message(wr, u, user_label(u["user_id"], settings_cache), comparison))
             # Fatia D3 (14/08/2026): mesma proteção do insert de rota acima, e
             # aqui ela pesa mais — este insert está DENTRO do laço de pernas,
             # então uma exceção não tratada cancelava os alertas das pernas
             # seguintes, o resumo semanal de segunda e o exit code correto.
-            # A linha nasce com user_id NULL por desenho (ver
-            # supabase_client.insert_weekend_alert_log).
+            # Fatia D4: agora por (perna × usuário) — a falha de um usuário não
+            # cancela o outro nem as pernas seguintes. Toda linha de perna
+            # gravada aqui nasce com user_id preenchido, sem exceção.
             try:
                 insert_weekend_alert_log(
-                    wr["leg"]["id"], wr["price"], wr.get("reason"),
-                    is_ceiling_alert=wr["is_ceiling_hit"], is_opportunity_alert=wr["is_opportunity_hit"],
+                    wr["leg"]["id"], wr["price"], u["reason"],
+                    is_ceiling_alert=u["is_ceiling_hit"], is_opportunity_alert=u["is_opportunity_hit"],
+                    user_id=u["user_id"],
                 )
             except Exception:
                 had_error = True
                 print(
-                    f"[alert_log] FALHA AO GRAVAR (perna {wr['leg']['id']}) — "
-                    f"mensagem já enviada, cooldown não alimentado:\n{traceback.format_exc()}"
+                    f"[alert_log] FALHA AO GRAVAR (perna {wr['leg']['id']}, "
+                    f"usuário {u['user_id']}) — mensagem já enviada, "
+                    f"cooldown não alimentado:\n{traceback.format_exc()}"
                 )
 
     if primary_run and date.today().weekday() == 0:  # segunda-feira

@@ -237,9 +237,13 @@ com nome+valor") vira 4 fatias menores e sequenciais:
   `weekends.resolve_effective_leg_state` (regra provisória desde a Etapa 4.2,
   documentada como tal no próprio código), individualiza os limiares gerais
   hoje escolhidos de forma determinística por menor `user_id`
-  (`weekend_opportunity_pct`, cooldown/re-alerta, modo de notificação — ver
-  "JANELA ABERTA 2" acima), e a mensagem passa a identificar quem disparou.
-  Plan Mode ainda não escrito.
+  (`weekend_opportunity_pct`, cooldown/re-alerta, modo de notificação), e a
+  mensagem passa a identificar quem disparou. **IMPLEMENTADA (15/08/2026)** —
+  código e testes prontos; `sql/fatia_d4_avaliacao_por_usuario.sql` JÁ
+  EXECUTADO em produção (10/10 blocos, zero gate disparado, coluna
+  `display_name` criada e populada com `'Elton'`); falta publicar o código e
+  fazer a verificação pós-deploy. Fecha a "JANELA ABERTA 2". Detalhe completo
+  na subseção "Fatia D4" abaixo.
 
 **D1 e D2 valem por si mesmas mesmo sem a Etapa 7 (segunda conta)
 acontecer** — D1 já está em produção com uma conta só; D2 corrige um bug de
@@ -265,6 +269,18 @@ uma segunda conta real para testar contra.
     padrão já usado na investigação dos blocos E/F da Etapa 4.1);
   - aceitar explicitamente como limite estrutural até a Etapa 7 (segunda
     conta real), documentando a lacuna em vez de simular uma prova fraca.
+
+**RESOLVIDO na implementação (15/08/2026), e a lacuna é menor do que o texto
+acima supunha.** Nenhuma das três opções foi necessária como estava posta:
+`resolve_effective_leg_state`, `cooldown_blocks_alert` e `evaluate_good_price`
+são funções **puras**, sem I/O — a lógica de fan-out por usuário é verificável
+agora, com usuários fictícios em teste unitário, e está coberta (13 testes
+novos com 2 usuários: teto próprio, limiar próprio, cooldown isolado por
+usuário e por tipo, fan-out de mensagem e de `alert_log`, modo degradado). O
+que **não** é verificável com uma conta é o comportamento contra o banco real:
+a view devolvendo 264 linhas, a RLS com dois donos e `alert_log` com dois
+`user_id` distintos. Fica registrado nesses termos — nem "verificado", nem
+"impossível". Prova ponta a ponta: Etapa 7.
 
 ### Fatia D1 — janela de compra no Telegram (implementada 12/08/2026, verificação em produção em andamento)
 
@@ -728,6 +744,224 @@ verificação pós-deploy com o robô rodando o código novo ainda não acontece
 
 ---
 
+### Fatia D4 — avaliação por usuário (implementada 15/08/2026; SQL executado e verificado — deploy do código e verificação pós-deploy em aberto)
+
+Última fatia da Etapa 6. Fecha a "JANELA ABERTA 2" (acima).
+
+**Achado que barateou a fatia:** o `user_id` **já chegava** em toda linha de
+`weekend_leg_effective` (`supabase_client.get_effective_leg_state` sempre
+selecionou a coluna) e era **descartado** por `resolve_effective_leg_state`,
+que lia só `leg_id`, `status` e `price_ceiling`. Não foi preciso view nova,
+grant novo nem mudança de RLS para ter o dono em mãos no ponto de avaliação.
+
+**A garantia central: NENHUMA consulta de preço cresce com o número de
+usuários.** A linha de corte é visível na ordem do corpo de
+`evaluate_and_record_leg_price`: gravar preço, ler histórico, classificar
+suspeita e resolver a janela de compra acontecem **uma vez por perna** (fatos
+de mercado e regras de sistema); teto, `weekend_opportunity_pct` e cooldown
+acontecem **por usuário**; `update_weekend_leg` e `insert_weekend_leg_run_log`
+voltam a acontecer uma vez por perna. O `set` de `fetch_keys` de
+`process_all_weekend_legs` é derivado só de (mês, aeroporto, direção) — nunca
+de usuário. O leque abre **no laço de envio de `main.py`, e só nele**.
+
+**Dois dicts com papéis distintos substituem o `weekend_settings` extinto:**
+`system_config` (configuração do sistema, igual para todos) e `settings_cache`
+(configuração por usuário, consultada dentro do laço). `select_batch` e
+`run_daily_batch` leem **só** o primeiro; `settings_by_user` é carga opaca que
+o lote transporta e nunca inspeciona.
+
+**Regra de chaveamento — a chave é a PRESENÇA do usuário monitorando, não a
+existência de teto.** `resolve_effective_leg_state` devolve
+`{leg_id: {user_id: teto_ou_None}}`; usuário monitorando **sem** teto entra
+como `{user_id: None}`, nunca é omitido. Com isso, **dict vazio significa
+exatamente uma coisa: ninguém monitora aquela perna** — é o que torna
+inequívoco o marcador do modo degradado. Espelhar ali o filtro do MIN antigo
+(que descartava quem não tinha teto) faria uma perna com um único usuário sem
+teto virar `{}` e ser lida como "perna sem dono".
+
+**A bifurcação degradada sobrevive, e a ORDEM dos dois testes é a garantia.**
+Em `get_active_legs`, `degraded = not state_rows` é fato da **carga inteira**
+(erro de dado: o robô degrada e avisa) e **curto-circuita** o teste **por
+perna** de "ninguém monitora" (estado normal: a perna terminou). Fundir os dois
+num `continue` só esvaziaria a fila em silêncio no modo degradado — um erro de
+dado virando "acabou o trabalho". Protegido pelo teste
+`test_no_settings_keeps_the_whole_queue_without_inventing_ceiling`, que roda no
+nível de `get_active_legs` de propósito: no nível do report a perna nem seria
+produzida e o teste ficaria verde sobre conjunto vazio.
+
+**Modo degradado: caminho separado, SEM sentinela em `per_user`.** Com `perna
+sem dono`, `per_user` fica `[]` e a decisão vai num campo próprio
+(`degraded_alert`); o laço de envio manda a mensagem e **não grava em
+`alert_log`**. Uma entrada sentinela com `user_id=None` gravaria NULL e (a)
+contradiria a verificação desta fatia, que declara "linha nova com NULL é
+defeito", e (b) criaria um **terceiro** significado de NULL do mesmo lado da
+marca d'água da D3 (`max_sent_at = 2026-08-14 11:37:28.822753+00`), que existe
+justamente para separar "linha anterior à individualização" de "gravação de
+dono que falhou". O limiar do ramo degradado sai de `DEFAULT_SETTINGS`, o que
+**preserva** o valor que já saía nesse cenário (15%), e os filtros comuns
+continuam valendo: `suspicious` e `in_buying_window` são calculados **antes**
+da bifurcação, então os dois ramos leem o mesmo valor por construção — a janela
+de compra da D1 (produção desde 12/08/2026) não é reaberta.
+
+> **DIFERENÇA REAL EM RELAÇÃO A ANTES, registrada como diferença e não como
+> equivalência:** no modo degradado o cooldown **deixa de ser alimentado** (não
+> há linha em `alert_log`), então o mesmo alerta de oportunidade pode repetir a
+> cada execução até a linha de `settings` voltar a existir. Antes da D4 isso
+> não acontecia — o insert degradado gravava sem dono e o cooldown consultava
+> só por `leg_id`. Aceito por três razões: o cenário exige zero linha em
+> `settings` e nunca ocorreu em produção; o modo já é anunciado no Telegram a
+> cada execução; e a alternativa (consultar `user_id is null`) casaria com as
+> 54 linhas históricas — que são do usuário real, gravadas antes da coluna
+> existir — corrompendo permanentemente a separação de significados que a D3
+> construiu. Dano permanente contra incômodo temporário.
+
+**D-4b — `notification_mode` das rotas passa a ler o dono real.** Não é escopo
+novo: `main.py:455` lia de `weekend_settings` e **perde a fonte** quando a
+variável é apagada; a fatia não compila sem resolver. Passa a ler
+`settings_cache[route["user_id"]]`, mesmo padrão que `freshness_hours` e
+`stale_alert_policy` já usavam — `notification_mode` era a única das três lendo
+do "menor `user_id`", a mesma classe de bug que a D2 corrigiu no cooldown. Os
+reports passam a ser agrupados por dono: um resumo por dono em `daily_summary`,
+alertas individuais para donos em `alert_only`, cada um com as notas das rotas
+dele. Com um usuário só, comportamento idêntico ao de antes. **Fora de escopo,
+e explicitamente NÃO corrigido:** a semântica invertida de `notification_mode`
+em `rules.py:80-81` (`daily_summary` **desliga** o cooldown de perna e faz o
+usuário receber **mais** alertas) — bug pré-existente e independente. A D4
+individualiza a **leitura** da coluna, não corrige a semântica.
+
+**SQL executado e verificado em produção, 10/10 blocos, zero gate
+disparado.** Resultados medidos:
+- **G0-Q1** (antes do Bloco 1): `usuarios_settings=1`,
+  `user_id=c72bf50e-16f7-48fd-9c86-7b49dea1551e`, `contas_auth=1`,
+  `coluna_display_name_existe=false`.
+- **G0-Q2**: `132 / 1 / 132 / 132 / 132 / 0` — granularidade exata, **zero**
+  linha sem teto. Os dois gates (`usuarios_distintos > 1`,
+  `linhas_sem_teto > 0`) não dispararam.
+- **G0-Q3**: `weekend_opportunity_pct=15`, `realert_days=1`,
+  `notification_mode=alert_only`, `weekend_default_ceiling=300`,
+  `stale_alert_policy=warn`, `freshness_hours=24`.
+- **G0-Q4 — PREVISÃO do re-alerta único de transição, a conferir DEPOIS do
+  deploy do código: 1 perna exposta a re-alerta de TETO, 0 de OPORTUNIDADE.**
+  É o número que o item 9 da verificação, abaixo, confere.
+- **G0-Q5/Q6**: baseline de postura de acesso medido; `anon` vê **0** linhas
+  de `settings` — o gate `linhas_settings_vistas > 0` não disparou.
+- **BLOCO 1**: coluna `display_name` criada; `display_name='Elton'` gravado
+  no usuário real.
+- **V1 / V2-A / V2-B / V3**: idênticos ao esperado — postura de acesso
+  inalterada, campo a campo. `has_column_privilege` devolvendo `true` é o
+  resultado correto (privilégio herdado da tabela), não regressão.
+
+Com o nome já gravado no banco, o item 6 da verificação (abaixo) vira
+asserção afiada: a mensagem **tem** que trazer `Elton`, e um `uuid[:8]` ali é
+defeito inequívoco — não mais "coluna vazia, fallback correto" indistinguível
+de "lookup quebrado".
+
+**Sem REVOKE e sem GRANT, e o motivo é de fato, não de estilo:** em Postgres o
+privilégio de coluna é herdado da **tabela**, e `revoke ... (display_name) on
+settings from anon` executa sem erro **sem restringir nada** — deixaria no
+repositório uma garantia falsa, com verificação "passando", enquanto o acesso
+continua idêntico. No lugar: **medir antes** (G0-Q5 e G0-Q6, este último
+provando por personificação que `anon` vê 0 linha de `settings`) e **provar
+igualdade depois** (V2, esperado literal "idêntico ao G0, campo a campo"); o V3
+registra por escrito por que `has_column_privilege` devolve `true`, para
+ninguém ler esse `true` no futuro como regressão introduzida aqui.
+
+**Ordem de deploy: SQL primeiro, código depois — a janela é a mais folgada das
+quatro fatias, nos dois sentidos.** SQL feito com código velho no ar: a coluna
+fica inerte. Ordem invertida por acidente: `get_all_settings` usa `select=*`,
+então a chave não vem, `.get("display_name")` devolve `None` e o fallback do
+uuid entra — é o fallback trabalhando, não degradação. **O que muda
+comportamento é o deploy do CÓDIGO**, e na primeira execução seguinte: o
+re-alerta único da transição de cooldown por usuário, do tamanho exato medido
+em G0-Q4. Não é defeito, é a transição prevista.
+**Reversão:** `git revert` do commit de código (a coluna pode ficar);
+`alter table settings drop column if exists display_name` é seguro com o código
+novo no ar ou fora dele — diferente da D3, aqui não existe caminho de insert
+que mande a coluna, `display_name` é só LIDO pelo robô.
+
+**Testes: 267 passando (eram 227).** 40 novos/reescritos, nos níveis certos —
+`get_active_legs` (fila), report (avaliação por usuário e ramo degradado),
+`main.py` (fan-out de envio e gravação) e apresentação (`user_label`, mensagem).
+
+**RESSALVA HERDADA DA D3, que pesa nesta fatia.** A D3 foi liberada com o item
+4 da verificação **não observado**: a gravação de `user_id` em linha de **rota**
+nunca foi vista em produção (a evidência de 14/08 08:37 BRT é anterior ao
+deploy das 22:03, e nenhuma linha de rota nasceu desde então). Ou seja, o
+caminho de rota **não serviu de ensaio** para o de perna. Se existir defeito na
+montagem do payload com `user_id`, ele vai se manifestar **aqui**. Isso eleva a
+importância do item 5 abaixo.
+
+**SQL EXECUTADO E VERIFICADO (10/10 blocos, zero gate). O QUE FALTA É O
+DEPLOY DO CÓDIGO E A VERIFICAÇÃO PÓS-DEPLOY.**
+
+✅ **FECHADO — SQL (executado em produção, 15/08/2026):**
+1. Script rodado bloco a bloco. Os três gates **não** dispararam:
+   `usuarios_distintos=1`, `linhas_sem_teto=0`, `linhas_settings_vistas=0`.
+2. Coluna `display_name` criada e populada (`'Elton'`). V1/V2/V3 conferidos:
+   postura de acesso idêntica ao baseline, campo a campo.
+3. Previsão do re-alerta único de transição ANOTADA em G0-Q4: **1 perna
+   exposta a re-alerta de TETO, 0 de oportunidade**. É o número a conferir
+   depois do deploy (item 9 abaixo).
+
+⏳ **EM ABERTO — deploy do código e verificação pós-deploy:**
+4. Publicar o código (commit único: código + testes + documentação). Janela
+   de deploy: entre execuções do robô (08h–20h BRT) — mesmo cuidado dos
+   deploys anteriores, evita a ordem invertida no meio de uma execução.
+5. **A próxima linha de PERNA em `alert_log` nasce com `user_id`
+   PREENCHIDO.** Fronteira: a marca d'água da D3 —
+   `max_sent_at = 2026-08-14 11:37:28.822753+00`, 78 linhas. Linha nova com
+   NULL é **defeito** — é a primeira observação real da gravação de dono em
+   `alert_log`, não uma confirmação de algo que já funcionou (ver "ressalva
+   herdada da D3" acima).
+6. A mensagem no Telegram traz **`Elton`** — o nome **já está gravado** no
+   banco — e o teto de quem disparou. Um `uuid[:8]` ali é defeito inequívoco.
+7. `had_error` **não** disparou: exit 0 no Actions e zero ocorrência de
+   `[alert_log] FALHA AO GRAVAR`. Não basta "sem traceback novo".
+8. Os dois avisos provisórios pararam de sair: nenhuma mensagem desse tipo no
+   canal.
+9. **Re-alerta de transição**: conferir que o observado bate com a previsão
+   de G0-Q4 (**1 perna de teto, 0 de oportunidade**) e que **não se repete**
+   na execução seguinte.
+10. **Regressão: critério ESTRUTURAL, não comparação com execuções
+    passadas.** Comparar com ontem **não é aferível** — o lote `fli` seleciona
+    por rotação da perna menos checada, então o conjunto avaliado muda a cada
+    execução por desenho; "mesmas pernas alertadas que ontem" mediria a
+    rotação, não a fatia. Por perna avaliada com dono: `per_user` tem
+    **exatamente 1 entrada**, o teto usado é o `weekend_default_ceiling`
+    atual (lido em G0-Q3, R$300), e a decisão bate com o que
+    `rules.evaluate_good_price` devolveria para aquele preço e aquele teto,
+    conferido no log da própria execução. A regressão é verificada contra a
+    **regra**, que é determinística, não contra a **amostra**, que é
+    rotativa.
+
+**A Fatia D4 só deve ser marcada como CONCLUÍDA depois dos itens 4-10** —
+mesmo critério de D1, D2 e D3.
+
+#### Duas decisões fechadas, com gatilho de revisão nomeado (param de ricochetear)
+
+**D-6 — índice de `alert_log`: DECIDIDO não recriar.** A D2 previu
+`(leg_id, user_id, sent_at desc)` para a D3; a D3 reviu e passou a decisão para
+cá. **Fica como está**: `alert_log_leg_sent_at_idx (leg_id, sent_at desc)`.
+Motivo: 78 linhas na marca d'água da D3, crescendo 1-3/dia; `leg_id` já é a
+coluna seletiva, e acrescentar `user_id` a um índice sobre tabela desse tamanho
+não muda plano de execução nenhum. **Gatilho de revisão:** quando `alert_log`
+chegar à ordem de **dezenas de milhares de linhas** (no ritmo atual, ordem de
+anos) — reavaliar aí, com medição. Até lá **não é pendência**. O bloco G0-Q5
+prova que a D4 não tocou no índice.
+
+**D-7 — RLS do ramo de perna em `alert_log`: DECIDIDO não apertar aqui; vira
+item NOMEADO da Etapa 7.** Depois da D4 o predicado `user_id = auth.uid()`
+passa a ser *expressável* pela primeira vez (linha nova nasce com dono), mas
+continua **não verificável**: `alert_log` não tem consumidor fora do robô
+(`grep` em `docs/` → zero; o robô usa `service_role`, que ignora RLS) e provar
+isolamento exige duas contas. Apertar agora seria mudar política de segurança
+em produção sem forma de observar o efeito, e ainda esconderia as 54 linhas
+históricas com `user_id` NULL. **Endereço:** item nomeado da Etapa 7 (criação
+da 2ª conta), junto com a prova de isolamento ponta a ponta. **Não é pendência
+solta** e não deve reaparecer como "pendente" em fatia intermediária.
+
+---
+
 ## Etapa 4.2 — virada de leitura (pendências 1–11 e 13 concluídas; 12 em aberto)
 
 **Etapa 4.1 concluída e verificada em 01/08/2026.** A estrutura nova
@@ -820,6 +1054,30 @@ estrutura nova ainda — é o que esta etapa faz.
 > vale o **menor teto** entre os usuários que ainda monitoram a perna, e a
 > perna **fica na fila enquanto pelo menos um** usuário a monitorar. Com uma
 > conta só — cenário de hoje — as duas são invisíveis.
+>
+> **✅ ENCERRADA (15/08/2026, Fatia D4).** Os quatro pontos que seguiam
+> abertos fecharam de uma vez, na implementação:
+> - **Fan-out de alerta por usuário** — o laço de envio de `main.py` manda uma
+>   mensagem por (perna × usuário que disparou). O canal do Telegram continua
+>   sendo um só; o que mudou é que cada alerta agora é de alguém.
+> - **Cooldown/dedup por perna × usuário** — `get_last_weekend_leg_alert`
+>   ganhou `user_id` obrigatório, e `alert_log` de perna passou a nascer com
+>   dono (a coluna que a D3 criou, agora preenchida).
+> - **Mensagem com nome e valor de cada usuário** — `build_weekend_alert_message`
+>   recebe a decisão daquele usuário (teto, razão, tipo) e o rótulo dele
+>   (`settings.display_name`, com fallback para os 8 primeiros caracteres do
+>   uuid).
+> - **Limiares gerais de um usuário só** — a escolha por menor `user_id` foi
+>   **extinta**, junto com o aviso de Telegram que a anunciava. Cada usuário é
+>   avaliado com as configurações dele.
+>
+> Das duas regras provisórias, **uma morreu e a outra virou definitiva**: o
+> MIN de teto entre usuários acabou (cada um leva o seu teto até o ponto de
+> avaliação); a regra de fila — a perna fica enquanto **pelo menos um** usuário
+> a monitorar — continua valendo e deixou de ser provisória.
+>
+> **Encerramento é da REGRA, não da verificação em produção**, que segue em
+> aberto (código a publicar) — ver subseção "Fatia D4".
 
 **Medição da janela aberta (03/08/2026, chat de planejamento).** Consulta
 somente leitura em produção, comparando `weekend_legs` (mundo antigo) com a

@@ -22,8 +22,9 @@ cada chave é buscada uma única vez e reusada — não uma chamada por perna.
 Reusa direto as funções de decisão já testadas em produção (rules.py):
 evaluate_good_price (teto = meta fixa, oportunidade = % abaixo da média
 própria), is_suspicious_price (autocheck anti-preço-fantasma) e
-cooldown_blocks_alert (Etapa 3, aqui aplicado por perna via alert_log.leg_id
-+ tipo do alerta — Fatia D2, 13/08/2026).
+cooldown_blocks_alert (Etapa 3, aqui aplicado por perna × tipo de alerta ×
+usuário via alert_log.leg_id + is_ceiling_alert/is_opportunity_alert +
+user_id — Fatia D2, 13/08/2026, e Fatia D4, 15/08/2026).
 
 Checkpoint da Parte 2 (23/07/2026): resultado real de produção conferido —
 só 2 de 132 pernas bateram (cache insuficiente, mesmo padrão do RIO
@@ -143,49 +144,52 @@ def leg_expiry_date(leg: dict) -> str:
 # main.py. get_active_legs roda 2x por execução (varredura cache + lote fli) e
 # recalcula os mesmos números nas duas — por isso o dict é sobrescrito, nunca
 # acumulado: quem lê manda no máximo uma mensagem por condição.
-LEG_LOAD_DIAGNOSTICS = {"degraded_no_settings": False, "multi_user_ceiling_legs": 0}
+LEG_LOAD_DIAGNOSTICS = {"degraded_no_settings": False}
 
 
-def resolve_effective_leg_state(state_rows: list[dict]) -> tuple[dict[str, float | None], int]:
-    """Colapsa as linhas perna × usuário de `weekend_leg_effective` numa
-    decisão por perna. Devolve ({leg_id: teto_efetivo}, nº de pernas onde mais
-    de um usuário tinha teto).
+def resolve_effective_leg_state(state_rows: list[dict]) -> dict[str, dict[str, float | None]]:
+    """Colapsa as linhas perna × usuário de `weekend_leg_effective` em
+    {leg_id: {user_id: teto_efetivo_ou_None}} — uma chave por usuário que ainda
+    monitora a perna, TENHA ELE TETO OU NÃO.
 
-    Duas regras, ambas já decididas na Etapa 4.2:
+    Duas regras:
 
-    - FILA (pendência 9): a perna fica na fila se PELO MENOS UM usuário ainda
-      tem status efetivo 'monitoring'. Sai só quando TODOS decidiram outra
-      coisa. Ausência de linha em `weekend_leg_user_state` já chega aqui como
-      'monitoring' (a view faz o coalesce) — silêncio segue o padrão, e o
-      padrão é continuar monitorando.
-    - TETO (pendência 6/10): com mais de um usuário monitorando a mesma perna,
-      vale o MENOR teto entre eles — quem tem o teto mais apertado dispara o
-      alerta e puxa a perna pra cima na fila.
+    - FILA (pendência 9 da Etapa 4.2): a perna fica na fila se PELO MENOS UM
+      usuário ainda tem status efetivo 'monitoring'. Sai só quando TODOS
+      decidiram outra coisa. Ausência de linha em `weekend_leg_user_state` já
+      chega aqui como 'monitoring' (a view faz o coalesce) — silêncio segue o
+      padrão, e o padrão é continuar monitorando.
+    - TETO (Fatia D4, 15/08/2026): cada usuário carrega o SEU teto até o ponto
+      de avaliação. O MIN entre usuários — regra provisória da Etapa 4.2, que
+      existia só porque o Telegram era canal único sem fan-out — está
+      aposentado: `evaluate_and_record_leg_price` itera por usuário e cada um
+      recebe o alerta dele. Esta função passa a ser definitiva.
 
-    ⚠️ REGRA PROVISÓRIA DA ETAPA 4.2. Colapsar N usuários num teto só existe
-    porque o Telegram ainda é um canal único, sem fan-out. A Etapa 6 (alerta
-    por perna × usuário, com cooldown/dedup e mensagem próprios de cada um)
-    substitui este MIN por iteração de verdade — quando ela entrar, esta
-    função deixa de fazer sentido. Não construir nada novo em cima dela.
+    CHAVEAMENTO PELA PRESENÇA, NÃO PELA EXISTÊNCIA DE TETO: usuário monitorando
+    sem teto entra como {user_id: None} — chave presente, valor nulo — e nunca
+    é omitido. Com isso, dict vazio significa exatamente uma coisa: NENHUM
+    usuário monitora aquela perna. É o que torna inequívoco o marcador do modo
+    degradado lido em `evaluate_and_record_leg_price` (`ceilings_by_user == {}`).
+    Filtrar aqui quem não tem teto faria uma perna com um único usuário sem teto
+    virar `{}` e ser lida como "perna sem dono" — alerta enviado sem registro em
+    `alert_log`, e o estado "usuário presente, sem teto" desapareceria.
 
-    Usuário que já marcou a perna como comprada não entra no MIN: o teto dele
-    não deve mais governar um alerta que só interessa a quem ainda monitora.
-    Com um usuário só (cenário de hoje) as duas leituras coincidem."""
+    Usuário que já marcou a perna como comprada não entra no dict: o teto dele
+    não deve mais governar um alerta que só interessa a quem ainda monitora."""
     rows_by_leg: dict[str, list[dict]] = {}
     for row in state_rows:
         rows_by_leg.setdefault(row["leg_id"], []).append(row)
 
-    effective: dict[str, float | None] = {}
-    multi_user_legs = 0
+    effective: dict[str, dict[str, float | None]] = {}
     for leg_id, rows in rows_by_leg.items():
         monitoring = [r for r in rows if r.get("status") == "monitoring"]
         if not monitoring:
             continue  # todos os usuários já decidiram outra coisa — sai da fila
-        ceilings = [float(r["price_ceiling"]) for r in monitoring if r.get("price_ceiling") is not None]
-        if len(ceilings) > 1:
-            multi_user_legs += 1
-        effective[leg_id] = min(ceilings) if ceilings else None
-    return effective, multi_user_legs
+        effective[leg_id] = {
+            r["user_id"]: (float(r["price_ceiling"]) if r.get("price_ceiling") is not None else None)
+            for r in monitoring
+        }
+    return effective
 
 
 def get_active_legs() -> list[dict]:
@@ -194,24 +198,33 @@ def get_active_legs() -> list[dict]:
     perna (Parte 9). D+1 é folga de segurança: o robô roda 1x/dia, D0 puro
     arriscaria perder a checagem do próprio dia do voo por atraso de execução
     ou horário do voo já ter passado de manhã. Cada perna volta com as datas
-    do weekend anexadas (prontas pro matching local) e com `effective_ceiling`
-    — o teto efetivo, única fonte de teto do robô desde a Etapa 4.2.
+    do weekend anexadas (prontas pro matching local), com `ceilings_by_user`
+    (o teto de CADA usuário que ainda monitora — fonte única do alerta desde a
+    Fatia D4) e com `queue_ceiling` (o menor teto entre eles, HEURÍSTICA DE
+    PRIORIDADE da fila do lote fli, nunca decisão de alerta).
 
     Modo degradado: se `weekend_leg_effective` vier vazia (nenhum usuário em
     `settings`), a fila não filtra por status nenhum — devolve todas as pernas
-    não expiradas com `effective_ceiling = None`, ou seja, grava preço e avalia
-    oportunidade, mas sem comparação de teto. Nunca esvazia a fila em silêncio,
-    e nunca inventa um teto: main.py avisa no Telegram. (Até a Etapa 4.3 esse
-    ramo caía no `weekend_legs.status` antigo; a coluna está congelada desde
-    03/08/2026 — não reflete decisão viva de usuário — e é removida na 4.3.)"""
+    não expiradas com `ceilings_by_user = {}` e `queue_ceiling = None`, ou seja,
+    grava preço e avalia oportunidade, mas sem comparação de teto e sem
+    cooldown por usuário. Nunca esvazia a fila em silêncio, e nunca inventa um
+    teto: main.py avisa no Telegram. (Até a Etapa 4.3 esse ramo caía no
+    `weekend_legs.status` antigo; a coluna está congelada desde 03/08/2026 —
+    não reflete decisão viva de usuário — e é removida na 4.3.)
+
+    A ORDEM DOS DOIS TESTES É A GARANTIA, e não pode ser fundida num só:
+    `degraded` é fato da CARGA INTEIRA (a consulta voltou vazia — erro de dado,
+    o robô degrada e avisa) e curto-circuita o teste POR PERNA de "ninguém
+    monitora" (estado normal, a perna terminou). Aplicar o segundo
+    incondicionalmente esvaziaria a fila em silêncio no modo degradado —
+    transformaria um erro de dado em "acabou o trabalho"."""
     cutoff = (date.today() - timedelta(days=1)).isoformat()
     weekends_by_id = {w["id"]: w for w in get_monitoring_weekends()}
 
     state_rows = get_effective_leg_state()
-    effective, multi_user_legs = resolve_effective_leg_state(state_rows)
+    effective = resolve_effective_leg_state(state_rows)
     degraded = not state_rows
     LEG_LOAD_DIAGNOSTICS["degraded_no_settings"] = degraded
-    LEG_LOAD_DIAGNOSTICS["multi_user_ceiling_legs"] = multi_user_legs
 
     legs = []
     for leg in get_all_weekend_legs():
@@ -223,17 +236,21 @@ def get_active_legs() -> list[dict]:
             # congelado desde 03/08/2026 (o painel escreve em
             # weekend_leg_user_state) e some no DROP — ler daqui esvaziaria a
             # fila em silêncio (chave ausente vira None, e None != 'monitoring').
-            ceiling = None
+            ceilings_by_user: dict[str, float | None] = {}
+            queue_ceiling = None
         else:
             if leg["id"] not in effective:
                 continue  # nenhum usuário monitorando essa perna
-            ceiling = effective[leg["id"]]
+            ceilings_by_user = effective[leg["id"]]
+            known_ceilings = [c for c in ceilings_by_user.values() if c is not None]
+            queue_ceiling = min(known_ceilings) if known_ceilings else None
         merged = {
             **leg,
             "outbound_date": weekend["outbound_date"],
             "return_sunday": weekend["return_sunday"],
             "return_monday": weekend["return_monday"],
-            "effective_ceiling": ceiling,
+            "ceilings_by_user": ceilings_by_user,
+            "queue_ceiling": queue_ceiling,
         }
         if leg_expiry_date(merged) < cutoff:
             continue  # essa perna específica já passou do D+1 dela
@@ -241,7 +258,8 @@ def get_active_legs() -> list[dict]:
     return legs
 
 
-def evaluate_and_record_leg_price(leg: dict, settings: dict, price: float, airport: str | None,
+def evaluate_and_record_leg_price(leg: dict, system_settings: dict, settings_by_user: dict[str, dict],
+                                  price: float, airport: str | None,
                                   variant: str | None, transfers: int | None, source: str,
                                   airline: str | None = None, departure_time: str | None = None) -> dict:
     """Núcleo compartilhado entre a varredura cache (process_weekend_leg, abaixo)
@@ -251,7 +269,27 @@ def evaluate_and_record_leg_price(leg: dict, settings: dict, price: float, airpo
     o current_price/alerta); 'cache' virou conferidor secundário, mas grava
     exatamente do mesmo jeito (histórico registra as duas fontes).
     `airline`/`departure_time` (Parte 9, 28/07/2026): só a fonte 'live' (fli)
-    devolve esses campos — a Travelpayouts ('cache') não, ficam None ali."""
+    devolve esses campos — a Travelpayouts ('cache') não, ficam None ali.
+
+    Fatia D4 (15/08/2026) — LINHA DE CORTE ENTRE O QUE É DO MERCADO E O QUE É
+    DE QUEM OLHA, e ela é visível na ordem do corpo abaixo:
+
+    - UMA VEZ POR PERNA (antes do laço): gravar o preço, ler o histórico,
+      classificar suspeita e resolver a janela de compra. São fatos de mercado
+      e regras de sistema, idênticos para qualquer usuário — nenhuma consulta
+      cresce com o número de usuários, que é a garantia central desta fatia.
+    - POR USUÁRIO (o laço): teto próprio, `weekend_opportunity_pct` próprio,
+      cooldown próprio por tipo. Uma entrada em `per_user` por usuário que
+      monitora a perna, alertando ou não — o filtro `should_alert` só é
+      aplicado no laço de envio (main.py), que é onde o leque abre.
+    - UMA VEZ POR PERNA (depois do laço): `update_weekend_leg` e
+      `insert_weekend_leg_run_log`. Nenhum campo de decisão pessoal (teto,
+      alerta, cooldown) entra em `weekend_legs` nem em `weekend_leg_run_log` —
+      decisão pessoal vive em `weekend_leg_user_state` e em `alert_log`.
+
+    `system_settings` é o `system_config` que main.py monta (não um dicionário
+    novo): fornece `suspicious_below_avg_pct` e `weekend_buying_cutoff_date`.
+    `settings_by_user` é o `settings_cache` de main.py, {user_id: settings}."""
     leg_id = leg["id"]
     direction = leg["direction"]
     if direction == "outbound":
@@ -264,18 +302,8 @@ def evaluate_and_record_leg_price(leg: dict, settings: dict, price: float, airpo
     history = get_weekend_leg_price_history(leg_id, days=90)
     history_prices = [float(h["price"]) for h in history]
 
-    # Teto efetivo vindo de weekend_leg_effective (Etapa 4.2) — sem fallback
-    # numérico: teto ausente é erro de dado (nenhum usuário em `settings`), não
-    # caso pra mascarar com número inventado. Nesse caso a regra de teto sai de
-    # cena (target_price=None) e só a de oportunidade decide; o aviso vai pro
-    # Telegram uma vez por execução, em main.py.
-    ceiling = leg.get("effective_ceiling")
-    ceiling = float(ceiling) if ceiling is not None else None
-    opportunity_pct = float(settings.get("weekend_opportunity_pct") or DEFAULT_SETTINGS["weekend_opportunity_pct"])
-    good, reason, ceiling_hit, opportunity_hit = evaluate_good_price(price, history_prices, ceiling, opportunity_pct)
-
     suspicious_threshold = float(
-        settings.get("suspicious_below_avg_pct") or DEFAULT_SETTINGS["suspicious_below_avg_pct"]
+        system_settings.get("suspicious_below_avg_pct") or DEFAULT_SETTINGS["suspicious_below_avg_pct"]
     )
     suspicious = is_suspicious_price(price, history_prices, suspicious_threshold)
 
@@ -286,29 +314,111 @@ def evaluate_and_record_leg_price(leg: dict, settings: dict, price: float, airpo
     # (STATE.md, seção 2). NÃO afeta a COLETA: o preço já foi gravado acima
     # (insert_weekend_leg_price) e current_price/lowest_seen são atualizados
     # normalmente mais abaixo, fora da janela ou não.
-    buying_cutoff, _cutoff_degraded = resolve_buying_cutoff(settings)
+    buying_cutoff, _cutoff_degraded = resolve_buying_cutoff(system_settings)
     in_buying_window = leg["outbound_date"] >= buying_cutoff
 
-    would_alert = good and not suspicious and in_buying_window
-    if good and not suspicious and not in_buying_window:
-        print(f"[{direction} {leg['outbound_date']}] alerta suprimido — fim de semana fora da janela de compra (< {buying_cutoff})")
-    cooldown_suppressed = False
-    if would_alert:
-        # Fatia D2 (13/08/2026): cooldown avaliado POR TIPO — um alerta de
-        # oportunidade em cooldown não segura mais um de teto liberado, e
-        # vice-versa (bug estrutural documentado em STATE.md, seção 2).
-        # Segura só se TODOS os tipos que dispararam nesta avaliação estão em
-        # cooldown; `active_types` nunca fica vazia aqui (would_alert=True
-        # implica good=True, que implica ceiling_hit ou opportunity_hit), mas
-        # o `bool(...)` guarda contra all([]) == True mesmo assim — não
-        # confiar em invariante implícito num ponto que decide silêncio.
-        active_types = []
-        if ceiling_hit:
-            active_types.append("ceiling")
-        if opportunity_hit:
-            active_types.append("opportunity")
-        blocks = [cooldown_blocks_alert(get_last_weekend_leg_alert(leg_id, t), price, settings) for t in active_types]
-        cooldown_suppressed = bool(blocks) and all(blocks)
+    # `perna sem dono` — a condição do modo degradado, avaliada UMA VEZ, aqui.
+    # Só é possível pelo ramo degradado de get_active_legs: no ramo normal, uma
+    # perna sem nenhum usuário monitorando nem entra na lista.
+    ceilings_by_user: dict[str, float | None] = leg.get("ceilings_by_user") or {}
+
+    def suppressed_outside_window(owner: str | None = None) -> None:
+        # Nomeia o usuário: com mais de um, esta linha sai uma vez por usuário
+        # afetado, e duas linhas idênticas no log não diriam de quem são.
+        who = f", {owner}" if owner else ""
+        print(f"[{direction} {leg['outbound_date']}{who}] alerta suprimido — fim de semana fora da janela de compra (< {buying_cutoff})")
+
+    per_user: list[dict] = []
+    degraded_alert = None
+
+    if ceilings_by_user:
+        # Ordem determinística por user_id: nem get_effective_leg_state nem
+        # get_all_weekend_legs pedem `order`, então a ordem do banco não é
+        # garantida e a da mensagem não pode depender dela.
+        for user_id, user_ceiling in sorted(ceilings_by_user.items()):
+            user_settings = settings_by_user.get(user_id) or DEFAULT_SETTINGS
+            ceiling = float(user_ceiling) if user_ceiling is not None else None
+            opportunity_pct = float(
+                user_settings.get("weekend_opportunity_pct") or DEFAULT_SETTINGS["weekend_opportunity_pct"]
+            )
+            # Teto None (usuário monitorando sem teto): a regra de teto sai de
+            # cena para ESTE usuário (target_price=None => ceiling_hit sempre
+            # False) e só a de oportunidade decide. Nada é inventado no lugar.
+            good, reason, ceiling_hit, opportunity_hit = evaluate_good_price(
+                price, history_prices, ceiling, opportunity_pct
+            )
+            would_alert = good and not suspicious and in_buying_window
+            if good and not suspicious and not in_buying_window:
+                suppressed_outside_window(user_id)
+            cooldown_suppressed = False
+            if would_alert:
+                # Fatia D2 (13/08/2026): cooldown avaliado POR TIPO — um alerta
+                # de oportunidade em cooldown não segura mais um de teto
+                # liberado, e vice-versa (bug estrutural documentado em
+                # STATE.md, seção 2). Fatia D4: e agora também POR USUÁRIO —
+                # o cooldown de um não silencia o alerta do outro.
+                # Segura só se TODOS os tipos que dispararam nesta avaliação
+                # estão em cooldown; `active_types` nunca fica vazia aqui
+                # (would_alert=True implica good=True, que implica ceiling_hit
+                # ou opportunity_hit), mas o `bool(...)` guarda contra
+                # all([]) == True mesmo assim — não confiar em invariante
+                # implícito num ponto que decide silêncio.
+                active_types = []
+                if ceiling_hit:
+                    active_types.append("ceiling")
+                if opportunity_hit:
+                    active_types.append("opportunity")
+                blocks = [
+                    cooldown_blocks_alert(get_last_weekend_leg_alert(leg_id, t, user_id), price, user_settings)
+                    for t in active_types
+                ]
+                cooldown_suppressed = bool(blocks) and all(blocks)
+            per_user.append({
+                "user_id": user_id,
+                "ceiling": ceiling,
+                "reason": reason,
+                "is_ceiling_hit": ceiling_hit,
+                "is_opportunity_hit": opportunity_hit,
+                "should_alert": would_alert and not cooldown_suppressed,
+            })
+    else:
+        # RAMO DEGRADADO — `perna sem dono`. Um laço por usuário sobre dict
+        # vazio não alertaria nada, e isso seria regressão silenciosa contra o
+        # contrato de build_no_effective_ceiling_message ("o alerta de
+        # oportunidade segue valendo"). Então o caso tem caminho próprio.
+        #
+        # SEM SENTINELA em `per_user`, de propósito: uma entrada com
+        # user_id=None gravaria linha de perna em alert_log com user_id NULL, e
+        # isso (a) contradiz a verificação desta fatia, que declara "linha nova
+        # com NULL é defeito", e (b) cria um TERCEIRO significado de NULL do
+        # mesmo lado da marca d'água da D3, que existe justamente para separar
+        # "linha anterior à individualização" de "gravação de dono que falhou".
+        # Por isso `per_user` fica [] e a decisão vai num campo próprio, e o
+        # laço de envio manda a mensagem SEM gravar em alert_log.
+        #
+        # LIMIAR: DEFAULT_SETTINGS, e isso PRESERVA o comportamento de hoje em
+        # vez de inventar um novo — sem linha em `settings` não há de quem ler,
+        # e nos dois sub-casos (settings vazia com rotas, settings vazia sem
+        # rotas) o valor efetivo que main.py montaria já era o do default.
+        #
+        # OS FILTROS COMUNS CONTINUAM VALENDO: `suspicious` e `in_buying_window`
+        # foram calculados acima, fora da bifurcação, e são a MESMA porta de
+        # saída do ramo normal. A janela de compra em especial não é negociável
+        # — reabrir alerta para fim de semana anterior ao corte seria regressão
+        # direta da Fatia D1, em produção desde 12/08/2026.
+        opportunity_pct = float(DEFAULT_SETTINGS["weekend_opportunity_pct"])
+        good, reason, ceiling_hit, opportunity_hit = evaluate_good_price(
+            price, history_prices, None, opportunity_pct
+        )
+        if good and not suspicious and in_buying_window:
+            degraded_alert = {
+                "ceiling": None,
+                "reason": reason,
+                "is_ceiling_hit": ceiling_hit,      # sempre False: sem teto, a regra não roda
+                "is_opportunity_hit": opportunity_hit,
+            }
+        elif good and not suspicious:
+            suppressed_outside_window()
 
     lowest_seen = leg.get("lowest_seen")
     is_new_low = lowest_seen is None or price < float(lowest_seen)
@@ -328,8 +438,16 @@ def evaluate_and_record_leg_price(leg: dict, settings: dict, price: float, airpo
     insert_weekend_leg_run_log(leg_id, "ok", price=price, source=source)
 
     variant_label = f", {variant}" if variant else ""
-    ceiling_label = f"teto R$ {ceiling:.0f}" if ceiling is not None else "teto indisponível"
-    print(f"[perna {direction} {leg['outbound_date']}] R$ {price:.2f} ({airport}{variant_label}, {source}) {ceiling_label}")
+    if not ceilings_by_user:
+        decision_label = "sem usuário monitorando — só oportunidade (modo degradado)"
+    elif len(per_user) == 1:
+        only_ceiling = per_user[0]["ceiling"]
+        decision_label = f"teto R$ {only_ceiling:.0f}" if only_ceiling is not None else "teto indisponível"
+    else:
+        queue_ceiling = leg.get("queue_ceiling")
+        lowest = f"R$ {float(queue_ceiling):.0f}" if queue_ceiling is not None else "indisponível"
+        decision_label = f"{len(per_user)} usuários, menor teto {lowest}"
+    print(f"[perna {direction} {leg['outbound_date']}] R$ {price:.2f} ({airport}{variant_label}, {source}) {decision_label}")
 
     return {
         "leg": leg,
@@ -343,15 +461,21 @@ def evaluate_and_record_leg_price(leg: dict, settings: dict, price: float, airpo
         "variant": variant,
         "transfers": transfers,
         "source": source,
-        "reason": reason,
-        "is_ceiling_hit": ceiling_hit,
-        "is_opportunity_hit": opportunity_hit,
         "suspicious": suspicious,
-        "should_alert": would_alert and not cooldown_suppressed,
+        # Uma decisão POR USUÁRIO (Fatia D4): `reason`/`is_ceiling_hit`/
+        # `is_opportunity_hit` desceram do topo do report para dentro de
+        # `per_user`, porque agora dependem de quem está olhando.
+        "per_user": per_user,
+        "degraded_alert": degraded_alert,
+        # Agregado, e é o que mantém dedupe_weekend_reports e o resumo semanal
+        # funcionando sem saber nada sobre usuários. Só existe em memória —
+        # não chega a tabela nenhuma.
+        "should_alert": any(u["should_alert"] for u in per_user) or degraded_alert is not None,
     }
 
 
-def process_weekend_leg(leg: dict, settings: dict, month_cache: dict) -> dict:
+def process_weekend_leg(leg: dict, system_settings: dict, settings_by_user: dict[str, dict],
+                        month_cache: dict) -> dict:
     """Filtra localmente as entradas já buscadas pra essa perna (1 ou 2 datas
     candidatas × 2 aeroportos) e delega a gravação/avaliação pra
     evaluate_and_record_leg_price (fonte 'cache')."""
@@ -381,10 +505,12 @@ def process_weekend_leg(leg: dict, settings: dict, month_cache: dict) -> dict:
     price = float(best["price"])
     transfers = best.get("transfers")
 
-    return evaluate_and_record_leg_price(leg, settings, price, airport, variant, transfers, "cache")
+    return evaluate_and_record_leg_price(
+        leg, system_settings, settings_by_user, price, airport, variant, transfers, "cache"
+    )
 
 
-def process_all_weekend_legs(settings: dict) -> list[dict]:
+def process_all_weekend_legs(system_settings: dict, settings_by_user: dict[str, dict]) -> list[dict]:
     """Varre todas as pernas ativas, agrupando as buscas por (mês, aeroporto,
     direção) — cada chave é buscada 1 vez e reusada pelas pernas que a
     compartilham. Falha ao buscar uma chave só afeta as pernas que dependem
@@ -393,6 +519,10 @@ def process_all_weekend_legs(settings: dict) -> list[dict]:
     if not legs:
         return []
 
+    # O conjunto de chaves é derivado só de (mês, aeroporto, direção) — NUNCA
+    # de usuário. É a garantia de que a Travelpayouts não multiplica com o
+    # número de usuários (Fatia D4): o fan-out acontece na decisão, não na
+    # consulta.
     fetch_keys = set()
     for leg in legs:
         for month in relevant_months(leg):
@@ -419,7 +549,7 @@ def process_all_weekend_legs(settings: dict) -> list[dict]:
         try:
             if all(month_cache.get(k) is None for k in needed_keys):
                 raise RuntimeError("todas as buscas necessárias falharam")
-            reports.append(process_weekend_leg(leg, settings, month_cache))
+            reports.append(process_weekend_leg(leg, system_settings, settings_by_user, month_cache))
         except Exception:
             detail = traceback.format_exc()[-500:]
             print(f"[{label}] ERRO:\n{detail}")

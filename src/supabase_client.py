@@ -310,7 +310,8 @@ def get_weekend_leg_price_history(leg_id: str, days: int | None = None) -> list[
 
 
 def insert_weekend_alert_log(leg_id: str, price: float, reason: str | None, *,
-                             is_ceiling_alert: bool, is_opportunity_alert: bool) -> None:
+                             is_ceiling_alert: bool, is_opportunity_alert: bool,
+                             user_id: str | None) -> None:
     """Mesma tabela alert_log das rotas flexíveis (Etapa 3), só que via leg_id.
 
     `is_ceiling_alert`/`is_opportunity_alert` (Fatia D2, 13/08/2026):
@@ -318,21 +319,26 @@ def insert_weekend_alert_log(leg_id: str, price: float, reason: str | None, *,
     Um alerta composto (as duas razões concatenadas por `;` numa linha só,
     nunca duas linhas separadas) grava as duas flags `true`.
 
-    NÃO grava `user_id`, e isso é decisão explícita da Fatia D3 (14/08/2026),
-    não esquecimento: a chave nem entra no payload, então a linha nasce com
-    `user_id` NULL. Linha de PERNA não tem dono derivável hoje —
-    `weekend_legs` não tem `user_id`, e `weekend_leg_effective` resolve "quem
-    monitora esta perna" por CROSS JOIN com `settings`
-    (`sql/etapa4_1_estado_por_usuario.sql:387-414`), ou seja, N usuários, não
-    um; o alerta que gera esta linha sai de uma avaliação já colapsada por MIN
-    de teto (`weekends.resolve_effective_leg_state`). `weekend_leg_user_state`
-    também não resolve, por ser modelo preguiçoso (medido em 14/08/2026: 31
-    pernas já alertadas, só 4 com linha de estado). Com uma conta só, gravar o
-    único `user_id` existente pareceria certo e seria dado inventado. Quem
-    escreve dono em linha de perna é a D4, que passa a avaliar por usuário."""
+    `user_id` (Fatia D4, 15/08/2026): keyword-only e sem default, mesmo motivo.
+    A D3 (14/08/2026) deixou esta chave FORA do payload de propósito, porque
+    naquele momento não havia dono derivável para uma perna — o alerta saía de
+    uma avaliação já colapsada por MIN de teto entre usuários. A D4 aposenta o
+    MIN: a decisão passa a ser tomada POR USUÁRIO, e a linha registra
+    exatamente qual usuário recebeu aquele alerta. Passa a ser a chave do
+    cooldown, junto com `leg_id` e o tipo (`get_last_weekend_leg_alert`).
+
+    Todo alerta de perna enviado pelo caminho normal grava aqui com `user_id`
+    preenchido. O único caminho que NÃO chama esta função é o modo degradado
+    (`perna sem dono`, nenhum usuário em `settings`): ele manda a mensagem e
+    não grava, em vez de gravar NULL — gravar NULL criaria um terceiro
+    significado para a coluna, indistinguível de "gravação de dono que falhou"
+    do lado de cá da marca d'água da D3. A coluna segue nullable e sem CHECK no
+    banco (o insert acontece DEPOIS de a mensagem já ter saído; constraint que
+    rejeita insert derrubaria a execução nesse ponto)."""
     payload = {
         "leg_id": leg_id, "price": price, "reason": reason,
         "is_ceiling_alert": is_ceiling_alert, "is_opportunity_alert": is_opportunity_alert,
+        "user_id": user_id,
     }
     resp = requests.post(_url("alert_log"), headers=_headers(), json=payload, timeout=30)
     resp.raise_for_status()
@@ -377,15 +383,27 @@ def get_weekend_leg_counts(cutoff: str) -> tuple[int, int]:
     return len(legs), purchased
 
 
-def get_last_weekend_leg_alert(leg_id: str, alert_type: str) -> dict | None:
-    """Último alerta enviado da perna, DO TIPO PEDIDO (Fatia D2, 13/08/2026:
-    antes só filtrava por `leg_id`, deixando um alerta de teto segurar um de
-    oportunidade e vice-versa — bug estrutural documentado em `STATE.md`,
-    seção 2). `alert_type` é obrigatório e sem default, exatamente 'ceiling'
-    ou 'opportunity' — a coluna filtrada é `is_ceiling_alert` ou
-    `is_opportunity_alert`, sempre `is.true` (nunca `is.false`, que
-    devolveria o último alerta que NÃO foi desse tipo, sem sentido pra
-    cooldown)."""
+def get_last_weekend_leg_alert(leg_id: str, alert_type: str, user_id: str) -> dict | None:
+    """Último alerta enviado da perna, DO TIPO PEDIDO e DAQUELE USUÁRIO.
+
+    `alert_type` (Fatia D2, 13/08/2026): antes só filtrava por `leg_id`,
+    deixando um alerta de teto segurar um de oportunidade e vice-versa (bug
+    estrutural documentado em `STATE.md`, seção 2). Obrigatório e sem default,
+    exatamente 'ceiling' ou 'opportunity' — a coluna filtrada é
+    `is_ceiling_alert` ou `is_opportunity_alert`, sempre `is.true` (nunca
+    `is.false`, que devolveria o último alerta que NÃO foi desse tipo, sem
+    sentido pra cooldown).
+
+    `user_id` (Fatia D4, 15/08/2026): obrigatório e NUNCA `None`. Só é chamada
+    de dentro do laço por usuário; o modo degradado não entra nesse laço e por
+    isso não precisa de um caminho com `None` aqui. O predicado é simples e
+    permanente — `eq.{user_id}`, SEM `or user_id is null`: as linhas históricas
+    com NULL são do usuário real, gravadas antes de a coluna existir, e
+    casá-las com um filtro de "sem dono" suprimiria alerta com base em dado de
+    outra era. Consequência aceita e prevista: na primeira execução após o
+    deploy da D4, as linhas de perna anteriores ficam invisíveis ao cooldown e
+    um alerta pode repetir uma vez (tamanho medido antes do deploy, bloco G0-Q4
+    de `sql/fatia_d4_avaliacao_por_usuario.sql`)."""
     if alert_type == "ceiling":
         type_column = "is_ceiling_alert"
     elif alert_type == "opportunity":
@@ -394,6 +412,7 @@ def get_last_weekend_leg_alert(leg_id: str, alert_type: str) -> dict | None:
         raise ValueError(f"alert_type inválido: {alert_type!r} (esperado 'ceiling' ou 'opportunity')")
     params = {
         "leg_id": f"eq.{leg_id}",
+        "user_id": f"eq.{user_id}",
         type_column: "is.true",
         "select": "sent_at,price",
         "order": "sent_at.desc",

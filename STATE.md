@@ -1,7 +1,22 @@
 # STATE.md — FlyIop
 
-> Atualizado em: 14/08/2026
-> Última sessão: Claude Code (14/08/2026, implementação) — **Fatia D3
+> Atualizado em: 15/08/2026
+> Última sessão: Claude Code (15/08/2026, implementação) — **Fatia D4
+> implementada: avaliação por usuário**, última fatia da Etapa 6 — aposenta
+> o MIN de teto entre usuários e a escolha de UM usuário para os limiares
+> gerais (as duas regras provisórias da Etapa 4.2), individualiza teto,
+> limiares e cooldown por usuário, e a mensagem do Telegram passa a
+> identificar quem disparou. Fecha a "JANELA ABERTA 2". Garantia central:
+> nenhuma consulta de preço cresce com o número de usuários — o leque abre
+> só no laço de envio de `main.py`. Schema: uma coluna de rótulo,
+> `settings.display_name` (nullable, sem REVOKE/GRANT — privilégio de coluna
+> é herdado da tabela; barreira real é a RLS de `settings`). **SQL executado
+> e verificado em produção (10/10 blocos, zero gate; `display_name` criada e
+> populada com `'Elton'`).** 267 testes passando (227 + 40 novos/reescritos).
+> Código pronto, commitado localmente — **não publicado ainda** (aguardando
+> janela de deploy). Detalhe completo em `PLANO-ATIVO.md`, "Etapa 6" →
+> "Fatia D4".
+> Sessão anterior: Claude Code (14/08/2026, implementação) — **Fatia D3
 > implementada: `alert_log` ganha `user_id`**, preenchido de forma
 > assimétrica por desenho — linha de rota recebe `routes.user_id`, linha de
 > perna fica NULL porque não há dono derivável hoje (medição do G0: 31 pernas
@@ -12,15 +27,15 @@
 > ter `try/except` com `had_error` e log procurável `[alert_log] FALHA AO
 > GRAVAR`. Índice e RLS **não** foram tocados (decisão da D4; a expectativa
 > registrada pela D2 sobre o índice foi revista e corrigida). 227 testes
-> passando (220 + 7 novos). **SQL executado e verificado em produção em
-> 14/08/2026** — G0, Bloco 1, Bloco 2 e V1-V6 bateram com o esperado, marca
+> passando (220 + 7 novos). SQL executado e verificado em produção em
+> 14/08/2026 — G0, Bloco 1, Bloco 2 e V1-V6 bateram com o esperado, marca
 > d'água do V6 registrada no cabeçalho do script e em `PLANO-ATIVO.md`.
 > Itens 1-3 da verificação pós-deploy fechados; itens 4-6 (evidência de
-> rota, evidência de perna, `had_error` não disparou) seguem pendentes,
-> aguardando a próxima execução do robô com o código publicado. Registrados
-> também, sem ação, os dois achados da investigação read-only de
-> frequência/cobertura do scraping (seção 4). Detalhe completo em
-> `PLANO-ATIVO.md`, "Etapa 6" → "Fatia D3".
+> rota, evidência de perna, `had_error` não disparou) seguem pendentes —
+> a Fatia D4 mudou o caminho de perna antes de esses itens serem observados,
+> então a verificação da D3 nesses três itens passa a ser feita junto com a
+> da D4 (ver "ressalva herdada da D3" em `PLANO-ATIVO.md` → "Fatia D4").
+> Detalhe completo em `PLANO-ATIVO.md`, "Etapa 6" → "Fatia D3".
 > Sessão anterior: Claude Code (14/08/2026, chat de planejamento —
 > documentação apenas) — **verificação pós-deploy da Fatia D2 fechada: a
 > fatia passa a CONCLUÍDA (14/08/2026)**. Os itens 3-5 da lista fecharam com
@@ -490,6 +505,50 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
     gravação de dono que falhou).
   - Detalhe completo, incluindo o G0 medido e a lista de verificação
     pendente, em `PLANO-ATIVO.md`, "Etapa 6" → "Fatia D3".
+- **DECIDIDO E IMPLEMENTADO (Fatia D4, 15/08/2026): a decisão de alertar passa
+  a ser tomada POR USUÁRIO — teto próprio, limiares próprios, cooldown próprio
+  — e a mensagem do Telegram identifica quem disparou.** Última fatia da Etapa
+  6; fecha a "JANELA ABERTA 2" (`PLANO-ATIVO.md`).
+  - **O que morreu:** o MIN de teto entre usuários (regra provisória da Etapa
+    4.2, marcada como tal no próprio código) e a escolha de UM usuário — o
+    menor `user_id` — para ditar os limiares gerais, com os dois avisos de
+    Telegram que anunciavam as duas coisas.
+  - **Garantia central preservada:** nenhuma consulta de preço cresce com o
+    número de usuários. Gravar preço, ler histórico, classificar suspeita e
+    resolver a janela de compra continuam acontecendo **uma vez por perna**; o
+    leque abre só na decisão e no envio. A Travelpayouts e o lote `fli` não
+    multiplicam.
+  - **Schema:** só uma coluna de rótulo, `settings.display_name` (nullable).
+    Sem `display_name`, a mensagem cai nos 8 primeiros caracteres do uuid — por
+    desenho, não por defeito. **Sem REVOKE/GRANT**, porque privilégio de coluna
+    é herdado da tabela em Postgres e um revoke de coluna não restringe nada; a
+    barreira real é a RLS per-user de `settings`, medida por personificação
+    antes e depois (blocos G0-Q6 e V2-B do script).
+  - **Transição prevista, uma vez só:** o cooldown de perna passa a filtrar por
+    usuário, e as 54 linhas históricas com `user_id` NULL ficam invisíveis a
+    esse filtro (predicado simples e permanente, **sem** `or user_id is null`,
+    que casaria com dado de outra era). Consequência aceita: alguns alertas
+    podem repetir **uma vez** na primeira execução após o deploy. Tamanho exato
+    medido antes de rodar, no bloco G0-Q4 do script.
+  - **Diferença real no modo degradado** (zero linha em `settings` — nunca
+    ocorreu em produção): o alerta de oportunidade continua saindo, mas **não é
+    mais gravado** em `alert_log`, então o cooldown não é alimentado e o alerta
+    pode repetir a cada execução. Antes da D4 funcionava. Registrado como
+    diferença, não como equivalência.
+  - **Fora de escopo, e explicitamente não corrigido:** a semântica invertida
+    de `notification_mode` em `rules.py:80-81` — `daily_summary` **desliga** o
+    cooldown de perna e faz o usuário receber **mais** alertas. Bug
+    pré-existente e independente; a D4 individualiza a leitura da coluna, não a
+    semântica.
+  - **Status:** código e testes prontos (267 testes passando, eram 227).
+    **SQL executado e verificado em produção** (10/10 blocos, zero gate;
+    `display_name` criada e populada com `'Elton'`). **Código pronto mas não
+    publicado** — verificação pós-deploy em aberto (itens 4-10 em
+    `PLANO-ATIVO.md` → "Fatia D4"). Previsão do re-alerta de transição já
+    medida em G0-Q4: 1 perna de teto, 0 de oportunidade. Pesa sobre o item 5
+    (linha de perna nascendo com dono) o fato de a D3 nunca ter observado a
+    gravação de `user_id` no caminho de rota: aquele caminho **não serviu de
+    ensaio** para este.
 
 ## 3. Próximos passos (ordem sugerida)
 
