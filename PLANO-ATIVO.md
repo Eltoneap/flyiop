@@ -228,7 +228,11 @@ com nome+valor") vira 4 fatias menores e sequenciais:
   implementada e SQL executado em 13/08/2026, verificação pós-deploy fechada
   com dado real de produção em 14/08/2026. Detalhe completo na subseção
   "Fatia D2" abaixo.
-- **D3 — `alert_log` ganha `user_id`.** Plan Mode ainda não escrito.
+- **D3 — `alert_log` ganha `user_id`.** **IMPLEMENTADA (14/08/2026)** —
+  coluna nullable preenchida de forma assimétrica (linha de rota ganha dono,
+  linha de perna fica NULL porque não há dono derivável), SQL a rodar
+  manualmente e verificação pós-deploy em aberto. Detalhe completo na
+  subseção "Fatia D3" abaixo.
 - **D4 — avaliação por usuário.** Aposenta o MIN de teto de
   `weekends.resolve_effective_leg_state` (regra provisória desde a Etapa 4.2,
   documentada como tal no próprio código), individualiza os limiares gerais
@@ -426,6 +430,15 @@ forense; as colunas novas são a chave estruturada usada no cooldown.
    antemão: a D3 (`user_id` em `alert_log`) provavelmente vai querer
    recriar este índice como `(leg_id, user_id, sent_at desc)` — não é
    pendência desta fatia.
+   - **⚠️ EXPECTATIVA REVISTA PELA D3 (14/08/2026) — não é pendência de
+     ninguém.** A D3 decidiu **não** recriar o índice: como as linhas de
+     perna ficam com `user_id` NULL (não há dono derivável até a D4), a
+     coluna no meio do índice não serviria nenhuma consulta existente, e a
+     forma útil depende do formato final da consulta da D4 (perna + usuário
+     + tipo + data). **A forma final do índice é decisão da D4.** O bloco V4
+     de `sql/fatia_d3_user_id_alert_log.sql` existe justamente para provar
+     que a D3 deixou este índice intacto. Registrado aqui para não virar
+     pendência fantasma que uma sessão futura tente "consertar".
 5. **Flags gravadas também no caminho de rota** (`insert_alert_log`), não
    só no de perna — decisão aprovada explicitamente no chat de planejamento,
    para o backfill não envelhecer no primeiro dia. O cooldown de rota
@@ -548,6 +561,160 @@ item 6 fica registrado como lacuna de longo prazo, não como pendência ativa
 pós-deploy com o robô rodando o código novo fechada em 14/08/2026 com dado
 real de produção (itens 1-5). Resta apenas a lacuna de longo prazo do item
 6, registrada acima como tal.
+
+---
+
+### Fatia D3 — `alert_log` ganha `user_id` (implementada 14/08/2026; SQL a rodar manualmente, verificação pós-deploy em aberto)
+
+**Objetivo:** `alert_log` ganha `user_id`, preparando a D4 (avaliação por
+usuário) e a Etapa 7 (segundo usuário). Hoje cooldown e histórico de alerta
+são globais. **Esta fatia não individualiza nada ainda** — não muda o que é
+alertado nem o que é coletado.
+
+**O achado que define a fatia — dono de linha de perna não existe hoje.**
+`weekend_legs` não tem `user_id` (as 4 colunas de decisão pessoal saíram para
+`weekend_leg_user_state` na Etapa 4.1 e foram removidas de `weekend_legs` na
+4.3). Quem resolve "quem monitora esta perna" é a view
+`weekend_leg_effective`, que faz **cross join com `settings`**
+(`sql/etapa4_1_estado_por_usuario.sql:387-414`): a perna não tem UM dono, tem
+N — e o robô colapsa esses N num alerta único via MIN de teto
+(`src/weekends.py:149-188`, regra provisória da Etapa 4.2).
+`weekend_leg_user_state` também não resolve, por ser modelo preguiçoso.
+**O número que fechou a discussão (G0, Q8, medido em 14/08/2026): 31 pernas
+já alertadas, apenas 4 com linha de estado.** Logo: linha com `route_id` tem
+dono trivial (`routes.user_id`); linha com `leg_id` **não tem dono
+derivável** — e não se inventa um.
+
+**Resultado do bloco G0 em produção (14/08/2026), tudo batendo com o
+esperado:**
+
+| medição | resultado |
+|---|---|
+| `alert_log` | 75 linhas (53 perna, 22 rota, 0 ambos, 0 nenhum, 0 órfãs) |
+| `routes.user_id` | `NOT NULL`, 3 rotas, 0 sem dono, FK para `auth.users` OK |
+| índices | 2 (`alert_log_pkey`, `alert_log_leg_sent_at_idx`) |
+| RLS | 1 policy SELECT, 0 de escrita, privilégios 7/7/7 |
+| `weekend_leg_user_state` | 5 linhas / 5 pernas (1 usuário) |
+| Q8 (o que fecha a discussão) | 31 pernas já alertadas, só 4 com linha de estado |
+
+**As 6 decisões de desenho:**
+
+1. **Preenchimento assimétrico — coluna nullable, com FK, sem CHECK.**
+   `user_id uuid references auth.users(id) on delete set null`. O backfill
+   preenche as 22 linhas de rota via `routes.user_id` (100%, porque Q4
+   confirmou `NOT NULL` e zero rota sem dono) e **não toca** as 53 de perna,
+   que ficam NULL por desenho. Sem `not null` (metade das linhas não tem
+   verdade a preencher); sem CHECK `route_id is null or user_id is not null`
+   porque a garantia que ele compraria já vem do Python (keyword-only sem
+   default, padrão adotado na D2) e ele custaria reescrita na D4 mais um modo
+   de falha no pior lugar possível (decisão 2).
+   - **Ressalva registrada sobre o `on delete set null`:** a cláusula é a
+     declaração de intenção correta, mas **não é garantia de preservação de
+     histórico**. As FKs existentes de `alert_log` são `on delete cascade`;
+     apagar a conta apaga `routes` e cascateia as linhas de rota de
+     `alert_log` antes de o `set null` ter qualquer efeito. Ele só vale para
+     caminhos que não passam por `routes`. Registrado assim para não deixar
+     no repositório uma garantia que o schema não dá.
+2. **Risco de insert como restrição de desenho, não detalhe.** Os dois
+   inserts (`src/main.py`, caminho de rota e caminho de perna) acontecem
+   **depois** de a mensagem do Telegram já ter saído, e não tinham
+   `try/except`; no caminho de perna o insert está **dentro de um laço**, de
+   modo que uma exceção cancelava os alertas das pernas seguintes, o resumo
+   semanal de segunda e o exit code correto. Daí a DDL desta fatia ser
+   incapaz de rejeitar um insert que hoje passa (sem `not null`, CHECK ou
+   UNIQUE). **Além disso a fatia protege os dois inserts** com `try/except`
+   que marca `had_error = True` (exit 1 no fim, mesmo padrão de
+   `process_route`) e loga com prefixo procurável **`[alert_log] FALHA AO
+   GRAVAR`** + traceback, sem abortar o laço. Consequência aceita: sem a
+   linha gravada o cooldown não é alimentado e o mesmo alerta pode sair de
+   novo no dia seguinte — degradação recuperável, ao contrário de matar a
+   execução com o usuário já avisado.
+3. **Índice: não recriar.** A D2 previu recriá-lo como `(leg_id, user_id,
+   sent_at desc)`; com as linhas de perna 100% NULL isso não serviria
+   consulta nenhuma, e a forma útil depende do formato final da consulta da
+   D4. A forma final do índice é decisão da D4 (correção registrada também na
+   subseção "Fatia D2", decisão 4, para não virar pendência fantasma). O
+   bloco V4 prova que a D3 não tocou no índice.
+4. **RLS: fronteira na D4, nada em D3.** Medido: `alert_log` não tem
+   consumidor além do robô (`grep` em `docs/` → zero; o robô usa
+   `service_role`, que ignora RLS). Apertar o ramo de perna para
+   `user_id = auth.uid()` com `user_id` NULL esconderia 100% do histórico de
+   perna; o predicado só passa a ser expressável quando a D4 escrever dono em
+   linha de perna. O ramo de rota já é dono-a-dono via subconsulta em
+   `routes`. O bloco V5 prova que a postura de acesso não mudou.
+5. **Gravação.** Rota: `insert_alert_log` ganhou `user_id` **keyword-only e
+   sem default**, e `main.py` passa `r["route"]["user_id"]` (a chave existe —
+   `get_routes` usa `select=*`). Perna: `insert_weekend_alert_log` **não
+   ganhou parâmetro e não manda a chave** — a linha nasce NULL, com o motivo
+   registrado no docstring. Descartada a alternativa de um parâmetro
+   obrigatório que hoje só aceitaria `None`: assinatura que existe só para
+   ser trocada na D4, sem impedir erro nenhum agora.
+6. **Compatibilidade com a D4.** Deixa pronto: coluna nullable com semântica
+   de NULL documentada, caminho de rota já gravando dono, `try/except` nos
+   dois inserts (a D4 multiplica inserts, um por usuário por alerta) e a
+   marca d'água do deploy. **Não faz, para não travar a D4:** `not null`,
+   CHECK, UNIQUE, recriação de índice, mudança de RLS, backfill de linha de
+   perna, e **nada** em `resolve_effective_leg_state`/MIN de teto — aposentar
+   o MIN é da D4.
+   - **Consequência registrada para a D4 decidir (não resolver aqui):** um
+     cooldown por usuário que filtre `user_id = U` não enxerga linha
+     histórica com NULL — logo após a D4 entrar, pode sair um re-alerta por
+     (perna, tipo). A D4 escolhe entre filtrar `user_id = U or user_id is
+     null` na transição ou aceitar o re-alerta.
+
+**Marca d'água do deploy (bloco V6 do script) — por que existe:** depois da
+D4, `user_id` NULL em linha de perna passa a ter **dois** significados
+possíveis (linha anterior à individualização vs. linha nova em que a gravação
+do dono falhou), e a D4 não terá como separar os dois olhando só o dado. O V6
+congela a fronteira: total de linhas e `max(sent_at)` no momento do deploy.
+`alert_log.id` é `uuid` (`gen_random_uuid()`), que não ordena — por isso
+`max(id)` não é registrado.
+
+> **PREENCHER APÓS A EXECUÇÃO REAL** (copiar o resultado do V6 também para o
+> cabeçalho de `sql/fatia_d3_user_id_alert_log.sql`):
+> `marca_dagua_em` = ____ · `linhas_total` = ____ ·
+> `linhas_perna_sem_dono` = ____ · `max_sent_at` = ____
+
+**Arquivos alterados:** `sql/fatia_d3_user_id_alert_log.sql` (novo — Parte 1);
+`src/supabase_client.py`, `src/main.py` (Parte 2);
+`tests/test_supabase_client.py`, `tests/test_etapa3_cooldown.py` (Parte 3,
++7 testes novos, 227 no total, suíte verde). `rules.py`, `weekends.py`,
+`live_check.py`, `telegram_notifier.py`, `bot_commands.py` e `docs/`
+**não foram tocados**.
+
+**Call sites auditados antes de mudar a assinatura** (correção pedida no chat
+de planejamento): as duas funções têm **uma única chamada real cada**, ambas
+em `src/main.py`; os 4 usos em `tests/test_etapa3_cooldown.py` são `patch()`,
+e `docs/`/`scripts/` não as referenciam. Como o `patch()` é sem `autospec`, o
+mock não valida assinatura — por isso a Parte 3 acrescentou testes que batem
+na **função real** (payload e `TypeError` de assinatura), em
+`tests/test_supabase_client.py`.
+
+**ORDEM DE DEPLOY — janela mais folgada que a da D2:** SQL primeiro, código
+depois. Se uma execução do robô cair no meio, **não é defeito**: a coluna é
+nullable e o código antigo simplesmente não a envia, então a linha de rota
+nasce NULL e é recuperada re-rodando o Bloco 2 (idempotente, guarda
+`user_id is null`). Não existe aqui o análogo da "órfã classificável" da D2.
+
+**VERIFICAÇÃO — PENDENTE, nada executado ainda.** Falta:
+1. Rodar `sql/fatia_d3_user_id_alert_log.sql` no SQL Editor e conferir G0 e
+   V1-V6 contra os esperados declarados no próprio script.
+2. Publicar o código da Parte 2 e re-rodar o Bloco 2 se uma execução do robô
+   caiu entre o SQL e o deploy.
+3. Copiar o resultado do V6 (marca d'água) para o cabeçalho do script e para
+   a caixa acima.
+4. Evidência de curto prazo: a próxima linha de **rota** (~1/dia, não passa
+   pelo filtro de janela de compra da D1) nasce com `user_id` preenchido.
+5. A próxima linha de **perna** nasce com `user_id` NULL — comportamento
+   esperado, não defeito.
+6. **`had_error` não disparou** — explicitamente, não basta "sem traceback
+   novo": com o `try/except` da decisão 2, um deploy fora de ordem passa a
+   degradar quieto (todo insert de rota falharia, o cooldown de rota pararia
+   de ser alimentado), e o sinal fica no exit code e na linha
+   `[alert_log] FALHA AO GRAVAR` do log do Actions.
+
+**A Fatia D3 só deve ser marcada como CONCLUÍDA depois dos 6 itens acima** —
+mesmo critério de D1 e D2.
 
 ---
 

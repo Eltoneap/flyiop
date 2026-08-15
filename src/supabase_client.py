@@ -153,7 +153,8 @@ def get_recent_run_outcomes(route_id: str, limit: int = 30) -> list[str]:
 
 
 def insert_alert_log(route_id: str, price: float, reason: str | None, *,
-                     is_ceiling_alert: bool, is_opportunity_alert: bool) -> None:
+                     is_ceiling_alert: bool, is_opportunity_alert: bool,
+                     user_id: str | None) -> None:
     """Registra um alerta efetivamente enviado (Etapa 3), pra calcular o cooldown.
 
     `is_ceiling_alert`/`is_opportunity_alert` (Fatia D2, 13/08/2026):
@@ -162,10 +163,20 @@ def insert_alert_log(route_id: str, price: float, reason: str | None, *,
     alerta, a mesma classe de bug que esta fatia corrige. Cooldown de rota
     (`get_last_alert`) continua por `route_id` só, fora do escopo da D2; as
     colunas são gravadas aqui por consistência de schema com `alert_log` de
-    perna, não porque o cooldown de rota as use ainda."""
+    perna, não porque o cooldown de rota as use ainda.
+
+    `user_id` (Fatia D3, 14/08/2026): keyword-only e sem default, mesmo
+    motivo acima. Linha de ROTA tem dono trivial — `routes.user_id`, que o
+    chamador passa direto do dict da rota. A coluna é nullable no banco e
+    NÃO tem CHECK: um `None` aqui grava `null` e o insert continua aceito,
+    de propósito (o insert acontece DEPOIS de a mensagem do Telegram já ter
+    saído — constraint que rejeita insert derrubaria a execução nesse
+    ponto; ver `sql/fatia_d3_user_id_alert_log.sql`). O cooldown de rota
+    NÃO passa a filtrar por usuário nesta fatia — isso é D4."""
     payload = {
         "route_id": route_id, "price": price, "reason": reason,
         "is_ceiling_alert": is_ceiling_alert, "is_opportunity_alert": is_opportunity_alert,
+        "user_id": user_id,
     }
     resp = requests.post(_url("alert_log"), headers=_headers(), json=payload, timeout=30)
     resp.raise_for_status()
@@ -305,7 +316,20 @@ def insert_weekend_alert_log(leg_id: str, price: float, reason: str | None, *,
     `is_ceiling_alert`/`is_opportunity_alert` (Fatia D2, 13/08/2026):
     keyword-only e sem default — ver `insert_alert_log` acima, mesmo motivo.
     Um alerta composto (as duas razões concatenadas por `;` numa linha só,
-    nunca duas linhas separadas) grava as duas flags `true`."""
+    nunca duas linhas separadas) grava as duas flags `true`.
+
+    NÃO grava `user_id`, e isso é decisão explícita da Fatia D3 (14/08/2026),
+    não esquecimento: a chave nem entra no payload, então a linha nasce com
+    `user_id` NULL. Linha de PERNA não tem dono derivável hoje —
+    `weekend_legs` não tem `user_id`, e `weekend_leg_effective` resolve "quem
+    monitora esta perna" por CROSS JOIN com `settings`
+    (`sql/etapa4_1_estado_por_usuario.sql:387-414`), ou seja, N usuários, não
+    um; o alerta que gera esta linha sai de uma avaliação já colapsada por MIN
+    de teto (`weekends.resolve_effective_leg_state`). `weekend_leg_user_state`
+    também não resolve, por ser modelo preguiçoso (medido em 14/08/2026: 31
+    pernas já alertadas, só 4 com linha de estado). Com uma conta só, gravar o
+    único `user_id` existente pareceria certo e seria dado inventado. Quem
+    escreve dono em linha de perna é a D4, que passa a avaliar por usuário."""
     payload = {
         "leg_id": leg_id, "price": price, "reason": reason,
         "is_ceiling_alert": is_ceiling_alert, "is_opportunity_alert": is_opportunity_alert,

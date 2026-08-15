@@ -154,8 +154,11 @@ class AlertLogWiringTest(unittest.TestCase):
             main.main()
 
         mock_send.assert_called_once_with("msg")
+        # Fatia D3 (14/08/2026): `user_id` entrou na chamada — linha de rota tem
+        # dono trivial (routes.user_id), passado direto do dict da rota.
         mock_insert_alert.assert_called_once_with(
-            "rota-1", 520.0, "abaixo da meta", is_ceiling_alert=True, is_opportunity_alert=False
+            "rota-1", 520.0, "abaixo da meta", is_ceiling_alert=True, is_opportunity_alert=False,
+            user_id="user-1",
         )
 
     def test_daily_summary_mode_never_inserts_alert_log(self):
@@ -245,6 +248,79 @@ class AlertLogWiringTest(unittest.TestCase):
             "leg-1", 150.0, "abaixo da meta fixa (R$ 300); 23.1% abaixo da média histórica (R$ 232.62)",
             is_ceiling_alert=True, is_opportunity_alert=True,
         )
+
+
+class AlertLogInsertFailureTest(unittest.TestCase):
+    """Fatia D3 (14/08/2026): os dois inserts em alert_log acontecem DEPOIS de a
+    mensagem do Telegram já ter saído e passaram a ser protegidos por
+    try/except. Falhar em gravar o log de cooldown é degradação recuperável
+    (na pior hipótese, um re-alerta a mais amanhã); matar a execução com o
+    usuário já avisado não é — e, no laço de pernas, cancelava também os
+    alertas das pernas seguintes, o resumo semanal de segunda e o exit code."""
+
+    def test_route_insert_failure_marks_had_error_and_does_not_kill_run(self):
+        route = {"id": "rota-1", "user_id": "user-1", "origin": "BSB", "destination": "GIG"}
+        report = {
+            "route": route, "status": "ok", "should_alert": True, "price": 520.0,
+            "reason": "abaixo da meta", "is_ceiling_alert": True, "is_opportunity_alert": False,
+        }
+        with patch("main.get_routes", return_value=[route]), \
+             patch("main.get_all_settings", return_value=[{"user_id": "user-1", "notification_mode": "alert_only"}]), \
+             patch("main.get_settings", return_value={"notification_mode": "alert_only"}), \
+             patch("main.get_system_config", return_value=SYSTEM_CONFIG), \
+             patch("main.process_route", return_value=report), \
+             patch("main.process_all_weekend_legs", return_value=[]), \
+             patch("main.run_daily_batch", return_value=([], False)), \
+             patch("main.current_brt_date", return_value=TODAY), \
+             patch("main.get_weekend_scrape_state", return_value=SCRAPE_STATE_STAGE_0), \
+             patch("main.set_weekend_scrape_state"), \
+             patch("main.date") as mock_date, \
+             patch("main.send_message") as mock_send, \
+             patch("main.insert_alert_log", side_effect=RuntimeError("400 do PostgREST")), \
+             patch("main.build_alert_message", return_value="msg"):
+            mock_date.today.return_value.weekday.return_value = 2
+            with self.assertRaises(SystemExit) as ctx:
+                main.main()
+
+        self.assertEqual(ctx.exception.code, 1)          # had_error -> exit 1, visível no Actions
+        mock_send.assert_called_once_with("msg")          # a mensagem saiu mesmo assim
+
+    def test_leg_insert_failure_does_not_cancel_following_legs(self):
+        reports = [
+            {
+                "leg": {"id": "leg-1", "effective_ceiling": 200}, "status": "ok", "price": 150.0,
+                "should_alert": True, "reason": "abaixo da meta fixa (R$ 200)",
+                "is_ceiling_hit": True, "is_opportunity_hit": False,
+            },
+            {
+                "leg": {"id": "leg-2", "effective_ceiling": 200}, "status": "ok", "price": 160.0,
+                "should_alert": True, "reason": "abaixo da meta fixa (R$ 200)",
+                "is_ceiling_hit": True, "is_opportunity_hit": False,
+            },
+        ]
+        with patch("main.get_routes", return_value=[]), \
+             patch("main.get_all_settings", return_value=[]), \
+             patch("main.get_system_config", return_value=SYSTEM_CONFIG), \
+             patch("main.process_all_weekend_legs", return_value=reports), \
+             patch("main.run_daily_batch", return_value=([], False)), \
+             patch("main.current_brt_date", return_value=TODAY), \
+             patch("main.get_weekend_scrape_state", return_value=SCRAPE_STATE_STAGE_0), \
+             patch("main.set_weekend_scrape_state"), \
+             patch("main.date") as mock_date, \
+             patch("main.send_message") as mock_send, \
+             patch("main.insert_weekend_alert_log",
+                   side_effect=[RuntimeError("400 do PostgREST"), None]) as mock_insert_weekend_alert, \
+             patch("main.build_package_comparison", return_value=None), \
+             patch("main.build_weekend_alert_message", return_value="msg-fds"):
+            mock_date.today.return_value.weekday.return_value = 2
+            with self.assertRaises(SystemExit) as ctx:
+                main.main()
+
+        self.assertEqual(ctx.exception.code, 1)
+        # A perna seguinte continuou sendo alertada e gravada — é o ponto do teste.
+        self.assertEqual(mock_send.call_count, 2)
+        self.assertEqual(mock_insert_weekend_alert.call_count, 2)
+        self.assertEqual(mock_insert_weekend_alert.call_args_list[1].args[0], "leg-2")
 
 
 if __name__ == "__main__":

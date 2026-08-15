@@ -121,5 +121,72 @@ class GetLastWeekendLegAlertTest(unittest.TestCase):
             supabase_client.get_last_weekend_leg_alert("leg-1", "both")
 
 
+class AlertLogUserIdPayloadTest(unittest.TestCase):
+    """Fatia D3 (14/08/2026): `alert_log` ganhou `user_id`, preenchido de forma
+    ASSIMÉTRICA por desenho — linha de rota leva o dono (`routes.user_id`),
+    linha de perna nasce NULL porque não há dono derivável (weekend_legs não
+    tem user_id e weekend_leg_effective resolve por cross join com settings, ou
+    seja N usuários, não um).
+
+    Estes testes batem na função REAL, não em mock: os testes de
+    tests/test_etapa3_cooldown.py usam `patch(...)` sem autospec, então
+    validam o call site, não a assinatura de verdade."""
+
+    ENV = {"SUPABASE_URL": "https://example.supabase.co", "SUPABASE_SERVICE_ROLE_KEY": "fake-key"}
+
+    def post_payload(self, fn, *args, **kwargs) -> dict:
+        with patch.dict(os.environ, self.ENV), \
+             patch("supabase_client.requests.post") as mock_post:
+            mock_post.return_value.raise_for_status.return_value = None
+            fn(*args, **kwargs)
+        return mock_post.call_args.kwargs["json"]
+
+    def test_route_insert_sends_user_id(self):
+        payload = self.post_payload(
+            supabase_client.insert_alert_log, "rota-1", 520.0, "abaixo da meta",
+            is_ceiling_alert=True, is_opportunity_alert=False, user_id="user-1",
+        )
+        self.assertEqual(payload["user_id"], "user-1")
+        self.assertEqual(payload["route_id"], "rota-1")
+
+    def test_route_insert_accepts_none_user_id(self):
+        """A coluna é nullable e sem CHECK de propósito: o insert acontece
+        depois de a mensagem do Telegram já ter saído, então nada aqui pode
+        ser rejeitável pelo banco."""
+        payload = self.post_payload(
+            supabase_client.insert_alert_log, "rota-1", 520.0, None,
+            is_ceiling_alert=False, is_opportunity_alert=True, user_id=None,
+        )
+        self.assertIsNone(payload["user_id"])
+
+    def test_route_insert_requires_user_id_keyword(self):
+        """Keyword-only e sem default — mesmo padrão das flags da D2: um
+        caminho de gravação novo não pode esquecer o dono em silêncio."""
+        with self.assertRaises(TypeError):
+            supabase_client.insert_alert_log(
+                "rota-1", 520.0, "abaixo da meta",
+                is_ceiling_alert=True, is_opportunity_alert=False,
+            )
+
+    def test_leg_insert_omits_user_id_key_entirely(self):
+        """Não é esquecimento: a chave nem entra no payload, e a linha nasce
+        NULL. Quem escreve dono em linha de perna é a D4."""
+        payload = self.post_payload(
+            supabase_client.insert_weekend_alert_log, "leg-1", 150.0, "abaixo da meta fixa (R$ 200)",
+            is_ceiling_alert=True, is_opportunity_alert=False,
+        )
+        self.assertNotIn("user_id", payload)
+        self.assertEqual(payload["leg_id"], "leg-1")
+
+    def test_leg_insert_rejects_user_id_kwarg(self):
+        """Trava de desenho: enquanto a D4 não chegar, passar dono para uma
+        linha de perna é erro, não opção silenciosa."""
+        with self.assertRaises(TypeError):
+            supabase_client.insert_weekend_alert_log(
+                "leg-1", 150.0, "abaixo da meta fixa (R$ 200)",
+                is_ceiling_alert=True, is_opportunity_alert=False, user_id="user-1",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -465,10 +465,28 @@ def main() -> None:
                 for r in reports:
                     if r["status"] == "ok" and r["should_alert"]:
                         send_message(build_alert_message(r))
-                        insert_alert_log(
-                            r["route"]["id"], r["price"], r.get("reason"),
-                            is_ceiling_alert=r["is_ceiling_alert"], is_opportunity_alert=r["is_opportunity_alert"],
-                        )
+                        # Fatia D3 (14/08/2026): a gravação do log de alerta é
+                        # protegida porque acontece DEPOIS de a mensagem já ter
+                        # saído — falhar aqui derrubava a execução inteira com o
+                        # usuário já avisado, e (neste laço) cancelava os alertas
+                        # das rotas seguintes. Degradação preferível: registra,
+                        # marca had_error (exit 1 no fim, visível no Actions) e
+                        # segue. Consequência aceita e registrada: sem a linha em
+                        # alert_log o cooldown não é alimentado, então o mesmo
+                        # alerta pode sair de novo amanhã.
+                        try:
+                            insert_alert_log(
+                                r["route"]["id"], r["price"], r.get("reason"),
+                                is_ceiling_alert=r["is_ceiling_alert"],
+                                is_opportunity_alert=r["is_opportunity_alert"],
+                                user_id=r["route"]["user_id"],
+                            )
+                        except Exception:
+                            had_error = True
+                            print(
+                                f"[alert_log] FALHA AO GRAVAR (rota {r['route']['id']}) — "
+                                f"mensagem já enviada, cooldown não alimentado:\n{traceback.format_exc()}"
+                            )
                 if notes:
                     send_message("\n".join(notes))
         elif notes:
@@ -483,10 +501,23 @@ def main() -> None:
         if wr["status"] == "ok" and wr["should_alert"]:
             comparison = build_package_comparison(wr, weekend_settings)
             send_message(build_weekend_alert_message(wr, comparison))
-            insert_weekend_alert_log(
-                wr["leg"]["id"], wr["price"], wr.get("reason"),
-                is_ceiling_alert=wr["is_ceiling_hit"], is_opportunity_alert=wr["is_opportunity_hit"],
-            )
+            # Fatia D3 (14/08/2026): mesma proteção do insert de rota acima, e
+            # aqui ela pesa mais — este insert está DENTRO do laço de pernas,
+            # então uma exceção não tratada cancelava os alertas das pernas
+            # seguintes, o resumo semanal de segunda e o exit code correto.
+            # A linha nasce com user_id NULL por desenho (ver
+            # supabase_client.insert_weekend_alert_log).
+            try:
+                insert_weekend_alert_log(
+                    wr["leg"]["id"], wr["price"], wr.get("reason"),
+                    is_ceiling_alert=wr["is_ceiling_hit"], is_opportunity_alert=wr["is_opportunity_hit"],
+                )
+            except Exception:
+                had_error = True
+                print(
+                    f"[alert_log] FALHA AO GRAVAR (perna {wr['leg']['id']}) — "
+                    f"mensagem já enviada, cooldown não alimentado:\n{traceback.format_exc()}"
+                )
 
     if primary_run and date.today().weekday() == 0:  # segunda-feira
         total, purchased = get_weekend_leg_counts(buying_cutoff)

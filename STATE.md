@@ -1,7 +1,23 @@
 # STATE.md — FlyIop
 
 > Atualizado em: 14/08/2026
-> Última sessão: Claude Code (14/08/2026, chat de planejamento —
+> Última sessão: Claude Code (14/08/2026, implementação) — **Fatia D3
+> implementada: `alert_log` ganha `user_id`**, preenchido de forma
+> assimétrica por desenho — linha de rota recebe `routes.user_id`, linha de
+> perna fica NULL porque não há dono derivável hoje (medição do G0: 31 pernas
+> já alertadas, só 4 com linha em `weekend_leg_user_state`). Coluna nullable,
+> FK `on delete set null`, **sem CHECK/NOT NULL/UNIQUE** — os dois inserts em
+> `alert_log` rodam depois de a mensagem do Telegram já ter saído, então
+> nenhuma constraint nova pode ser capaz de rejeitá-los; os dois passaram a
+> ter `try/except` com `had_error` e log procurável `[alert_log] FALHA AO
+> GRAVAR`. Índice e RLS **não** foram tocados (decisão da D4; a expectativa
+> registrada pela D2 sobre o índice foi revista e corrigida). 227 testes
+> passando (220 + 7 novos). **SQL ainda NÃO executado** —
+> `sql/fatia_d3_user_id_alert_log.sql` entregue para execução manual; ordem
+> de deploy é SQL primeiro, código depois. Registrados também, sem ação, os
+> dois achados da investigação read-only de frequência/cobertura do scraping
+> (seção 4). Detalhe completo em `PLANO-ATIVO.md`, "Etapa 6" → "Fatia D3".
+> Sessão anterior: Claude Code (14/08/2026, chat de planejamento —
 > documentação apenas) — **verificação pós-deploy da Fatia D2 fechada: a
 > fatia passa a CONCLUÍDA (14/08/2026)**. Os itens 3-5 da lista fecharam com
 > dado real de produção, confirmado por SQL direto em `alert_log` (não só
@@ -436,6 +452,40 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
     `is_opportunity_hit` (nome preexistente, já lido por
     `telegram_notifier.py`). Mesmo conceito, nomes diferentes por domínio —
     unificar tocaria código fora do escopo mínimo da fatia.
+- **Fatia D3 — `alert_log` ganha `user_id` (14/08/2026): IMPLEMENTADA,
+  SQL AINDA NÃO EXECUTADO, verificação em aberto — não marcada como
+  concluída.** Prepara a D4 (avaliação por usuário) e a Etapa 7; não
+  individualiza nada ainda, não muda o que é alertado nem o que é coletado.
+  - **Preenchimento assimétrico, e é a decisão central:** linha de
+    `alert_log` com `route_id` recebe dono trivial (`routes.user_id`, backfill
+    cobre as 22 existentes); linha com `leg_id` fica **NULL de propósito** —
+    não há dono derivável hoje. `weekend_legs` não tem `user_id`, e
+    `weekend_leg_effective` resolve "quem monitora a perna" por cross join com
+    `settings` (N usuários, não um), com o robô colapsando os N via MIN de
+    teto. `weekend_leg_user_state` também não resolve (modelo preguiçoso):
+    **medido em 14/08/2026 — 31 pernas já alertadas, só 4 com linha de
+    estado**. Com uma conta só, gravar o `user_id` existente pareceria certo e
+    seria dado inventado.
+  - **Coluna nullable, com FK `on delete set null`, sem CHECK/NOT NULL/UNIQUE
+    — restrição vinda de produção:** os dois inserts em `alert_log` rodam
+    depois de a mensagem do Telegram já ter saído (e o de perna dentro de um
+    laço), então nenhuma constraint nova pode ser capaz de rejeitar um insert
+    que hoje passa. Os dois inserts passaram a ter `try/except` com
+    `had_error` e log procurável `[alert_log] FALHA AO GRAVAR`.
+  - **Ressalva registrada:** `on delete set null` é declaração de intenção,
+    **não** garantia de preservação de histórico — as FKs de `alert_log` são
+    `on delete cascade`, então apagar a conta cascateia as linhas de rota
+    antes de o `set null` ter efeito.
+  - **Índice e RLS não foram tocados** — a forma final do índice e o
+    predicado de RLS por usuário são decisão da D4 (a expectativa registrada
+    pela D2, de recriar o índice como `(leg_id, user_id, sent_at desc)`, foi
+    revista e está corrigida na subseção "Fatia D2" do `PLANO-ATIVO.md`).
+  - **Marca d'água do deploy** registrada no script (total de linhas +
+    `max(sent_at)`): depois da D4, `user_id` NULL em linha de perna passaria a
+    ter dois significados indistinguíveis (anterior à individualização vs.
+    gravação de dono que falhou).
+  - Detalhe completo, incluindo o G0 medido e a lista de verificação
+    pendente, em `PLANO-ATIVO.md`, "Etapa 6" → "Fatia D3".
 
 ## 3. Próximos passos (ordem sugerida)
 
@@ -511,6 +561,31 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 - **TAXA DE `no_data` DE 85% EM 02/08/2026 — ✅ ESCLARECIDO (12/08/2026).** 152 checagens no dia, 23 `ok`, 129 `no_data`. Detector de bloqueio **não disparou** (`bloqueio_detectado = false`, 4 dias limpos). Usuário avaliou que o scraping está funcionando bem e **decidiu não acionar o kill-switch**. Registrado como observação, não como incidente. **Esclarecido pela investigação de 12/08/2026** (ver seção 2, "Decisões vivas"): os 85% vinham inteiramente do cache Travelpayouts (que erra ~98% por desenho), não do lote `fli` (fonte primária, ~0% de falha em 13 dos 14 dias observados) — não indicava problema real. Não é mais dúvida em aberto.
 - **DETECTOR DE BLOQUEIO POSSIVELMENTE MAL CALIBRADO — ✅ ESCLARECIDO (12/08/2026).** O limiar documentado (sucesso <50% com amostra ≥8) não disparou apesar de 85% de falha no dia. O detector (`live_check.py:218-220`) calcula `success_rate` só sobre o lote `fli` do dia, nunca sobre o total (o lote cache, que historicamente erra ~98% das pernas, não entra nessa conta). **Confirmado pela investigação de 12/08/2026** (ver seção 2, "Decisões vivas"): essa leitura estava correta — não é miscalibração de limiar, é escopo pretendido (o detector nunca teve a intenção de olhar o dia inteiro, só o lote que ele mesmo executa). Não é mais dúvida em aberto.
 - **VOLUME DE CHECAGENS ACIMA DO PREVISTO — investigado e explicado (02/08/2026).** 152 checagens/dia contra `batch_size` 20 e ~43 pernas elegíveis pareciam divergentes. Leitura de código (`weekends.py`, `live_check.py`, `scrape_schedule.py`) explica o número: são dois lotes com escopos diferentes somados, cada um gravando 1 linha por perna, sem retentativa gerando linha extra — **cache** (`process_all_weekend_legs`/`get_active_legs`) roda TODA perna `monitoring` não expirada, **sem limite de janela de meses à frente** (~132 pernas), e **lote ao vivo** (`run_daily_batch`/`select_batch`) é o único limitado por `batch_size` (20) e pela janela de 183 dias. 132 + 20 = 152, bate exato. **IMPEDITIVO ATUAL para aumentar a frequência do cron:** enquanto não se souber se o volume do cache (sem limite de janela, ~132/dia, roda 1x/dia independente do estágio) muda com o aumento de frequência do lote `fli`, multiplicar a frequência viola a regra de scraping discreto. Achado registrado, decisão não tomada nesta tarefa.
+- **ACHADOS DA INVESTIGAÇÃO READ-ONLY DE 14/08/2026 (frequência/cobertura do
+  scraping) — registrados, sem ação proposta.** Leitura de código apenas
+  (`src/scrape_schedule.py`, `src/main.py`, `src/live_check.py`,
+  `.github/workflows/daily.yml`), nenhuma alteração feita:
+  - **(a) O Estágio 2 do escalonamento é inalcançável pelo cron atual.**
+    `STAGE_BATCHES_PER_DAY = {0: 1, 1: 2, 2: 3}`
+    (`src/scrape_schedule.py:35`) define a cota de lotes `fli` por DIA, e o
+    lote roda enquanto a cota não é atingida — mas quem entrega execução é o
+    cron, hoje fixo em 2x/dia (`daily.yml:9-10`, 08h/20h BRT). Logo o teto
+    real hoje é o Estágio 1 (2 lotes/dia): o terceiro lote do Estágio 2 só
+    sairia por `workflow_dispatch` manual. Nenhum trecho de código ajusta o
+    cron ao estágio.
+  - **(b) A cobertura por perna degrada sozinha com o tempo.** A janela do
+    lote ao vivo é constante (`LIVE_CHECK_WINDOW_DAYS = 183`,
+    `src/live_check.py:54`) e desliza com a data, então a fila elegível
+    cresce sozinha conforme os dias passam; a cota diária (estágio) e o
+    tamanho do lote (`fast_flights_daily_batch_size`) são constantes. Nada em
+    `scrape_schedule.py` lê tamanho de fila, tempo restante ou cobertura — a
+    mesma cota passa a cobrir uma fração menor da fila por volta completa,
+    sem aviso. Só muda por bloqueio (cai para Estágio 0), 5 dias limpos
+    (sobe um estágio, até o teto) ou edição manual.
+  - **Ler junto com o impeditivo já registrado no item acima** (volume do
+    cache, ~132 pernas/dia sem limite de janela): **não** há aqui decisão
+    pendente de mexer no cron — os dois achados são registro de estado, não
+    proposta.
 - **✅ DECIDIDO em 11/08/2026 — ALERTA DE OPORTUNIDADE (E RESUMO SEMANAL) FORA DA JANELA DE COMPRA** — ver item acima ("DECIDIDO em 11/08/2026") e seção 2, "Decisões vivas", para o texto completo da decisão (que passou a cobrir também o resumo semanal, não só o alerta de oportunidade). **Implementada e publicada (Fatia D1, 12/08/2026, commit `757ab3e`)**, verificação de produção em andamento até 17/08/2026 (`PLANO-ATIVO.md`, "Etapa 6" → "Fatia D1").
 - **PERGUNTA ABERTA, REGISTRADA 11/08/2026 — "execução extra do dia" parece pular Travelpayouts, não só rotas flexíveis.** O item 1 da seção 1 já documenta que só a primeira execução do dia roda "rotas flexíveis/cache Travelpayouts/notificações", com as execuções extras rodando só o lote `fli`. Em observação recente, o usuário notou que a execução extra também não roda Travelpayouts — ainda não está claro se isso é exatamente esse comportamento já documentado (e portanto intencional) ou um achado novo/divergente. **Travelpayouts deve continuar rodando normalmente** — não é decisão de reduzir seu uso. **Sem ação agora** — só registrado para não esquecer; investigar em sessão futura antes de tirar conclusão.
 
