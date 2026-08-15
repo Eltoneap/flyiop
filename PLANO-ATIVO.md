@@ -564,7 +564,7 @@ real de produção (itens 1-5). Resta apenas a lacuna de longo prazo do item
 
 ---
 
-### Fatia D3 — `alert_log` ganha `user_id` (implementada 14/08/2026; SQL executado e verificado em produção em 15/08/2026, verificação pós-deploy em aberto)
+### Fatia D3 — `alert_log` ganha `user_id` (implementada 14/08/2026; SQL executado e verificado em produção em 14/08/2026, verificação pós-deploy em aberto)
 
 **Objetivo:** `alert_log` ganha `user_id`, preparando a D4 (avaliação por
 usuário) e a Etapa 7 (segundo usuário). Hoje cooldown e histórico de alerta
@@ -670,7 +670,7 @@ congela a fronteira: total de linhas e `max(sent_at)` no momento do deploy.
 `alert_log.id` é `uuid` (`gen_random_uuid()`), que não ordena — por isso
 `max(id)` não é registrado.
 
-> **RESULTADO REAL (V6, executado e verificado em produção em 15/08/2026),
+> **RESULTADO REAL (V6, executado e verificado em produção em 14/08/2026),
 > também copiado para o cabeçalho de `sql/fatia_d3_user_id_alert_log.sql`:**
 > `marca_dagua_em` = `2026-08-15 01:03:24.670155+00` ·
 > `linhas_total` = `78` · `linhas_perna` = `54` ·
@@ -702,7 +702,7 @@ nasce NULL e é recuperada re-rodando o Bloco 2 (idempotente, guarda
 execução do robô com o código publicado, ainda não aconteceu:
 1. ✅ Rodar `sql/fatia_d3_user_id_alert_log.sql` no SQL Editor e conferir G0 e
    V1-V6 contra os esperados declarados no próprio script. **Concluído e
-   verificado em produção em 15/08/2026** — todos os blocos (G0, Bloco 1,
+   verificado em produção em 14/08/2026** — todos os blocos (G0, Bloco 1,
    Bloco 2, V1-V6) bateram com o esperado.
 2. ✅ Publicar o código da Parte 2 e re-rodar o Bloco 2 se uma execução do
    robô caiu entre o SQL e o deploy. **Código publicado no commit `5352e3f`**

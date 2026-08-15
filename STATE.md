@@ -12,11 +12,15 @@
 > ter `try/except` com `had_error` e log procurável `[alert_log] FALHA AO
 > GRAVAR`. Índice e RLS **não** foram tocados (decisão da D4; a expectativa
 > registrada pela D2 sobre o índice foi revista e corrigida). 227 testes
-> passando (220 + 7 novos). **SQL ainda NÃO executado** —
-> `sql/fatia_d3_user_id_alert_log.sql` entregue para execução manual; ordem
-> de deploy é SQL primeiro, código depois. Registrados também, sem ação, os
-> dois achados da investigação read-only de frequência/cobertura do scraping
-> (seção 4). Detalhe completo em `PLANO-ATIVO.md`, "Etapa 6" → "Fatia D3".
+> passando (220 + 7 novos). **SQL executado e verificado em produção em
+> 14/08/2026** — G0, Bloco 1, Bloco 2 e V1-V6 bateram com o esperado, marca
+> d'água do V6 registrada no cabeçalho do script e em `PLANO-ATIVO.md`.
+> Itens 1-3 da verificação pós-deploy fechados; itens 4-6 (evidência de
+> rota, evidência de perna, `had_error` não disparou) seguem pendentes,
+> aguardando a próxima execução do robô com o código publicado. Registrados
+> também, sem ação, os dois achados da investigação read-only de
+> frequência/cobertura do scraping (seção 4). Detalhe completo em
+> `PLANO-ATIVO.md`, "Etapa 6" → "Fatia D3".
 > Sessão anterior: Claude Code (14/08/2026, chat de planejamento —
 > documentação apenas) — **verificação pós-deploy da Fatia D2 fechada: a
 > fatia passa a CONCLUÍDA (14/08/2026)**. Os itens 3-5 da lista fecharam com

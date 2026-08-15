@@ -82,7 +82,7 @@
 -- uuid (sql/etapa3_cooldown.sql:5, gen_random_uuid()), que NÃO ordena — por
 -- isso a marca d'água é por sent_at, e max(id) não é registrado.
 --
---   RESULTADO REAL (V6, executado e verificado em produção em 15/08/2026):
+--   RESULTADO REAL (V6, executado e verificado em produção em 14/08/2026):
 --       marca_dagua_em          = 2026-08-15 01:03:24.670155+00
 --       linhas_total            = 78
 --       linhas_perna            = 54
