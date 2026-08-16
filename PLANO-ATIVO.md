@@ -1388,6 +1388,19 @@ regra dura do item 7 da "Ordem de execução" ("o teste real de isolamento é a
 primeira coisa a fazer depois de criar a conta, antes de ela receber qualquer
 dado"), aplicada literalmente.
 
+**CONCLUÍDA em 16/08/2026 — script `sql/etapa7_2_insert_settings_gustavo.sql`,
+executado manualmente pelo usuário.** BLOCO 1 (insert): sucesso. BLOCO 2
+(verificação): `select count(*) from settings` = **2**,
+`select count(*) from weekend_leg_effective` = **264** — exatamente como
+esperado. **O fan-out real começou a partir deste momento:**
+`weekend_leg_effective` está dobrada e o robô vai processar 264 linhas na
+próxima execução, não mais 132. A trigger `trg_audit_default_ceiling_ins`
+presumivelmente gravou a linha `scope='default'` correspondente em
+`weekend_leg_ceiling_audit` — não foi verificado diretamente nesta fatia, mas
+é o comportamento esperado do insert; confirmação, se desejada, pode ser um
+item leve da E7-4, sem bloquear nada. **A credencial do Gustavo AINDA NÃO foi
+entregue** — só depois da E7-4 (prova de isolamento) passar.
+
 **E7-3 — D-7: apertar a RLS de `alert_log` (era E7-2). REVERSÍVEL: recriar a
 policy anterior.**
 Trocar o ramo de perna por `user_id = auth.uid()`. As 54 linhas NULL somem da
