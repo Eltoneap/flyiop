@@ -186,8 +186,12 @@ entre usuários" abaixo.**
    **PLANEJADA E TOTALMENTE DECIDIDA em 15/08/2026** — plano fatiado
    (E7-0 a E7-7), as quatro decisões de produto fechadas, lista do que só é
    verificável com duas contas e riscos/pontos sem volta na seção "Etapa 7"
-   abaixo. **Execução segue bloqueada pela verificação pós-deploy da Fatia
-   D4** (itens 5-10), e por nada mais.
+   abaixo. **Gate estreitado (decisão de 15/08/2026, chat de acompanhamento da
+   D4): execução liberada a partir do item 5 da verificação da D4** ("próxima
+   linha de perna em `alert_log` nasce com `user_id` preenchido") **confirmado
+   OK, mesmo com os itens 6-10 ainda em aberto** — itens 9 e 10 passam a
+   verificação de cauda longa, em paralelo à execução da Etapa 7. Detalhe
+   completo na abertura da seção "Etapa 7" abaixo.
 
 **Correção de sequenciamento (31/07/2026):** as Etapas 4 e 5 são modelo de
 dados e interface — valem independente de o alerta de perna funcionar (é o
@@ -978,12 +982,36 @@ solta** e não deve reaparecer como "pendente" em fatia intermediária.
 
 ---
 
-## Etapa 7 — criação da conta do segundo usuário (PLANEJADA E TOTALMENTE DECIDIDA em 15/08/2026; execução BLOQUEADA pela verificação da D4)
+## Etapa 7 — criação da conta do segundo usuário (PLANEJADA E TOTALMENTE DECIDIDA em 15/08/2026; execução BLOQUEADA pelo item 5 da verificação da D4)
 
-**GATE, e ele não se move:** a verificação pós-deploy da Fatia D4 (itens 5-10
-da subseção "Fatia D4", acima) está **EM ABERTO**. Nenhuma fatia desta seção
-roda antes de ela fechar. Esta seção existe para que, no dia em que o gate
-abrir, **não reste nenhuma decisão de produto a tomar** — só execução.
+**GATE ESTREITADO (decisão de 15/08/2026, chat de acompanhamento da D4) — ele
+existe e é real, só ficou mais preciso.** A verificação pós-deploy da Fatia D4
+tem 6 itens em aberto (5-10, subseção "Fatia D4", acima), mas **só o item 5**
+("a próxima linha de PERNA em `alert_log` nasce com `user_id` PREENCHIDO") é
+pré-condição direta da Etapa 7 — é o mecanismo de gravação de dono que as
+fatias E7-3/E7-4 vão medir. Os demais são qualidade da D4 em produção, não
+dependência estrutural desta etapa:
+- **Item 6** (nome `Elton` na mensagem do Telegram) será conferido no mesmo
+  log da execução de amanhã, mas **não é condição de bloqueio**.
+- **Itens 9 e 10** (re-alerta de transição não se repetir; regressão
+  estrutural, que depende da mesma janela) são **explicitamente excluídos do
+  gate** — são verificação de cauda longa, podem levar mais de uma execução, e
+  passam a rodar **em paralelo** à execução da Etapa 7, não antes dela.
+- **Itens 7 e 8** (`had_error` não disparou; os dois avisos provisórios
+  pararam de sair) seguem fora do gate pelo mesmo motivo dos itens 6/9/10:
+  qualidade observada da D4, não pré-condição da Etapa 7.
+
+**Condição de liberação:** se a execução de amanhã (~08h BRT) confirmar o item
+5 OK (`user_id` preenchido na linha nova de perna, sem erro/traceback de
+gravação), **a Etapa 7 pode começar a ser executada a partir da E7-0**, mesmo
+com os itens 6-10 ainda em aberto.
+
+**EXCEÇÃO que reintroduz o bloqueio:** se o log de amanhã mostrar o item 5 com
+defeito real — `user_id` NULL numa linha nova de perna, erro de gravação,
+traceback — **a Etapa 7 PAUSA antes de prosseguir**, porque ela depende
+diretamente desse mecanismo. Nenhuma fatia desta seção roda antes de o item 5
+fechar OK. Esta seção existe para que, no dia em que o gate abrir, **não reste
+nenhuma decisão de produto a tomar** — só execução.
 
 **Nota de origem:** o levantamento de terreno foi feito em Plan Mode em
 15/08/2026 (só leitura de código, schema e documentação; nada executado) e
