@@ -1013,18 +1013,35 @@ diretamente desse mecanismo. Nenhuma fatia desta seção roda antes de o item 5
 fechar OK. Esta seção existe para que, no dia em que o gate abrir, **não reste
 nenhuma decisão de produto a tomar** — só execução.
 
-**OVERRIDE CONSCIENTE registrado em 15/08/2026:** no momento em que a E7-0 foi
-escrita (script `sql/etapa7_0_inventario.sql`), o log da execução de ~08h BRT
-de 16/08/2026 **ainda não tinha sido conferido** — o item 5 seguia sem
-confirmação. O usuário decidiu, explicitamente, escrever e ter pronta a E7-0
-mesmo assim, porque ela é **somente leitura**: nada é criado, nada é alterado,
-nenhuma escrita em `alert_log`, nenhuma conta é criada — a E7-0 não pode
-sofrer o defeito que o gate existe para prevenir. **Isto não é o gate
-cumprido; é um override datado.** A exceção acima **continua valendo
-integralmente**: se o log mostrar o item 5 com defeito, a Etapa 7 pausa, e
-**o resultado da E7-0 não autoriza seguir para a E7-1 ou adiante** — ela é
-levantamento de terreno que precisava existir de qualquer forma antes da E7-2,
-não uma abertura antecipada do gate.
+**OVERRIDE CONSCIENTE registrado em 15/08/2026 (primeira instância):** no
+momento em que a E7-0 foi escrita (script `sql/etapa7_0_inventario.sql`), o
+log da execução de ~08h BRT de 16/08/2026 **ainda não tinha sido conferido**
+— o item 5 seguia sem confirmação. O usuário decidiu, explicitamente,
+escrever e ter pronta a E7-0 mesmo assim, porque ela é **somente leitura**:
+nada é criado, nada é alterado, nenhuma escrita em `alert_log`, nenhuma conta
+é criada — a E7-0 não pode sofrer o defeito que o gate existe para prevenir.
+**Isto não foi o gate cumprido; foi um override datado.**
+
+**ATUALIZAÇÃO DO OVERRIDE (segunda instância, mesma data de decisão) —
+execução aconteceu, sem evidência a favor ou contra:** a execução de ~08h BRT
+de 16/08/2026 **de fato rodou**, mas **não produziu nenhuma linha nova de
+perna** nessa janela — não houve alerta disparando. O item 5 continua **SEM
+CONFIRMAÇÃO**, mas agora por **AUSÊNCIA DE DADO**, não por reprovação. É uma
+situação diferente das outras duas possíveis: não é "ainda não rodou" (a
+primeira instância do override), e não é "rodou e mostrou defeito" (o cenário
+que exigiria pausar). O usuário decidiu, conscientemente, prosseguir mesmo
+assim — segunda instância do mesmo tipo de override, agora explicitamente
+depois de uma chance real de observação que não gerou evidência em nenhum
+sentido.
+
+Em nenhuma das duas instâncias isto é o gate cumprido. A exceção original
+**continua de pé, sem enfraquecer**: se uma execução futura mostrar o item 5
+com defeito real — `user_id` NULL numa linha nova de perna, erro de gravação,
+traceback — **a Etapa 7 pausa antes de prosseguir, mesmo que fatias já
+tenham avançado**. O resultado da E7-0 (abaixo, CONCLUÍDA) não é, e nunca foi,
+a confirmação do item 5 — é levantamento de terreno que precisava existir de
+qualquer forma antes da E7-2, feito sob um gate ainda aberto por decisão
+consciente do usuário.
 
 **Nota de origem:** o levantamento de terreno foi feito em Plan Mode em
 15/08/2026 (só leitura de código, schema e documentação; nada executado) e
@@ -1208,21 +1225,21 @@ existir.
 
 ### O que a documentação afirma e NÃO foi possível confirmar
 
-Vira o roteiro da E7-0. Não são dúvidas soltas — são gates de leitura.
-1. **O DDL de `settings` não está versionado** — a própria
-   `AUDITORIA-MULTIUSUARIO.md` registra isso. Não se sabe a PK, se há
-   `unique(user_id)` (os `upsert` sem `onConflict` do frontend dependem disso),
-   quais colunas são NOT NULL, nem os defaults vivos.
-2. **Default vivo de `weekend_default_ceiling`** — foi lido o
-   `add column … default 250` do script, não a coluna em produção.
-3. **`routes.user_id` teria default `auth.uid()`** — o insert do painel não
-   manda o dono ([config.js:215-224](docs/js/config.js:215)); a
-   `AUDITORIA-MULTIUSUARIO.md` registra isso como nunca verificado. Só importa
-   se o Gustavo for cadastrar rota flexível.
-4. **Estado do Supabase Auth** (confirmação de e-mail, política de senha). Só
+Era o roteiro da E7-0 — **resolvido em 15/08/2026** (ver fatia E7-0, acima,
+para os números). Mantido aqui como registro histórico do que estava em
+aberto antes da fatia rodar.
+1. ~~O DDL de `settings` não está versionado~~ — **resolvido pelo Q1/Q2**: 16
+   colunas, `PRIMARY KEY(user_id)`, todas NOT NULL com default exceto
+   `user_id` e `display_name`.
+2. ~~Default vivo de `weekend_default_ceiling`~~ — **resolvido pelo Q1**:
+   confirmado 250 em produção.
+3. ~~`routes.user_id` teria default `auth.uid()`~~ — **resolvido pelo Q3**:
+   confirmado.
+4. **Estado do Supabase Auth** (confirmação de e-mail, política de senha) —
+   **segue não confirmado**; a E7-0 não tinha bloco para isso. Só
    `signInWithPassword` existe no código.
-5. **Contagens atuais de `alert_log`** (54 NULL / 78 linhas / marca d'água) —
-   medições de 14-15/08, não reconferidas.
+5. ~~Contagens atuais de `alert_log`~~ — **resolvido pelo Q4**: 81 linhas / 55
+   NULL / marca d'água `11:37:27.958458+00`.
 
 ### Contradições encontradas no repositório — registradas, não conciliadas
 
@@ -1248,37 +1265,62 @@ Vira o roteiro da E7-0. Não são dúvidas soltas — são gates de leitura.
 Ordem de execução real, com a numeração já refletindo FECHADA-3. Cada fatia diz
 o que é reversível e o que não é.
 
-**E7-0 — Pré-voo (só leitura). REVERSÍVEL: total, nada é criado.**
+**E7-0 — 🟢 CONCLUÍDA (15/08/2026). Pré-voo (só leitura). REVERSÍVEL: total,
+nada foi criado.**
 Script: [sql/etapa7_0_inventario.sql](sql/etapa7_0_inventario.sql). 5 blocos
-(Q1-Q5), um por execução no SQL Editor (regra de bloco único do projeto — o
-SQL Editor só devolve o resultado do último statement de um bloco múltiplo).
-Confirma os 5 itens de "não confirmado" acima:
-- **Q1** — DDL real de `settings` (colunas, tipo, nullable, default vivo):
-  responde se o default de `weekend_default_ceiling` é mesmo 250, quais
-  colunas são nullable sem default (lista de semeadura da E7-2), e se
-  `display_name` existe/é nullable.
-- **Q2** — constraints de `settings` (PK, unique, FK). Gate de parada:
-  ausência de `unique(user_id)`.
-- **Q3** — default de `routes.user_id` (`auth.uid()`?).
-- **Q4** — `alert_log`: total de linhas, total com `user_id` NULL, linhas de
-  perna (`leg_id` not null), linhas de perna com `user_id` NULL, e a marca
-  d'água da D3 (`max(sent_at)` anterior a 2026-08-14 11:37:28.822753+00).
-- **Q5** — linha de base: contagem de `settings` (esperado 1) e de
-  `weekend_leg_effective` (esperado 132).
+(Q1-Q5), rodados um por vez no SQL Editor pelo usuário em 15/08/2026. **Nenhum
+gate de parada disparou.**
 
-*Gates de parada:* default de `weekend_default_ceiling` ≠ 250 (o insert da
-E7-2 manda R$300 explícito de qualquer forma, mas a divergência indicaria que
-alguém alterou a coluna e isso precisa ser entendido antes), ou **ausência de
-`unique(user_id)` em `settings`** — sem ele os `upsert` do painel podem criar
-linha duplicada, e linha duplicada **triplica** a view em vez de dobrar.
+- **Q1 — DDL real de `settings` (16 colunas).** Todas NOT NULL com default,
+  exceto duas: `user_id` (obrigatório, sem default — precisa vir no insert de
+  qualquer forma) e `display_name` (nullable, sem default — a única que corre
+  risco real de nascer vazia). Defaults confirmados:
+  `window_3d_pct` numeric default 10 · `window_7d_pct` numeric default 15 ·
+  `notification_mode` text default `'alert_only'` ·
+  `cost_per_thousand_brl` numeric default 25 ·
+  `updated_at` timestamptz default `now()` ·
+  `freshness_hours` integer default 24 ·
+  `stale_alert_policy` text default `'warn'` ·
+  `realert_drop_pct` numeric default 5 · `realert_days` integer default 3 ·
+  `suspicious_below_avg_pct` numeric default 50 ·
+  `weekend_opportunity_pct` numeric default 15 ·
+  `fast_flights_enabled` boolean default true ·
+  `fast_flights_daily_batch_size` integer default 20 ·
+  `weekend_default_ceiling` numeric default 250 **(confirmado — bate com o
+  script)** · `display_name` text, nullable, sem default.
+  **CORREÇÃO DE FATO sobre a decisão original de semeadura (ver E7-2
+  abaixo):** o motivo que originalmente justificava semear todas as colunas
+  era [src/bot_commands.py:65](src/bot_commands.py:65)
+  (`window_3d_pct` sem fallback) — mas `window_3d_pct` é `NOT NULL default
+  10`, estruturalmente impossível nascer NULL. O medo que motivou a decisão
+  de semear tudo não se sustenta.
+- **Q2 — constraints de `settings`.** `PRIMARY KEY` em `user_id`
+  (`settings_pkey`) + `FOREIGN KEY settings_user_id_fkey` (`user_id` →
+  `auth.users`). **Gate de parada NÃO disparado** — PK é mais forte que
+  `UNIQUE` (garante unicidade + NOT NULL + alvo de conflito válido para
+  `upsert`). Achado extra, não documentado antes: a FK impede inserir
+  `settings` para um `user_id` que não seja conta real.
+- **Q3 — default de `routes.user_id`.** `default auth.uid()` **CONFIRMADO**.
+  Dúvida da auditoria ("nunca verificado") resolvida — um insert do painel
+  pelo segundo usuário nasce com o dono correto automaticamente.
+- **Q4 — `alert_log`.** 81 linhas totais (era 78 em 14-15/08) · 55 com
+  `user_id` NULL (era 54) · 55 linhas de perna (`leg_id` not null) · 55
+  linhas de perna com `user_id` NULL · marca d'água real
+  `2026-08-14 11:37:27.958458+00` (documentação anterior registrava
+  `11:37:28.822753+00`, diferença de 0.86s, provavelmente por desenho — a
+  marca d'água é o corte exclusivo, não precisa bater ao milissegundo).
+  **Achado que importa:** `total_linhas_de_perna == linhas_de_perna_user_id_null`
+  (55 == 55) — **100% das linhas de perna existentes ainda têm `user_id`
+  NULL**. Nenhuma linha gravada pelo mecanismo da D4 apareceu até esta
+  medição — consistente com a "ausência de dado" registrada no override do
+  gate, acima.
+- **Q5 — linha de base.** `settings`: 1 linha · `weekend_leg_effective`: 132
+  linhas. Exatamente como esperado — linha de base limpa para a E7-2 medir
+  depois (esperado então: 2 e 264).
 
-*Concluída quando:* os 5 números estiverem registrados aqui. **RESULTADOS —
-preencher depois de rodar cada bloco no SQL Editor:**
-- Q1 (DDL de `settings`): *(colar aqui)*
-- Q2 (constraints de `settings` / gate `unique(user_id)`): *(colar aqui)*
-- Q3 (default de `routes.user_id`): *(colar aqui)*
-- Q4 (`alert_log` — total / NULL / perna / perna+NULL / marca d'água): *(colar aqui)*
-- Q5 (`settings` / `weekend_leg_effective` — esperado 1 / 132): *(colar aqui)*
+*Gates de parada (nenhum disparou):* default de `weekend_default_ceiling` ≠
+250 — **não disparou, confirmado 250**; ausência de `unique(user_id)` em
+`settings` — **não disparou, PK cobre o mesmo papel e é mais forte**.
 
 **E7-1 — Rótulo de usuário relativo ao logado (só código). REVERSÍVEL:
 `git revert`.**
@@ -1304,22 +1346,29 @@ em `settings` com `user_id`, `weekend_default_ceiling = 300` (FECHADA-1) e
 `display_name = 'Gustavo'` (FECHADA-2) explícitos. Janela: entre execuções do
 robô (08h–20h BRT), mesmo cuidado dos deploys anteriores.
 
-**O insert semeia TODAS as colunas de `settings` explicitamente — não confiar
-em nenhum default do banco (decisão de 15/08/2026).** Motivado por
+**SEMEADURA SIMPLIFICADA (decisão de 15/08/2026, substitui a decisão original
+de semear todas as colunas — ver achado do Q1 na fatia E7-0, acima).** O
+insert fixa **explicitamente só três campos**: `user_id`,
+`weekend_default_ceiling = 300` (FECHADA-1) e `display_name = 'Gustavo'`
+(FECHADA-2). As demais 13 colunas ficam nos defaults do banco.
+
+*Por que a decisão mudou:* o motivo original para semear tudo era
 [src/bot_commands.py:65](src/bot_commands.py:65)
-(`float(settings["window_3d_pct"])`, sem fallback) — a urgência específica desse
-caminho foi **parcialmente relaxada** pela FECHADA-4 (`/status` aceito como não
-usado pelo Gustavo), mas a decisão de semear tudo explicitamente segue de pé,
-por rigor e para não depender de qual comando alguém decide usar no futuro. A
-lista completa de colunas é **saída da E7-0** (que já lê o DDL real da tabela) e
-precisa estar fechada aqui, com valor definido para cada uma, **antes** desta
-fatia rodar — não apenas `weekend_default_ceiling` e `display_name`. Colunas já
-nomeadas em outros pontos do repositório que entram nessa lista:
-`window_3d_pct`, `window_7d_pct`, `notification_mode`, `cost_per_thousand_brl`,
-`freshness_hours`, `stale_alert_policy`, `realert_drop_pct`, `realert_days`,
-`weekend_opportunity_pct` (via `DEFAULT_SETTINGS`,
-[src/supabase_client.py:6-19](src/supabase_client.py:6)) — a E7-0 confirma se
-essa é a lista completa do DDL real ou se falta alguma.
+(`float(settings["window_3d_pct"])`, lido sem fallback no código Python). Mas
+o Q1 da E7-0 mostrou que `window_3d_pct` — e as outras 12 colunas fora das
+três fixadas — são **`NOT NULL` com default vivo confirmado em produção**
+(`window_3d_pct default 10`, `window_7d_pct default 15`,
+`notification_mode default 'alert_only'`, `cost_per_thousand_brl default 25`,
+`freshness_hours default 24`, `stale_alert_policy default 'warn'`,
+`realert_drop_pct default 5`, `realert_days default 3`,
+`suspicious_below_avg_pct default 50`, `weekend_opportunity_pct default 15`,
+`fast_flights_enabled default true`, `fast_flights_daily_batch_size default
+20`, `updated_at default now()`). É **estruturalmente impossível** essas
+colunas nascerem NULL num insert que as omite — o medo que motivou a
+semeadura completa não se sustenta. `user_id` já era obrigatório de qualquer
+forma (sem default, `PRIMARY KEY`); `display_name` é a única das 16 colunas
+sem default que exige valor explícito para não sair no fallback
+`user_id[:8]` (FECHADA-2).
 *O que é reversível:* apagar a linha de `settings` devolve a view a 132 linhas e
 o robô ao comportamento de hoje.
 *O que NÃO é:* a trigger `trg_audit_default_ceiling_ins`
