@@ -1013,6 +1013,19 @@ diretamente desse mecanismo. Nenhuma fatia desta seção roda antes de o item 5
 fechar OK. Esta seção existe para que, no dia em que o gate abrir, **não reste
 nenhuma decisão de produto a tomar** — só execução.
 
+**OVERRIDE CONSCIENTE registrado em 15/08/2026:** no momento em que a E7-0 foi
+escrita (script `sql/etapa7_0_inventario.sql`), o log da execução de ~08h BRT
+de 16/08/2026 **ainda não tinha sido conferido** — o item 5 seguia sem
+confirmação. O usuário decidiu, explicitamente, escrever e ter pronta a E7-0
+mesmo assim, porque ela é **somente leitura**: nada é criado, nada é alterado,
+nenhuma escrita em `alert_log`, nenhuma conta é criada — a E7-0 não pode
+sofrer o defeito que o gate existe para prevenir. **Isto não é o gate
+cumprido; é um override datado.** A exceção acima **continua valendo
+integralmente**: se o log mostrar o item 5 com defeito, a Etapa 7 pausa, e
+**o resultado da E7-0 não autoriza seguir para a E7-1 ou adiante** — ela é
+levantamento de terreno que precisava existir de qualquer forma antes da E7-2,
+não uma abertura antecipada do gate.
+
 **Nota de origem:** o levantamento de terreno foi feito em Plan Mode em
 15/08/2026 (só leitura de código, schema e documentação; nada executado) e
 ficou apenas no chat. Esta é a primeira vez que ele é registrado em arquivo, já
@@ -1236,16 +1249,36 @@ Ordem de execução real, com a numeração já refletindo FECHADA-3. Cada fatia
 o que é reversível e o que não é.
 
 **E7-0 — Pré-voo (só leitura). REVERSÍVEL: total, nada é criado.**
-Script de inventário no SQL Editor confirmando os 5 itens de "não confirmado"
-acima: DDL real de `settings` (PK, unique, NOT NULL, defaults vivos), default de
-`routes.user_id`, contagem e marca d'água de `alert_log`, e o
-`weekend_default_ceiling` efetivo.
-*Concluída quando:* os 5 números estiverem registrados aqui.
-*Gates de parada:* default ≠ 250 (o insert da E7-2 manda R$300 explícito de
-qualquer forma, mas a divergência indicaria que alguém alterou a coluna e isso
-precisa ser entendido antes), ou **ausência de `unique(user_id)` em `settings`**
-— sem ele os `upsert` do painel podem criar linha duplicada, e linha duplicada
-**triplica** a view em vez de dobrar.
+Script: [sql/etapa7_0_inventario.sql](sql/etapa7_0_inventario.sql). 5 blocos
+(Q1-Q5), um por execução no SQL Editor (regra de bloco único do projeto — o
+SQL Editor só devolve o resultado do último statement de um bloco múltiplo).
+Confirma os 5 itens de "não confirmado" acima:
+- **Q1** — DDL real de `settings` (colunas, tipo, nullable, default vivo):
+  responde se o default de `weekend_default_ceiling` é mesmo 250, quais
+  colunas são nullable sem default (lista de semeadura da E7-2), e se
+  `display_name` existe/é nullable.
+- **Q2** — constraints de `settings` (PK, unique, FK). Gate de parada:
+  ausência de `unique(user_id)`.
+- **Q3** — default de `routes.user_id` (`auth.uid()`?).
+- **Q4** — `alert_log`: total de linhas, total com `user_id` NULL, linhas de
+  perna (`leg_id` not null), linhas de perna com `user_id` NULL, e a marca
+  d'água da D3 (`max(sent_at)` anterior a 2026-08-14 11:37:28.822753+00).
+- **Q5** — linha de base: contagem de `settings` (esperado 1) e de
+  `weekend_leg_effective` (esperado 132).
+
+*Gates de parada:* default de `weekend_default_ceiling` ≠ 250 (o insert da
+E7-2 manda R$300 explícito de qualquer forma, mas a divergência indicaria que
+alguém alterou a coluna e isso precisa ser entendido antes), ou **ausência de
+`unique(user_id)` em `settings`** — sem ele os `upsert` do painel podem criar
+linha duplicada, e linha duplicada **triplica** a view em vez de dobrar.
+
+*Concluída quando:* os 5 números estiverem registrados aqui. **RESULTADOS —
+preencher depois de rodar cada bloco no SQL Editor:**
+- Q1 (DDL de `settings`): *(colar aqui)*
+- Q2 (constraints de `settings` / gate `unique(user_id)`): *(colar aqui)*
+- Q3 (default de `routes.user_id`): *(colar aqui)*
+- Q4 (`alert_log` — total / NULL / perna / perna+NULL / marca d'água): *(colar aqui)*
+- Q5 (`settings` / `weekend_leg_effective` — esperado 1 / 132): *(colar aqui)*
 
 **E7-1 — Rótulo de usuário relativo ao logado (só código). REVERSÍVEL:
 `git revert`.**
