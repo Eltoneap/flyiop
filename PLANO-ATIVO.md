@@ -1399,7 +1399,8 @@ presumivelmente gravou a linha `scope='default'` correspondente em
 `weekend_leg_ceiling_audit` — não foi verificado diretamente nesta fatia, mas
 é o comportamento esperado do insert; confirmação, se desejada, pode ser um
 item leve da E7-4, sem bloquear nada. **A credencial do Gustavo AINDA NÃO foi
-entregue** — só depois da E7-4 (prova de isolamento) passar.
+entregue nesta fatia** — liberada só na E7-4 (prova de isolamento), que
+passou em 15/08/2026; ver seção da E7-4 abaixo.
 
 **E7-3 — D-7: apertar a RLS de `alert_log` (era E7-2). REVERSÍVEL: recriar a
 policy anterior.**
@@ -1487,6 +1488,34 @@ view.
 de hoje sem perder nada — **é a saída de emergência desta etapa, e o motivo de
 ela vir antes de qualquer login.**
 **É aqui que a credencial é entregue**, e só se esta fatia passar inteira.
+
+**CONCLUÍDA E APROVADA em 15/08/2026 — script
+`sql/etapa7_4_prova_isolamento.sql`, executado manualmente pelo usuário.**
+
+BLOCO 1 (personificando Gustavo): `wlus_total_visivel` = **0**,
+`wlus_de_outro_dono` = **0**; `wlca_total_visivel` = **1**
+(a linha da trigger `trg_audit_default_ceiling_ins` da E7-2, pertence a ele
+mesmo), `wlca_de_outro_dono` = **0**; `alert_log_pernas_visiveis` = **0**;
+`settings_total_visivel` = **1**, `settings_de_outro_dono` = **0**;
+`wle_total_visivel` = **132**.
+
+BLOCO 2 (personificando o usuário principal): `wlus_total_visivel` = **13**
+(overrides de teto por perna já criados no uso real), `wlus_de_outro_dono` =
+**0**; `wlca_total_visivel` = **21** (entradas de auditoria correspondentes),
+`wlca_de_outro_dono` = **0**; `alert_log_pernas_visiveis` = **0**
+(reconfirmação da E7-3, não descoberta nova); `settings_total_visivel` = **1**,
+`settings_de_outro_dono` = **0**; `wle_total_visivel` = **132**.
+
+**Conclusão: ZERO vazamento em qualquer tabela, para qualquer uma das duas
+contas.** `weekend_leg_effective` = 132 para cada conta (não 264), confirmando
+que o isolamento por navegador funciona apesar do fan-out real na leitura do
+robô. A única divergência do "esperado ideal" é a mesma já registrada e aceita
+na E7-3 (`alert_log_pernas_visiveis` = 0 para os dois lados, por causa do
+histórico órfão sem `user_id`) — reconfirmação, não achado novo.
+
+**A PROVA DE ISOLAMENTO COM DUAS CONTAS REAIS ESTÁ FEITA.** Isto libera
+formalmente a entrega da credencial ao Gustavo — marco que esta fatia
+representa. A retenção da credencial, em vigor desde a E7-2, **acabou**.
 
 **E7-5 — Primeira execução real do robô com dois usuários. IRREVERSÍVEL: as
 mensagens saem.**
