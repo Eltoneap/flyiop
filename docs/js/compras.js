@@ -5,10 +5,6 @@ import { weekendTags } from './holidays.js';
 const VALID_FILTERS = ['todas', 'abaixo-do-teto', 'sem-preco', 'feriado-alta-temporada', 'proximos-60-dias'];
 const URGENCY_WINDOW_DAYS = 60;
 
-// Fatia C, Parte 2 — rótulo de usuário na linha de compra do outro usuário.
-// Hardcoded, igual ao chat_id do Telegram: sem tabela nova, sem UI de
-// cadastro. Ganha a segunda entrada quando a segunda conta existir (Etapa 7).
-const USER_LABELS = { 'c72bf50e-16f7-48fd-9c86-7b49dea1551e': 'Você' };
 const DEFAULT_USER_LABEL = 'Outro usuário';
 
 let allWeekends = [];
@@ -103,7 +99,7 @@ function composeDepartureTimestamp(date, time) {
 }
 
 function formatSharedFlight(row) {
-  const label = USER_LABELS[row.user_id] || DEFAULT_USER_LABEL;
+  const label = DEFAULT_USER_LABEL;
   const { date, time } = spDateTimeParts(row.purchased_departure_time);
   const bits = [
     row.purchased_airline,
