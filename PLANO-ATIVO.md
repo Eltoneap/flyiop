@@ -196,6 +196,13 @@ paralelo ao teste do caminho de alerta. Só a Etapa 6 depende desse teste.
 Formulação anterior (que tratava o teste como pré-requisito das Etapas 4/5)
 foi revisada e está incorreta.
 
+> **Premissa revista (15/08/2026, DEC-1, seção "Etapa 7"):** "ele não usa
+> Telegram" não vale mais. O segundo usuário **entra no grupo do Telegram
+> compartilhado** — a Fatia D4 (avaliação por usuário) vale como projetada,
+> e as fatias E7-2/E7-5 da Etapa 7 dependem exatamente do envio de mensagem
+> a ele. Texto mantido acima como registro histórico de 31/07/2026, não como
+> premissa vigente.
+
 **Pedido de antecipar a Etapa 7 (criação da conta do segundo usuário):
 avaliado e recusado em 31/07/2026.** Motivo: `price_ceiling`/`status`/
 `notes`/`paid_price` ainda são globais e a RLS de `weekend_legs` é genérica
@@ -1214,9 +1221,15 @@ precisa ser entendido antes), ou **ausência de `unique(user_id)` em `settings`*
 
 **E7-1 — Rótulo de usuário relativo ao logado (só código). REVERSÍVEL:
 `git revert`.**
-Corrigir [compras.js:11/106](docs/js/compras.js:11) para derivar o rótulo de
-`currentUserId` (ou de `display_name`, se decidirmos unificar a fonte com o
-Telegram) e corrigir o comentário enganoso da linha 10.
+Corrigir [compras.js:11/106](docs/js/compras.js:11) para um rótulo **constante**
+("Outro usuário"), não mais um mapa por uuid, e corrigir o comentário enganoso
+da linha 10. **`display_name` como fonte foi DESCARTADO (revisão de 15/08/2026,
+COR-1):** a coluna mora em `settings`, cuja RLS é `auth.uid() = user_id` — o
+navegador do segundo usuário não consegue ler a linha do primeiro para buscar o
+nome dele. Não é necessário: a consulta a `weekend_leg_purchase_shared` já
+filtra as próprias linhas com `.neq('user_id', currentUserId)`
+([compras.js:718](docs/js/compras.js:718)) — tudo que sobra é do outro usuário
+por definição, sem precisar de nome nenhum ali.
 *Verificação:* com uma conta só o painel não muda — não existe linha
 compartilhada. Asserção fraca de propósito; a prova positiva é a E7-6. Sem erro
 no console, sem regressão nos cards.
@@ -1229,6 +1242,23 @@ O usuário cria a conta no dashboard; **imediatamente depois**, um único `inser
 em `settings` com `user_id`, `weekend_default_ceiling = 300` (FECHADA-1) e
 `display_name = 'Gustavo'` (FECHADA-2) explícitos. Janela: entre execuções do
 robô (08h–20h BRT), mesmo cuidado dos deploys anteriores.
+
+**O insert semeia TODAS as colunas de `settings` explicitamente — não confiar
+em nenhum default do banco (decisão de 15/08/2026).** Motivado por
+[src/bot_commands.py:65](src/bot_commands.py:65)
+(`float(settings["window_3d_pct"])`, sem fallback) — a urgência específica desse
+caminho foi **parcialmente relaxada** pela FECHADA-4 (`/status` aceito como não
+usado pelo Gustavo), mas a decisão de semear tudo explicitamente segue de pé,
+por rigor e para não depender de qual comando alguém decide usar no futuro. A
+lista completa de colunas é **saída da E7-0** (que já lê o DDL real da tabela) e
+precisa estar fechada aqui, com valor definido para cada uma, **antes** desta
+fatia rodar — não apenas `weekend_default_ceiling` e `display_name`. Colunas já
+nomeadas em outros pontos do repositório que entram nessa lista:
+`window_3d_pct`, `window_7d_pct`, `notification_mode`, `cost_per_thousand_brl`,
+`freshness_hours`, `stale_alert_policy`, `realert_drop_pct`, `realert_days`,
+`weekend_opportunity_pct` (via `DEFAULT_SETTINGS`,
+[src/supabase_client.py:6-19](src/supabase_client.py:6)) — a E7-0 confirma se
+essa é a lista completa do DDL real ou se falta alguma.
 *O que é reversível:* apagar a linha de `settings` devolve a view a 132 linhas e
 o robô ao comportamento de hoje.
 *O que NÃO é:* a trigger `trg_audit_default_ceiling_ins`
@@ -1247,12 +1277,23 @@ policy anterior.**
 Trocar o ramo de perna por `user_id = auth.uid()`. As 54 linhas NULL somem da
 API autenticada e continuam acessíveis pelo SQL Editor (dono ignora RLS) —
 custo medido na E7-0.
-*Verificação:* medir **antes e depois por personificação da conta real do
-Gustavo** (ver o ganho registrado em FECHADA-3): antes ele lê as linhas de
-perna, depois não lê. `grep alert_log docs/` continua em zero; robô inalterado
-(`service_role` bypassa RLS).
-*Concluída quando:* a personificação do Gustavo devolver 0 linha de perna e a
-do usuário 1 continuar devolvendo as dele.
+*Verificação:* a policy reescrita (`alert_log_select_own_routes_or_any_leg`,
+[sql/draft_alert_log_leg_policy.sql:19-24](sql/draft_alert_log_leg_policy.sql:19))
+cobre **dois ramos** — rota e perna, não só perna. Medir **antes e depois por
+personificação da conta real do Gustavo** (ver o ganho registrado em
+FECHADA-3), **os dois ramos, nos dois momentos**:
+- **Ramo de perna** (o que esta fatia muda): antes ele lê as linhas de perna,
+  depois não lê.
+- **Ramo de rota** (controle negativo — não é tocado por esta fatia, mas é a
+  última fatia reversível antes do passo sem volta E7-4/E7-5, então precisa
+  ser confirmado, não presumido): comportamento **idêntico** antes e depois —
+  o que quer que ele leia (ou não leia) de `alert_log` por `route_id` continua
+  igual nos dois momentos.
+`grep alert_log docs/` continua em zero; robô inalterado (`service_role`
+bypassa RLS).
+*Concluída quando:* a personificação do Gustavo devolver 0 linha de perna
+**e** o ramo de rota devolver o mesmo resultado antes e depois; a do usuário 1
+continuar devolvendo as dele nos dois ramos.
 
 **E7-4 — Prova de isolamento com duas contas reais (SQL, sem login).
 REVERSÍVEL: leitura pura.**
