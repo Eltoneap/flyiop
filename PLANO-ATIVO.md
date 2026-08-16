@@ -183,6 +183,11 @@ entre usuários" abaixo.**
    O teste real de isolamento entre as duas contas (o que os blocos E e F
    da verificação da 4.1 só conseguem simular) é a primeira coisa a fazer
    depois de criar a conta, antes de ela receber qualquer dado.
+   **PLANEJADA E TOTALMENTE DECIDIDA em 15/08/2026** — plano fatiado
+   (E7-0 a E7-7), as quatro decisões de produto fechadas, lista do que só é
+   verificável com duas contas e riscos/pontos sem volta na seção "Etapa 7"
+   abaixo. **Execução segue bloqueada pela verificação pós-deploy da Fatia
+   D4** (itens 5-10), e por nada mais.
 
 **Correção de sequenciamento (31/07/2026):** as Etapas 4 e 5 são modelo de
 dados e interface — valem independente de o alerta de perna funcionar (é o
@@ -959,6 +964,392 @@ em produção sem forma de observar o efeito, e ainda esconderia as 54 linhas
 históricas com `user_id` NULL. **Endereço:** item nomeado da Etapa 7 (criação
 da 2ª conta), junto com a prova de isolamento ponta a ponta. **Não é pendência
 solta** e não deve reaparecer como "pendente" em fatia intermediária.
+
+> **Endereço concreto (15/08/2026):** é a fatia **E7-3** da seção "Etapa 7"
+> abaixo. A ordem final ficou **depois** da criação da conta, não antes — ver
+> FECHADA-3.
+
+---
+
+## Etapa 7 — criação da conta do segundo usuário (PLANEJADA E TOTALMENTE DECIDIDA em 15/08/2026; execução BLOQUEADA pela verificação da D4)
+
+**GATE, e ele não se move:** a verificação pós-deploy da Fatia D4 (itens 5-10
+da subseção "Fatia D4", acima) está **EM ABERTO**. Nenhuma fatia desta seção
+roda antes de ela fechar. Esta seção existe para que, no dia em que o gate
+abrir, **não reste nenhuma decisão de produto a tomar** — só execução.
+
+**Nota de origem:** o levantamento de terreno foi feito em Plan Mode em
+15/08/2026 (só leitura de código, schema e documentação; nada executado) e
+ficou apenas no chat. Esta é a primeira vez que ele é registrado em arquivo, já
+com as quatro decisões de produto fechadas na mesma data.
+
+**Limite operacional declarado:** a criação da conta em si e qualquer digitação
+de senha são **do usuário, no dashboard do Supabase** — não são feitas pelo
+Claude Code em nenhuma variante deste plano.
+
+### As quatro decisões de produto — TODAS FECHADAS (15/08/2026)
+
+Eram as quatro perguntas abertas do levantamento. Nenhuma resta.
+
+**FECHADA-1 — Teto padrão do segundo usuário: R$300**, igual ao do usuário
+principal. **Não** usar o default do banco. Vai **explícito** no `insert` de
+`settings` da fatia E7-2.
+*Por que importa:* `settings.weekend_default_ceiling` é `not null default 250`
+([sql/etapa4_1_estado_por_usuario.sql:87](sql/etapa4_1_estado_por_usuario.sql:87))
+e a view resolve `coalesce(st.price_ceiling, s.weekend_default_ceiling)`
+([:398](sql/etapa4_1_estado_por_usuario.sql:398)) — um insert que omitisse a
+coluna faria a conta nova nascer monitorando as 132 pernas a R$250, um valor
+que ninguém escolheu e que diverge do teto vigente sem aviso nenhum.
+
+**FECHADA-2 — `display_name` do segundo usuário: `Gustavo`.** Vai explícito no
+**mesmo** `insert` da E7-2.
+*Por que importa:* sem ele, `user_label` cai no fallback `user_id[:8]`
+([src/telegram_notifier.py:154-167](src/telegram_notifier.py:154)) e um prefixo
+de uuid apareceria nas mensagens do grupo compartilhado. O fallback é desenho
+correto, não defeito — mas não é o que se quer em produção. Não existe UI para
+essa coluna (nenhum campo em `docs/js/config.js`), então o único caminho é o
+`insert`/SQL Editor.
+
+**FECHADA-3 — D-7 (apertar a RLS do ramo de perna em `alert_log`) roda DEPOIS
+da criação da conta, não antes.** Ordem real de execução:
+**E7-2 (conta + linha de `settings`) → E7-3 (RLS) → E7-4 (prova de isolamento)
+→ só então a credencial é entregue ao Gustavo.**
+
+- **Renumeração:** as fatias foram renumeradas para que o número siga a ordem
+  de execução. Os **nomes internos não mudaram**, só o rótulo:
+  a antiga E7-3 ("conta + linha de settings") é agora **E7-2**;
+  a antiga E7-2 ("RLS D-7") é agora **E7-3**.
+  Registrado aqui porque o texto da decisão, no chat de 15/08/2026, usou os
+  rótulos antigos ("E7-3 → E7-2") — é a mesma ordem, com a numeração corrigida.
+- **RISCO ACEITO EXPLICITAMENTE, registrado como tal:** existe uma janela —
+  **dentro da mesma sessão de execução, não de dias** — em que a conta do
+  Gustavo já existe e a RLS de `alert_log` ainda está com a policy antiga
+  (`leg_id is not null and auth.uid() is not null`, ramo de perna legível por
+  qualquer autenticado). Como a credencial só é entregue **depois** da E7-4, que
+  nesta ordem só roda depois da E7-3, **a janela não é explorável por ele
+  mesmo** — é risco teórico. **Aceito conscientemente pelo usuário em
+  15/08/2026, não esquecido.**
+- **Ganho real que a ordem nova compra, e não é só conveniência:** com a conta
+  existindo primeiro, o "antes" e o "depois" da E7-3 passam a ser medidos por
+  personificação da **segunda conta real** — mostra-se que o Gustavo *consegue*
+  ler as linhas de perna, aperta-se a policy, e mostra-se que *deixou* de
+  conseguir. Na ordem antiga (RLS antes da conta) os dois lados seriam medidos
+  contra um usuário fictício, que é exatamente a classe de prova fraca já
+  criticada nos blocos E/F da 4.1 (revisão de 02/08/2026). A ordem nova troca um
+  risco teórico por uma prova mais forte.
+
+**FECHADA-4 — `/status` do bot não filtra por usuário: ACEITO como está.**
+[src/bot_commands.py:33](src/bot_commands.py:33) lê **todas** as rotas
+flexíveis (`get_routes()` roda como `service_role`), então quem digitar
+`/status` no grupo recebe um bloco por rota de qualquer dono, com
+`target_price` incluído. **Decisão consciente, não pendência técnica:** o
+segundo usuário não pretende usar esse comando, e as rotas flexíveis são
+sistema legado com um dono só hoje. **Gatilho de reabertura nomeado:** se o
+Gustavo passar a usar `/status`, a discussão reabre — até lá não deve
+reaparecer como "pendente".
+
+### O terreno confirmado por leitura de código/schema (15/08/2026)
+
+**1. Onboarding — o que precisa existir no mesmo ato.**
+A view é um `cross join settings`
+([sql/etapa4_1_estado_por_usuario.sql:415](sql/etapa4_1_estado_por_usuario.sql:415)):
+conta sem linha em `settings` produz **zero** linha na view, e o robô nem a
+enxerga (`get_active_legs` itera pernas, não usuários,
+[src/weekends.py:229](src/weekends.py:229)). **Regra dura de 01/08 confirmada
+sem ressalva:** painel vazio, nenhum alerta, **zero erro em lugar nenhum**.
+O robô lê toda coluna de `settings` com fallback (`or DEFAULT_SETTINGS[...]` em
+[rules.py:85-86](src/rules.py:85), [weekends.py:342](src/weekends.py:342),
+[main.py:150/165](src/main.py:150), [live_check.py:144](src/live_check.py:144)),
+então NULL degrada para o default Python em vez de estourar. **Uma exceção
+nomeada:** [src/bot_commands.py:65](src/bot_commands.py:65) faz
+`float(settings["window_3d_pct"])` sem fallback — só dispara para usuário que
+tenha rota flexível **e** use `/status`, ou seja, coberto por FECHADA-4.
+
+**Gatilho fora do controle do operador, e é o que torna a E7-2 um ato único:**
+[docs/js/config.js:243/263](docs/js/config.js:243) e
+[docs/js/compras.js:836](docs/js/compras.js:836) fazem `upsert` em `settings`.
+Se a conta existir e o Gustavo salvar **qualquer** preferência ou teto no painel
+antes do `insert`, a linha nasce com os defaults do banco — R$250, sem
+`display_name`. Daí a credencial só ser entregue depois da E7-4.
+
+**2. O que dobra quando a segunda linha existe.**
+
+| O quê | Dobra? | Evidência |
+|---|---|---|
+| `weekend_leg_effective` lida pelo robô | **Sim** (132→264 linhas, 1 consulta) | [supabase_client.py:275](src/supabase_client.py:275); comentário em [etapa4_1:380](sql/etapa4_1_estado_por_usuario.sql:380) |
+| Fila de pernas (`get_active_legs`) | **Não** — 1 entrada por perna, `ceilings_by_user` com 2 chaves | [weekends.py:229-258](src/weekends.py:229) |
+| Laço de avaliação `per_user` | **Sim** | [weekends.py:338](src/weekends.py:338) |
+| Cooldown (`get_last_weekend_leg_alert`) | **Sim** — até 2 SELECTs por usuário por perna que alertaria | [weekends.py:371-374](src/weekends.py:371) |
+| Mensagens do Telegram + inserts em `alert_log` | **Sim** — o leque abre aqui e só aqui | [main.py:530-553](src/main.py:530) |
+| Resumo semanal | **Não** — uma mensagem só | [main.py:555-557](src/main.py:555) |
+| Dashboard / Compras no navegador | **Não** — `security_invoker=true` ([etapa4_1:389](sql/etapa4_1_estado_por_usuario.sql:389)) + RLS `auth.uid()=user_id` de `settings` ⇒ 132 por navegador | `AUDITORIA-MULTIUSUARIO.md`, seção 2 |
+
+**Dois efeitos de segunda ordem que nenhum arquivo tinha nomeado ainda:**
+- **`get_weekend_leg_counts` muda de significado**
+  ([supabase_client.py:382](src/supabase_client.py:382)): uma perna só conta como
+  comprada quando **todos** os usuários marcaram `purchased`. Com 2 contas, o
+  "X de 90 pernas compradas" do resumo semanal passa a contar só as pernas que
+  **os dois** compraram — que não é o número que nenhum dos dois quer ver.
+  Tratado na E7-7, deliberadamente **depois** de observar o comportamento real.
+- **A perna só sai da fila quando todos param de monitorar**
+  ([weekends.py:185-187](src/weekends.py:185)): depois de o usuário 1 comprar, a
+  perna continua na rotação do lote `fli` por causa do usuário 2. **Não** aumenta
+  consulta por execução (o `batch_size` é fixo), mas dilui a cobertura por perna
+  — soma-se ao achado (b) de 14/08 já registrado em `STATE.md`, seção 4.
+
+**3. GARANTIA CENTRAL DA D4 — CONFIRMADA, nenhuma violação de escopo
+encontrada.** Nenhum caminho de scraping ou de consulta de preço cresce com o
+número de usuários:
+- `process_all_weekend_legs`: `fetch_keys` derivado só de (mês, aeroporto,
+  direção) — [weekends.py:522-530](src/weekends.py:522). Travelpayouts não
+  multiplica.
+- `select_batch(system_settings)` lê só `batch_size`
+  ([live_check.py:111-146](src/live_check.py:111)); `settings_by_user` é carga
+  opaca transportada por `run_daily_batch`
+  ([live_check.py:200-230](src/live_check.py:200)) e **não passa** por ela.
+- `insert_weekend_leg_price`, `get_weekend_leg_price_history`,
+  `update_weekend_leg`, `insert_weekend_leg_run_log`: todos fora do laço por
+  usuário ([weekends.py:300-302](src/weekends.py:300) e depois do laço).
+- `build_package_comparison` retorna `None` incondicionalmente
+  ([live_check.py:197](src/live_check.py:197)) e é chamada **uma vez por perna**,
+  antes do laço ([main.py:513](src/main.py:513)) — zero consulta.
+
+**O que de fato cresce:** leituras/escritas de `alert_log`, mensagens de
+Telegram e o número de linhas de **uma** view. Nenhum deles toca fonte externa.
+As regras de scraping ficam **intocadas** — sequencial, sem paralelismo, sem
+evasão, sem proxy/spoofing/CAPTCHA. Nada neste plano as revisita.
+
+**4. RLS — inventário do que muda com duas contas.**
+- **D-7 (`alert_log`)**: a policy viva é `alert_log_select_own_routes_or_any_leg`
+  com o ramo `leg_id is not null and auth.uid() is not null`
+  ([sql/draft_alert_log_leg_policy.sql:19-24](sql/draft_alert_log_leg_policy.sql:19),
+  confirmada em produção em 31/07/2026, ver `AUDITORIA-MULTIUSUARIO.md`). Hoje
+  isso significa: o segundo usuário enxergaria **todo** o histórico de alertas de
+  perna do primeiro, incluindo o `reason`, que carrega o teto por extenso
+  ("R$ 304 ≤ teto R$ 300").
+  **Achado que barateia a fatia:** `grep alert_log docs/` → **zero**; não há
+  consumidor de frontend. E o SQL Editor roda como dono, que ignora RLS — então
+  apertar para `user_id = auth.uid()` **não esconde as 54 linhas históricas do
+  operador**, só da API autenticada, que ninguém usa. Custo real ≈ zero.
+- **`weekend_leg_user_state`**: 4 policies `= auth.uid()` + `user_id default
+  auth.uid()` ([etapa4_1:100,123-139](sql/etapa4_1_estado_por_usuario.sql:100)).
+  O `upsert` do painel não manda `user_id`
+  ([compras.js:58](docs/js/compras.js:58)) e depende desse default — funciona
+  para o Gustavo por construção, mas **nunca foi exercido por outra conta**.
+- **`weekend_leg_ceiling_audit`**: `wlca_select_own` `user_id = auth.uid()`,
+  append-only sem policy de escrita
+  ([etapa4_1:162-196](sql/etapa4_1_estado_por_usuario.sql:162)).
+- **Fatia C (`weekend_leg_purchase_shared`)**: `auth.uid() is not null`,
+  compartilhada de propósito
+  ([fatia_c:209-212](sql/fatia_c_visibilidade_compra.sql:209)); o front filtra a
+  própria linha com `.neq('user_id', currentUserId)`
+  ([compras.js:718](docs/js/compras.js:718)).
+
+**5. DEFEITO CONFIRMADO que só se manifesta com a segunda conta.**
+[docs/js/compras.js:11](docs/js/compras.js:11) define
+`USER_LABELS = { 'c72bf50e-…': 'Você' }`, usado em
+[compras.js:106](docs/js/compras.js:106) **sem referência a `currentUserId`**.
+Como a consulta já exclui as próprias linhas, o Gustavo só vê linhas do usuário
+1 — e o lookup casa com o uuid dele. **O painel do Gustavo vai renderizar
+"👥 Você já comprou · …" para uma compra que não é dele.**
+**E o comentário da linha 10 prescreve a correção errada:** *"Ganha a segunda
+entrada quando a segunda conta existir (Etapa 7)"* — com
+`{uuid1:'Você', uuid2:'Você'}` os **dois** lados passam a ver "Você". O rótulo
+tem que ser relativo ao usuário logado. Corrigido na E7-1, **antes** de a conta
+existir.
+
+### O que a documentação afirma e NÃO foi possível confirmar
+
+Vira o roteiro da E7-0. Não são dúvidas soltas — são gates de leitura.
+1. **O DDL de `settings` não está versionado** — a própria
+   `AUDITORIA-MULTIUSUARIO.md` registra isso. Não se sabe a PK, se há
+   `unique(user_id)` (os `upsert` sem `onConflict` do frontend dependem disso),
+   quais colunas são NOT NULL, nem os defaults vivos.
+2. **Default vivo de `weekend_default_ceiling`** — foi lido o
+   `add column … default 250` do script, não a coluna em produção.
+3. **`routes.user_id` teria default `auth.uid()`** — o insert do painel não
+   manda o dono ([config.js:215-224](docs/js/config.js:215)); a
+   `AUDITORIA-MULTIUSUARIO.md` registra isso como nunca verificado. Só importa
+   se o Gustavo for cadastrar rota flexível.
+4. **Estado do Supabase Auth** (confirmação de e-mail, política de senha). Só
+   `signInWithPassword` existe no código.
+5. **Contagens atuais de `alert_log`** (54 NULL / 78 linhas / marca d'água) —
+   medições de 14-15/08, não reconferidas.
+
+### Contradições encontradas no repositório — registradas, não conciliadas
+
+1. **`docs/js/compras.js:10`** — o comentário prescreve a correção que piora o
+   defeito (item 5 acima).
+2. **`STATE.md`, seção 3, item 2 (bullet da 4.4)** ainda descrevia o lado de
+   leitura da RLS de `weekend_legs` como *"pendência separada a resolver antes
+   da Etapa 7"*, enquanto a seção 4 do mesmo arquivo e a seção "Etapa 4.4"
+   abaixo registram o item como **fechado em 08/08/2026**. Texto defasado, não
+   pendência real — **corrigido nesta rodada** (15/08/2026).
+3. **Scripts que ficam vencidos no instante da segunda linha em `settings`:**
+   [sql/etapa4_1_verificacao.sql:93,152](sql/etapa4_1_verificacao.sql:93) cravam
+   132 como esperado da view (viram 264 e passariam a acusar falso erro).
+   Já se autoprotegem, e isso é bom sinal:
+   [etapa4_1:53-56](sql/etapa4_1_estado_por_usuario.sql:53) e
+   [etapa4_2_resync:268-272](sql/etapa4_2_resync.sql:268) têm guarda de
+   "exatamente 1 conta";
+   [etapa4_3_verificacao_pos_drop.sql:196-200](sql/etapa4_3_verificacao_pos_drop.sql:196)
+   calcula dinamicamente e **sobrevive**. Tratado na E7-7.
+
+### As fatias
+
+Ordem de execução real, com a numeração já refletindo FECHADA-3. Cada fatia diz
+o que é reversível e o que não é.
+
+**E7-0 — Pré-voo (só leitura). REVERSÍVEL: total, nada é criado.**
+Script de inventário no SQL Editor confirmando os 5 itens de "não confirmado"
+acima: DDL real de `settings` (PK, unique, NOT NULL, defaults vivos), default de
+`routes.user_id`, contagem e marca d'água de `alert_log`, e o
+`weekend_default_ceiling` efetivo.
+*Concluída quando:* os 5 números estiverem registrados aqui.
+*Gates de parada:* default ≠ 250 (o insert da E7-2 manda R$300 explícito de
+qualquer forma, mas a divergência indicaria que alguém alterou a coluna e isso
+precisa ser entendido antes), ou **ausência de `unique(user_id)` em `settings`**
+— sem ele os `upsert` do painel podem criar linha duplicada, e linha duplicada
+**triplica** a view em vez de dobrar.
+
+**E7-1 — Rótulo de usuário relativo ao logado (só código). REVERSÍVEL:
+`git revert`.**
+Corrigir [compras.js:11/106](docs/js/compras.js:11) para derivar o rótulo de
+`currentUserId` (ou de `display_name`, se decidirmos unificar a fonte com o
+Telegram) e corrigir o comentário enganoso da linha 10.
+*Verificação:* com uma conta só o painel não muda — não existe linha
+compartilhada. Asserção fraca de propósito; a prova positiva é a E7-6. Sem erro
+no console, sem regressão nos cards.
+*Concluída quando:* commitada, publicada e o painel atual reaberto sem
+regressão.
+
+**E7-2 — 🔒 A CONTA + A LINHA DE `settings`, NO MESMO ATO (era E7-3).
+IRREVERSÍVEL NA PRÁTICA.**
+O usuário cria a conta no dashboard; **imediatamente depois**, um único `insert`
+em `settings` com `user_id`, `weekend_default_ceiling = 300` (FECHADA-1) e
+`display_name = 'Gustavo'` (FECHADA-2) explícitos. Janela: entre execuções do
+robô (08h–20h BRT), mesmo cuidado dos deploys anteriores.
+*O que é reversível:* apagar a linha de `settings` devolve a view a 132 linhas e
+o robô ao comportamento de hoje.
+*O que NÃO é:* a trigger `trg_audit_default_ceiling_ins`
+([etapa4_1:352-358](sql/etapa4_1_estado_por_usuario.sql:352)) grava uma linha
+`scope='default'` em `weekend_leg_ceiling_audit`, que é append-only sem policy
+de delete — fica para sempre. Inofensivo, mas é rastro permanente.
+*Concluída quando:* `select count(*) from settings` = 2 e
+`select count(*) from weekend_leg_effective` = 264.
+**A credencial NÃO é entregue ao Gustavo nesta fatia** — só depois da E7-4. É a
+regra dura do item 7 da "Ordem de execução" ("o teste real de isolamento é a
+primeira coisa a fazer depois de criar a conta, antes de ela receber qualquer
+dado"), aplicada literalmente.
+
+**E7-3 — D-7: apertar a RLS de `alert_log` (era E7-2). REVERSÍVEL: recriar a
+policy anterior.**
+Trocar o ramo de perna por `user_id = auth.uid()`. As 54 linhas NULL somem da
+API autenticada e continuam acessíveis pelo SQL Editor (dono ignora RLS) —
+custo medido na E7-0.
+*Verificação:* medir **antes e depois por personificação da conta real do
+Gustavo** (ver o ganho registrado em FECHADA-3): antes ele lê as linhas de
+perna, depois não lê. `grep alert_log docs/` continua em zero; robô inalterado
+(`service_role` bypassa RLS).
+*Concluída quando:* a personificação do Gustavo devolver 0 linha de perna e a
+do usuário 1 continuar devolvendo as dele.
+
+**E7-4 — Prova de isolamento com duas contas reais (SQL, sem login).
+REVERSÍVEL: leitura pura.**
+Personificação das duas contas em transação com rollback, medindo
+`weekend_leg_user_state`, `weekend_leg_ceiling_audit`, `alert_log` (ramo de
+perna, pós-E7-3), `settings`, e a contagem de `weekend_leg_effective` **por
+conta** (esperado: 132 cada, **não** 264).
+*Concluída quando:* zero linha pessoal alheia em todas as tabelas e 132/132 na
+view.
+*Se falhar:* apagar a linha de `settings` do Gustavo devolve o sistema ao estado
+de hoje sem perder nada — **é a saída de emergência desta etapa, e o motivo de
+ela vir antes de qualquer login.**
+**É aqui que a credencial é entregue**, e só se esta fatia passar inteira.
+
+**E7-5 — Primeira execução real do robô com dois usuários. IRREVERSÍVEL: as
+mensagens saem.**
+Observar uma execução completa: `[main] 2 usuário(s) em settings`, fila ainda em
+132 pernas, contagem de chamadas ao `fli` idêntica, `per_user` com 2 entradas
+por perna, `alert_log` recebendo linhas com **dois `user_id` distintos**, e as
+mensagens trazendo `Elton` e `Gustavo` (FECHADA-2 é o que torna esta asserção
+afiada).
+*Concluída quando:* os 3 números baterem (fila, chamadas, donos distintos) e
+`had_error` não disparar.
+*Efeito esperado, não defeito:* o volume de alerta no grupo pode dobrar (~30
+alertas/14 dias viram ~60).
+
+**E7-6 — Painel do Gustavo + a linha da Fatia C. REVERSÍVEL: só leitura, exceto
+a compra de teste (desfeita no fim).**
+Login do Gustavo: Compras carrega 132 pernas com o teto dele, Dashboard idem,
+`weekend_leg_user_state` nasce por `default auth.uid()` ao salvar um teto
+próprio. Depois, **o item que nunca teve verificação positiva possível**: uma
+perna marcada como comprada de um lado aparece do outro como **"Outro usuário já
+comprou"** — e, na direção inversa, **não** como "Você" (a E7-1 é o que garante
+isso).
+*Concluída quando:* as duas direções conferidas e a compra de teste desfeita (a
+trigger limpa a projeção sozinha,
+[fatia_c:176-179](sql/fatia_c_visibilidade_compra.sql:176)).
+
+**E7-7 — Fechamento e higiene. REVERSÍVEL: documentação.**
+Marcar `sql/etapa4_1_verificacao.sql` como vencido (expectativas de 132),
+decidir a semântica de `get_weekend_leg_counts` no resumo semanal com 2 usuários
+— **deliberadamente adiada para cá**, depois de observar o comportamento real em
+vez de decidir no papel — e mover o conteúdo desta seção para o `HISTORICO.md`
+conforme a regra de manutenção do `PROTOCOLO-DE-TRABALHO.md`.
+
+### O que SÓ é verificável com duas contas — lista nomeada (11 itens)
+
+É o valor real da Etapa 7, e o motivo de ela não poder ser substituída por
+teste. A lógica de fan-out **já está coberta** por 267 testes unitários com
+usuários fictícios (contagem estática conferida em `tests/`: 267, batendo com o
+registrado na D4), incluindo
+`test_two_users_get_two_messages_and_two_rows_with_distinct_owners` e
+`test_cooldown_matrix_user_times_type`. O que falta é tudo o que depende do
+**banco real**:
+
+1. `weekend_leg_effective` devolvendo 264 linhas ao robô e **132 a cada
+   navegador** — o não-dobrar do painel.
+2. Isolamento positivo de `weekend_leg_user_state` — hoje só simulado (blocos
+   E/F, cuja capacidade de prova foi revisada para baixo em 02/08/2026).
+3. Isolamento positivo de `weekend_leg_ceiling_audit`.
+4. `alert_log` com dois `user_id` distintos gravados na mesma execução.
+5. A RLS apertada da D-7 efetivamente barrando o outro usuário.
+6. **A linha "outro usuário já comprou"** da Fatia C — o item explicitamente sem
+   verificação positiva possível desde 11/08/2026 (`HISTORICO.md`, item 23).
+7. **O defeito do rótulo "Você"** — só observável de dentro da conta do Gustavo.
+8. Cooldown de um usuário não silenciando o outro, contra dado real.
+9. O `default auth.uid()` de `weekend_leg_user_state` funcionando para uma conta
+   que não seja a do usuário 1.
+10. `notification_mode` por dono no caminho de rota (D-4b) — só se o Gustavo
+    cadastrar rota flexível.
+11. Duas mensagens no mesmo grupo com **nomes diferentes** — a prova final da
+    D4.
+
+### Riscos e pontos sem volta
+
+**O único ponto verdadeiramente sem volta é a linha em `settings`** — e o
+gatilho pode escapar do controle do operador: se a conta existir e o Gustavo
+abrir o painel e salvar qualquer coisa, [config.js:243](docs/js/config.js:243)
+ou [compras.js:836](docs/js/compras.js:836) criam a linha com os defaults do
+banco. Daí a E7-2 ser um ato único e a credencial só ser entregue depois da E7-4.
+
+**Reversível:** apagar a linha de `settings` (view volta a 132, robô volta ao
+comportamento de hoje).
+
+**NÃO reversível:** a linha de auditoria de teto (acima); e — o mais grave —
+**apagar a conta do Gustavo depois de ela ter alertado**: `alert_log.user_id` é
+`on delete set null`
+([sql/fatia_d3_user_id_alert_log.sql:257](sql/fatia_d3_user_id_alert_log.sql:257)),
+então as linhas de perna dele voltam a NULL **do lado errado da marca d'água da
+D3**, criando exatamente o terceiro significado de NULL que a D3 e a D4
+gastaram duas fatias para evitar. **Se a conta precisar sumir, apagar a linha de
+`settings` — não a conta — é a saída limpa.**
+
+**Ordem que reduz dano, e o porquê:** E7-0 e E7-1 antes de tudo porque são
+reversíveis por revert e fecham, respectivamente, os gates de leitura e o
+defeito visual **antes** de existir alguém para vê-lo. E7-4 antes de qualquer
+login porque é o último ponto em que apagar uma linha desfaz tudo.
 
 ---
 
