@@ -1339,6 +1339,12 @@ no console, sem regressão nos cards.
 *Concluída quando:* commitada, publicada e o painel atual reaberto sem
 regressão.
 
+**CONCLUÍDA em 16/08/2026 — commit `b199e80`.** Mapa `USER_LABELS` e o
+comentário enganoso removidos; `formatSharedFlight` usa a constante
+`DEFAULT_USER_LABEL = 'Outro usuário'` direto. Diff isolado a
+`docs/js/compras.js` (1 arquivo, +1/-5). Prova positiva (rótulo aparecendo de
+fato com dois usuários) segue pendente para a E7-6, como previsto.
+
 **E7-2 — 🔒 A CONTA + A LINHA DE `settings`, NO MESMO ATO (era E7-3).
 IRREVERSÍVEL NA PRÁTICA.**
 O usuário cria a conta no dashboard; **imediatamente depois**, um único `insert`
