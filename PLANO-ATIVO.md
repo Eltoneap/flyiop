@@ -1424,6 +1424,57 @@ bypassa RLS).
 **e** o ramo de rota devolver o mesmo resultado antes e depois; a do usuário 1
 continuar devolvendo as dele nos dois ramos.
 
+**CONCLUÍDA em 15/08/2026 — script `sql/etapa7_3_rls_alert_log.sql`, rodado
+manualmente pelo usuário, os 4 blocos.**
+- BLOCO 1 (antes, personificando Gustavo): `pernas_visiveis_antes` = **55**,
+  `rotas_visiveis_antes` = **0**.
+- BLOCO 2 (troca da policy — `alert_log_select_own_routes_or_any_leg` vira
+  `alert_log_select_own_routes_or_own_leg`, ramo de perna agora
+  `user_id = auth.uid()`): sucesso, sem erro.
+- BLOCO 3 (depois, personificando Gustavo): `pernas_visiveis_depois` = **0**,
+  `rotas_visiveis_depois` = **0**.
+- BLOCO 4 (depois, personificando o usuário principal/dono):
+  `pernas_visiveis_dono` = **0**, `rotas_visiveis_dono` = **26**.
+
+Três dos quatro números bateram exatamente com o esperado: o vazamento de 55
+linhas de perna confirmado no BLOCO 1 e fechado para o Gustavo no BLOCO 3
+(55 → 0); o ramo de rota como controle negativo, inalterado (0 → 0).
+
+> **⚠️ RESSALVA — um resultado divergiu do esperado: `pernas_visiveis_dono` =
+> 0, não >0.**
+>
+> O critério de conclusão desta fatia previa que a personificação do usuário
+> principal (BLOCO 4) continuasse devolvendo **as próprias** linhas de perna
+> depois da troca da policy. O resultado real foi **0**, igual ao do Gustavo.
+>
+> **Causa raiz (já identificada e confirmada no chat de planejamento, não é
+> defeito introduzido por esta fatia):** o achado do Q4 da E7-0 já mostrava
+> `total_linhas_de_perna = 55` == `linhas_de_perna_user_id_null = 55` — **as
+> 55 linhas de perna existentes hoje têm `user_id` NULL, nenhuma tem dono**.
+> A policy antiga (`auth.uid() is not null`) só checava autenticação, não
+> dono — por isso qualquer autenticado, inclusive o Gustavo, via as 55. A
+> policy nova (`user_id = auth.uid()`) exige igualdade, e **NULL nunca é
+> igual a nada em SQL** — então ninguém mais enxerga essas 55 linhas via API
+> autenticada, nem o próprio dono dos dados. É consequência direta do item 5
+> da verificação da D4 ainda não ter produzido nenhuma linha nova de perna
+> com `user_id` preenchido — confirmado duas vezes agora (Q4 da E7-0 e este
+> BLOCO 4).
+>
+> **Impacto — decisão consciente do usuário, 15/08/2026, opção "a": aceitar e
+> seguir, não reverter.**
+> - Zero impacto funcional hoje: `grep alert_log docs/` continua em zero
+>   consumidores de frontend.
+> - Robô inalterado: roda com `service_role`, que ignora RLS.
+> - As 55 linhas não foram perdidas — continuam acessíveis pelo SQL Editor
+>   (dono do banco ignora RLS); só ficaram invisíveis à API autenticada.
+> - Linhas **novas** de perna, a partir do momento em que o item 5 da D4
+>   finalmente confirmar (mecanismo gravando `user_id` corretamente), vão
+>   nascer com dono e serão visíveis normalmente via API para quem é dono.
+> - O histórico órfão (as 55 linhas anteriores à marca d'água da D3) fica
+>   **permanentemente invisível à API autenticada, inclusive para o próprio
+>   dono** — consequência aceita, não erro. A D3 já havia decidido
+>   deliberadamente não retrofitar `user_id` nessas linhas.
+
 **E7-4 — Prova de isolamento com duas contas reais (SQL, sem login).
 REVERSÍVEL: leitura pura.**
 Personificação das duas contas em transação com rollback, medindo
