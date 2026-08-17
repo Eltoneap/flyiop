@@ -192,6 +192,12 @@ entre usuários" abaixo.**
    OK, mesmo com os itens 6-10 ainda em aberto** — itens 9 e 10 passam a
    verificação de cauda longa, em paralelo à execução da Etapa 7. Detalhe
    completo na abertura da seção "Etapa 7" abaixo.
+   **✅ GATE CUMPRIDO em 17/08/2026** — item 5 confirmado por prova direta de
+   banco (3 linhas de perna em `alert_log`, todas com `user_id` preenchido,
+   zero NULL) e item 6 confirmado por print da mensagem do Telegram
+   ("👤 Elton"). Fatias E7-0 a E7-4 concluídas; **E7-5 segue aberta** — o
+   fan-out com dois `user_id` distintos na mesma execução continua sem
+   observação.
 
 **Correção de sequenciamento (31/07/2026):** as Etapas 4 e 5 são modelo de
 dados e interface — valem independente de o alerta de perna funcionar (é o
@@ -919,18 +925,62 @@ DEPLOY DO CÓDIGO E A VERIFICAÇÃO PÓS-DEPLOY.**
    exposta a re-alerta de TETO, 0 de oportunidade**. É o número a conferir
    depois do deploy (item 9 abaixo).
 
-⏳ **EM ABERTO — deploy do código e verificação pós-deploy:**
+⏳ **EM ABERTO — deploy do código e verificação pós-deploy.** **Itens 5 e 6
+✅ CONFIRMADOS em 17/08/2026** (ver o texto de cada um abaixo); os demais
+seguem em aberto. **A numeração NÃO foi alterada** — ver a "Nota de
+numeração" no fim desta lista.
 4. Publicar o código (commit único: código + testes + documentação). Janela
    de deploy: entre execuções do robô (08h–20h BRT) — mesmo cuidado dos
    deploys anteriores, evita a ordem invertida no meio de uma execução.
-5. **A próxima linha de PERNA em `alert_log` nasce com `user_id`
-   PREENCHIDO.** Fronteira: a marca d'água da D3 —
+5. ✅ **CONFIRMADO (17/08/2026) — PROVA DIRETA DE BANCO. A linha de PERNA em
+   `alert_log` nasce com `user_id` PREENCHIDO.**
+   *Enunciado original:* a próxima linha de PERNA em `alert_log` nasce com
+   `user_id` preenchido. Fronteira: a marca d'água da D3 —
    `max_sent_at = 2026-08-14 11:37:28.822753+00`, 78 linhas. Linha nova com
-   NULL é **defeito** — é a primeira observação real da gravação de dono em
-   `alert_log`, não uma confirmação de algo que já funcionou (ver "ressalva
-   herdada da D3" acima).
-6. A mensagem no Telegram traz **`Elton`** — o nome **já está gravado** no
-   banco — e o teto de quem disparou. Um `uuid[:8]` ali é defeito inequívoco.
+   NULL seria **defeito** — esta é a primeira observação real da gravação de
+   dono em `alert_log`, não a confirmação de algo que já funcionou (ver
+   "ressalva herdada da D3" acima).
+   **Gatilho:** o primeiro alerta de perna real desde o deploy da D4 disparou
+   sozinho em produção em **17/08/2026 ~08h16 BRT** — fim de semana de
+   **29/01/2027, perna de VOLTA, R$ 334**, dentro do teto registrado na
+   própria linha.
+   **Evidência:** script [sql/etapa7_item5_verificacao_alerta_2908_2027.sql](sql/etapa7_item5_verificacao_alerta_2908_2027.sql)
+   rodado manualmente pelo usuário no SQL Editor em 17/08/2026. Resultado
+   real na janela **17/08/2026 08:00–09:00 BRT**: **3 linhas** de
+   `alert_log`, **todas** com `leg_id` preenchido e **todas** com `user_id`
+   preenchido com o UUID do usuário principal
+   (`c72bf50e-16f7-48fd-9c86-7b49dea1551e`) — **zero NULL**. `reason` nas
+   três: `abaixo da meta fixa (R$ 500.0)`.
+   **Os `id` das 3 linhas não foram transcritos para o registro** — o
+   resultado chegou como contagem e conteúdo dos campos, não linha a linha.
+   Fica anotado como lacuna de registro, **não** como dúvida sobre o
+   resultado: a asserção do item 5 (zero `user_id` NULL em linha nova de
+   perna) está confirmada com o que foi observado. Se os `id` forem
+   necessários depois, o script é re-rodável e a janela é a mesma.
+   **Fato colateral observado, NÃO resolvido aqui:** o `reason` das três
+   linhas cita **R$ 500,0** como meta, enquanto o teto padrão registrado
+   neste plano e no `STATE.md` é **R$ 300** (recalibração de 04-05/08/2026) —
+   e é o R$300 que aparece nas três execuções da E7-5, inclusive na de 17/08
+   ~08h BRT ("2 usuários, menor teto R$ 300"). Um teto de R$500 explicaria o
+   disparo a R$334, que a R$300 não teria acontecido. **Divergência
+   registrada como fato, sem causa investigada** (override por perna em
+   `weekend_leg_user_state`? novo save do teto padrão? outra coisa?) — não
+   afeta a confirmação do item 5, que é sobre `user_id`, e não sobre qual
+   teto foi usado. Fica como pendência nomeada para rodada futura.
+   **LIMITE EXPLÍCITO DESTA PROVA — não é fan-out.** As 3 linhas são todas do
+   **MESMO** usuário. Este resultado **NÃO** prova `alert_log` recebendo
+   linhas com **dois `user_id` distintos na mesma execução** — que é
+   exatamente o que continua faltando para fechar a **E7-5** por completo.
+   São itens diferentes; confirmar o 5 não fecha a E7-5.
+6. ✅ **CONFIRMADO (17/08/2026) — CAMADA DE MENSAGEM. A mensagem no Telegram
+   traz o nome do usuário, não `uuid[:8]`.**
+   *Enunciado original:* a mensagem no Telegram traz **`Elton`** — o nome
+   **já está gravado** no banco — e o teto de quem disparou. Um `uuid[:8]`
+   ali seria defeito inequívoco.
+   **Evidência:** print de tela da mensagem real do bot, **17/08/2026 08h16
+   BRT** (o mesmo alerta que serviu de gatilho ao item 5), exibindo
+   **"👤 Elton"**. É prova da camada de **mensagem** (`user_label` +
+   `settings.display_name`, populado na D4) — e **só** dela.
 7. `had_error` **não** disparou: exit 0 no Actions e zero ocorrência de
    `[alert_log] FALHA AO GRAVAR`. Não basta "sem traceback novo".
 8. Os dois avisos provisórios pararam de sair: nenhuma mensagem desse tipo no
@@ -950,8 +1000,33 @@ DEPLOY DO CÓDIGO E A VERIFICAÇÃO PÓS-DEPLOY.**
     **regra**, que é determinística, não contra a **amostra**, que é
     rotativa.
 
+**NOTA DE NUMERAÇÃO — CORREÇÃO REGISTRADA EXPLICITAMENTE (17/08/2026).** A
+numeração vigente desta lista, desde o registro original acima, é e continua
+sendo:
+- **item 5 = `user_id` preenchido na linha de perna em `alert_log`** — camada
+  de **BANCO**, só verificável consultando o banco direto;
+- **item 6 = nome do usuário na mensagem do Telegram** — camada de
+  **MENSAGEM**, verificável por print de tela.
+
+Um prompt de outro chat, **na mesma data (17/08/2026)**, descreveu
+incorretamente a verificação da mensagem do Telegram como sendo o "item 5".
+**Isso está errado.** Confirmar "👤 Elton" na mensagem prova o item **6**; a
+prova do item **5** exigiu o `select` em `alert_log`, feito em separado. Os
+dois fecharam na mesma data, por evidências de naturezas diferentes, e **a
+numeração não mudou** — registrado aqui para que revisões futuras deste
+arquivo não reabram a ambiguidade.
+
+**ESTADO DOS DEMAIS ITENS — conferido no texto deste plano em 17/08/2026, não
+presumido.** Os itens **4 e 7-10 seguem sem marca de fechamento** neste
+arquivo; nenhuma rodada anterior os fechou aqui. Ressalva sobre o item 4
+(publicar o código): as execuções registradas na E7-5 rodaram com o código
+novo, o que indica que o deploy aconteceu de fato — mas **o fechamento nunca
+foi registrado**, então fica como **pendência de registro**, não como item
+confirmado. Itens 7-10 não foram objeto desta rodada e não foram avaliados.
+
 **A Fatia D4 só deve ser marcada como CONCLUÍDA depois dos itens 4-10** —
-mesmo critério de D1, D2 e D3.
+mesmo critério de D1, D2 e D3. **Não foi marcada nesta rodada:** fecharam só
+os itens 5 e 6.
 
 #### Duas decisões fechadas, com gatilho de revisão nomeado (param de ricochetear)
 
@@ -982,7 +1057,18 @@ solta** e não deve reaparecer como "pendente" em fatia intermediária.
 
 ---
 
-## Etapa 7 — criação da conta do segundo usuário (PLANEJADA E TOTALMENTE DECIDIDA em 15/08/2026; execução BLOQUEADA pelo item 5 da verificação da D4)
+## Etapa 7 — criação da conta do segundo usuário (PLANEJADA E TOTALMENTE DECIDIDA em 15/08/2026; **gate do item 5 da D4 CUMPRIDO em 17/08/2026** — execução em andamento, E7-0 a E7-4 concluídas, E7-5 parcialmente aberta)
+
+> **GATE CUMPRIDO (17/08/2026).** O item 5 da verificação pós-deploy da D4 —
+> único bloqueio estrutural desta etapa — foi **CONFIRMADO por prova direta de
+> banco** nesta data: 3 linhas de perna em `alert_log` na janela 08h–09h BRT
+> de 17/08, todas com `user_id` preenchido, zero NULL (detalhe e evidência na
+> subseção "Fatia D4", item 5). As fatias E7-0 a E7-4 já haviam sido
+> executadas **sob override consciente**, com o gate ainda aberto (as três
+> instâncias registradas abaixo); a partir desta data o gate deixa de ser
+> override e passa a estar **efetivamente cumprido**. A **exceção** que
+> reintroduziria o bloqueio (`user_id` NULL em linha nova de perna) **não se
+> materializou** — foi medida e reprovaria; passou.
 
 **GATE ESTREITADO (decisão de 15/08/2026, chat de acompanhamento da D4) — ele
 existe e é real, só ficou mais preciso.** A verificação pós-deploy da Fatia D4
@@ -1034,11 +1120,24 @@ assim — segunda instância do mesmo tipo de override, agora explicitamente
 depois de uma chance real de observação que não gerou evidência em nenhum
 sentido.
 
-Em nenhuma das duas instâncias isto é o gate cumprido. A exceção original
-**continua de pé, sem enfraquecer**: se uma execução futura mostrar o item 5
-com defeito real — `user_id` NULL numa linha nova de perna, erro de gravação,
-traceback — **a Etapa 7 pausa antes de prosseguir, mesmo que fatias já
-tenham avançado**. O resultado da E7-0 (abaixo, CONCLUÍDA) não é, e nunca foi,
+**TERCEIRA INSTÂNCIA (17/08/2026, registrada na E7-5): execução rodou, sem
+gatilho de alerta** — mesmo padrão da segunda instância, ausência de dado.
+
+**FIM DA SEQUÊNCIA DE OVERRIDES (17/08/2026).** As três instâncias acima
+descrevem um gate aberto contornado por decisão consciente. **Isso terminou:**
+mais tarde no mesmo dia 17/08/2026 um alerta real disparou (~08h16 BRT) e o
+item 5 foi **CONFIRMADO por prova direta de banco** — 3 linhas de perna em
+`alert_log`, todas com `user_id` preenchido, zero NULL. Nenhuma fatia futura
+desta etapa precisa mais rodar sob override por este motivo. O texto das três
+instâncias fica preservado como registro histórico de como as fatias E7-0 a
+E7-4 foram executadas — sob override datado, não sob gate cumprido.
+
+Em nenhuma das três instâncias isto foi o gate cumprido — o gate fechou
+depois, por prova de banco, não por override. A exceção original **valeu até o
+fim, sem enfraquecer, e foi de fato medida**: se a observação tivesse mostrado
+o item 5 com defeito real — `user_id` NULL numa linha nova de perna, erro de
+gravação, traceback — **a Etapa 7 pausaria antes de prosseguir, mesmo com
+fatias já avançadas**. O resultado da E7-0 (abaixo, CONCLUÍDA) não é, e nunca foi,
 a confirmação do item 5 — é levantamento de terreno que precisava existir de
 qualquer forma antes da E7-2, feito sob um gate ainda aberto por decisão
 consciente do usuário.
@@ -1529,8 +1628,17 @@ afiada).
 *Efeito esperado, não defeito:* o volume de alerta no grupo pode dobrar (~30
 alertas/14 dias viram ~60).
 
-**CONFIRMADA PARCIALMENTE (17/08/2026), via três execuções observadas desde a
-criação da conta do Gustavo (E7-2):** 16/08 ~08h BRT (1 usuário, antes da
+**CONFIRMADA PARCIALMENTE — NÃO CONCLUÍDA (estado em 17/08/2026).** O critério
+de conclusão são 3 números (fila, chamadas ao `fli`, **donos distintos**) mais
+`had_error` não disparar. Os dois primeiros bateram; **o terceiro — `alert_log`
+com dois `user_id` distintos na mesma execução — segue SEM OBSERVAÇÃO**, e as
+mensagens com "Elton" **e** "Gustavo" também. O alerta real de 17/08 08h16 BRT
+fechou o item 5 da D4 (gravação de dono funciona) mas saiu para **um único**
+dono, então **não** é a prova de fan-out que esta fatia exige. **A E7-5
+permanece aberta.**
+
+Base de observação — **três execuções** desde a criação da conta do Gustavo
+(E7-2): 16/08 ~08h BRT (1 usuário, antes da
 conta existir, 20/20 sem bloqueio — linha de base, não conta como evidência
 de fan-out), 16/08 ~23h16 BRT (2 usuários, execução extra fora de padrão, ver
 achado novo abaixo), 17/08 ~08h BRT (2 usuários, execução agendada normal,
@@ -1543,10 +1651,33 @@ achado novo abaixo), 17/08 ~08h BRT (2 usuários, execução agendada normal,
    "Elton"/"Gustavo" — porque **nenhum alerta disparou** nas três execuções
    (preço mínimo observado R$334, acima do teto de R$300 dos dois). Ausência
    de gatilho, não reprovação.
-2. **Item 5 da verificação da D4 segue sem confirmação**, mesma causa do item
-   1 acima — sem alerta, sem linha nova em `alert_log` para observar se
-   `user_id` grava corretamente. Terceira instância consecutiva de "execução
-   rodou, sem prova nem a favor nem contra".
+2. ~~**Item 5 da verificação da D4 segue sem confirmação**~~ — **SUPERADO NO
+   MESMO DIA. ✅ ITEM 5 CONFIRMADO (17/08/2026).** O texto original deste item
+   registrava a terceira instância consecutiva de "execução rodou, sem prova
+   nem a favor nem contra". **Isso mudou:** às **~08h16 BRT de 17/08/2026** um
+   alerta de perna disparou de verdade, sem ser provocado — fim de semana de
+   **29/01/2027, perna de VOLTA, R$ 334** — e o `select` direto em `alert_log`
+   (script [sql/etapa7_item5_verificacao_alerta_2908_2027.sql](sql/etapa7_item5_verificacao_alerta_2908_2027.sql),
+   rodado manualmente pelo usuário) devolveu **3 linhas** na janela 08h–09h
+   BRT, **todas** com `leg_id` e `user_id` preenchidos, `user_id` =
+   `c72bf50e-16f7-48fd-9c86-7b49dea1551e`, **zero NULL**, `reason` =
+   `abaixo da meta fixa (R$ 500.0)`.
+   **É a PRIMEIRA confirmação real do mecanismo de gravação de dono em
+   `alert_log`**, depois de três instâncias sem gatilho (E7-0/Q4 sob override
+   inicial; execução de 16/08 ~08h BRT; execução extra de 16/08 ~23h16 BRT) —
+   e vale lembrar a "ressalva herdada da D3": o caminho de rota nunca serviu
+   de ensaio para o de perna, então não havia nenhuma observação anterior deste
+   mecanismo em produção. Detalhe completo, incluindo a lacuna dos `id` não
+   transcritos e a divergência R$500 × R$300 no `reason`, na subseção "Fatia
+   D4", item 5.
+   **O QUE ESTA PROVA NÃO É — e por isso a E7-5 não fecha aqui:** as 3 linhas
+   são todas do **MESMO** usuário (só "Elton"; nenhuma mensagem saiu para o
+   Gustavo nesta execução). **`alert_log` com dois `user_id` DISTINTOS na
+   MESMA execução continua SEM OBSERVAÇÃO** — é o que falta para fechar a
+   E7-5 por completo, e é item diferente do item 5 da D4.
+   **O item 6 da D4 (nome na mensagem do Telegram) também fechou** neste mesmo
+   alerta, por print de tela exibindo "👤 Elton" — camada de mensagem, não de
+   banco. Ver a nota de numeração na subseção "Fatia D4".
 3. **ACHADO NOVO — execução extra fora de padrão.** Em 16/08 ~23h16 BRT
    (perto do horário agendado de ~20h) rodou uma "execução extra" (pulando
    rotas flexíveis/Travelpayouts), não a agendada normal. Duas perguntas em
@@ -1554,17 +1685,25 @@ achado novo abaixo), 17/08 ~08h BRT (2 usuários, execução agendada normal,
    - (a) o que disparou essa execução extra tão perto do horário agendado —
      suspeita não confirmada: algum push/commit desta sessão de trabalho pode
      ter acionado `workflow_dispatch` coincidindo com a janela;
-   - (b) essa execução bateu no detector de bloqueio (falhas seguidas após 6
-     consultas, lote interrompido em 6/20 pernas). Sistema se comportou
-     corretamente (parou, não contornou) — mas é a primeira ocorrência de
-     bloqueio real observada nesta sequência de logs. Não se sabe se é ruído
-     pontual do Google Flights ou sinal de algo estrutural (relacionado à
-     lacuna já registrada do `LIVE_CHECK_WINDOW_DAYS`).
-   **Pendência nomeada, sem decisão sobre investigar** — registrada aqui só
-   como fato observado, decisão de investigar ou não fica para rodada futura.
+   - (b) ✅ **FECHADO (17/08/2026) — era TRANSITÓRIO, autorrecuperado.** Essa
+     execução bateu no detector de bloqueio (falhas seguidas após 6 consultas,
+     lote interrompido em 6/20 pernas) e o sistema se comportou corretamente
+     (parou, não contornou). **Encerrado pela mensagem do próprio bot em
+     17/08/2026 08h16 BRT:** *"✅ Consulta ao vivo normalizada — voltou a
+     funcionar depois de 1 dia sem sucesso"*. Ou seja: a fonte voltou sozinha,
+     sem intervenção nenhuma. **Registrado como ocorrência TRANSITÓRIA e
+     autorrecuperada, NÃO como problema persistente da fonte** — não é ruído
+     estrutural nem sinal relacionado à lacuna do `LIVE_CHECK_WINDOW_DAYS`, e
+     **deixa de ser pendência**. Não deve reaparecer como "em aberto" em
+     rodadas futuras.
+   **Pendência nomeada, restringida ao subitem (a).** O subitem (b) está
+   fechado (acima). Resta só **(a)**: o que disparou a execução extra tão perto
+   do horário agendado — sem decisão sobre investigar, fica para rodada futura.
 4. **Execução de 17/08 ~08h BRT: limpa.** 20/20 pernas checadas, zero erro,
    zero traceback, job concluído com sucesso, 2 usuários avaliados
-   corretamente em todas as pernas.
+   corretamente em todas as pernas. **É a execução que produziu, às ~08h16
+   BRT, o alerta real que fechou os itens 5 e 6 da D4 (item 2 acima) e a
+   mensagem de normalização que fechou o subitem 3(b).**
 
 **E7-6 — Painel do Gustavo + a linha da Fatia C. REVERSÍVEL: só leitura, exceto
 a compra de teste (desfeita no fim).**

@@ -1,7 +1,41 @@
 # STATE.md — FlyIop
 
 > Atualizado em: 17/08/2026
-> Última sessão: Claude Code (17/08/2026, documentação apenas) — **Etapa 7
+> Última sessão: Claude Code (17/08/2026, documentação apenas) — **item 5 da
+> verificação pós-deploy da D4 CONFIRMADO por prova direta de banco: o gate
+> estrutural da Etapa 7 está CUMPRIDO.** Um alerta de perna disparou sozinho
+> em produção às ~08h16 BRT de 17/08 (fim de semana de 29/01/2027, volta,
+> R$ 334) e o `select` direto em `alert_log`
+> (`sql/etapa7_item5_verificacao_alerta_2908_2027.sql`, rodado manualmente)
+> devolveu **3 linhas** na janela 08h–09h BRT, **todas** com `leg_id` e
+> `user_id` preenchidos (`c72bf50e-…`, usuário principal), **zero NULL**,
+> `reason` = `abaixo da meta fixa (R$ 500.0)`. É a **primeira confirmação
+> real** do mecanismo de gravação de dono em `alert_log`, depois de três
+> instâncias sem gatilho — encerra a sequência de overrides conscientes sob a
+> qual as fatias E7-0 a E7-4 rodaram. **O item 6** (nome do usuário na
+> mensagem, não `uuid[:8]`) **também fechou**, por print de tela exibindo
+> "👤 Elton" — camada de mensagem, evidência de natureza diferente.
+> **Correção de numeração registrada:** um prompt de outro chat, na mesma
+> data, chamou a verificação da mensagem de "item 5"; a numeração vigente do
+> projeto é item 5 = `user_id` em `alert_log` (banco), item 6 = nome no
+> Telegram (mensagem). **Achado do bloqueio FECHADO:** a ocorrência de 16/08
+> ~23h16 BRT era **transitória e autorrecuperada** — o próprio bot avisou em
+> 17/08 08h16 BRT ("✅ Consulta ao vivo normalizada — voltou a funcionar
+> depois de 1 dia sem sucesso"), sem intervenção; não é problema persistente
+> da fonte e deixa de ser pendência (resta só a pergunta (a): o que disparou a
+> execução extra). **E7-5 SEGUE PARCIALMENTE ABERTA:** as 3 linhas são todas
+> do MESMO usuário, então `alert_log` com **dois `user_id` distintos na mesma
+> execução** — e mensagens com "Elton" **e** "Gustavo" — continua **sem
+> observação**; é item diferente do item 5 e não fechou. A Fatia D4 **não** foi
+> marcada como concluída (itens 4 e 7-10 seguem sem marca de fechamento no
+> plano; itens 7-10 não foram avaliados nesta rodada). **Fato colateral
+> registrado sem causa investigada:** o `reason` cita meta de R$ 500, enquanto
+> o teto padrão registrado é R$ 300 (e é R$300 que aparece nos logs das três
+> execuções da E7-5) — divergência anotada como pendência nomeada. Detalhe
+> completo em `PLANO-ATIVO.md`, "Etapa 6" → "Fatia D4" (itens 5 e 6 + nota de
+> numeração) e "Etapa 7" → "E7-5". Sessão só de documentação: nenhum arquivo
+> em `src/`, `docs/` ou `sql/` tocado, nenhum SQL executado por Claude Code.
+> Sessão anterior: Claude Code (17/08/2026, documentação apenas) — **Etapa 7
 > (E7-5): fan-out confirmado parcialmente**, via 3 execuções observadas desde
 > a criação da conta do Gustavo — toda linha de perna avaliada já traz "2
 > usuários, menor teto R$ 300", mas nenhum alerta disparou nas três execuções
@@ -559,13 +593,27 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
     semântica.
   - **Status:** código e testes prontos (267 testes passando, eram 227).
     **SQL executado e verificado em produção** (10/10 blocos, zero gate;
-    `display_name` criada e populada com `'Elton'`). **Código pronto mas não
-    publicado** — verificação pós-deploy em aberto (itens 4-10 em
-    `PLANO-ATIVO.md` → "Fatia D4"). Previsão do re-alerta de transição já
-    medida em G0-Q4: 1 perna de teto, 0 de oportunidade. Pesa sobre o item 5
-    (linha de perna nascendo com dono) o fato de a D3 nunca ter observado a
-    gravação de `user_id` no caminho de rota: aquele caminho **não serviu de
-    ensaio** para este.
+    `display_name` criada e populada com `'Elton'`). Previsão do re-alerta de
+    transição já medida em G0-Q4: 1 perna de teto, 0 de oportunidade.
+  - **✅ ITENS 5 E 6 DA VERIFICAÇÃO PÓS-DEPLOY CONFIRMADOS (17/08/2026), por
+    evidências de naturezas diferentes.** **Item 5 (BANCO)** — a linha de perna
+    em `alert_log` nasce com `user_id` preenchido: provado por `select` direto
+    (`sql/etapa7_item5_verificacao_alerta_2908_2027.sql`) contra o alerta real
+    de ~08h16 BRT de 17/08 (29/01/2027, volta, R$ 334); 3 linhas na janela
+    08h–09h BRT, todas com `leg_id` e `user_id` preenchidos (`c72bf50e-…`),
+    zero NULL. **É a primeira observação real do mecanismo** — pesava sobre
+    este item o fato de a D3 nunca ter observado a gravação de `user_id` no
+    caminho de rota, que **não serviu de ensaio** para o de perna; agora o
+    caminho de perna foi medido direto. **Item 6 (MENSAGEM)** — nome do usuário
+    na mensagem: print de tela do mesmo alerta exibindo "👤 Elton", não
+    `uuid[:8]`. **Numeração:** item 5 = banco, item 6 = mensagem — um prompt de
+    outro chat inverteu isso na mesma data; correção registrada em
+    `PLANO-ATIVO.md` → "Fatia D4" → "Nota de numeração".
+  - **A fatia NÃO está concluída.** Itens 4 e 7-10 seguem **sem marca de
+    fechamento** no `PLANO-ATIVO.md` (conferido em 17/08/2026, não presumido);
+    os 7-10 não foram avaliados nesta rodada. O item 4 (publicar o código) é
+    **pendência de registro**: as execuções da E7-5 rodaram com o código novo,
+    logo o deploy aconteceu, mas o fechamento nunca foi anotado.
 
 ## 3. Próximos passos (ordem sugerida)
 
@@ -645,8 +693,19 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
    **Nenhuma decisão de produto resta em aberto para quando o gate abrir** — o
    que falta é execução. Detalhe completo, incluindo o que foi confirmado por
    leitura de código e o que segue sem confirmação, na seção "Etapa 7" do
-   `PLANO-ATIVO.md`. **Não iniciar nenhuma fatia antes de os itens 5-10 da
-   Fatia D4 fecharem.**
+   `PLANO-ATIVO.md`. ~~**Não iniciar nenhuma fatia antes de os itens 5-10 da
+   Fatia D4 fecharem.**~~
+   **✅ ATUALIZAÇÃO (17/08/2026) — GATE CUMPRIDO, ETAPA 7 EM EXECUÇÃO.** O item
+   5 da D4 foi confirmado por prova direta de banco (ver seção 2), então o
+   único bloqueio estrutural desta etapa caiu. As fatias **E7-0 a E7-4 estão
+   concluídas** — foram executadas antes disso, sob três overrides conscientes
+   datados, e a sequência de overrides está encerrada. **E7-5 segue
+   PARCIALMENTE ABERTA:** falta observar `alert_log` com **dois `user_id`
+   distintos na mesma execução** e mensagens com "Elton" **e** "Gustavo" — o
+   alerta de 17/08 saiu para um único dono, então não serve de prova de
+   fan-out. **Próximo passo real da etapa: aguardar/observar uma execução em
+   que os dois usuários disparem**, depois E7-6 (painel do Gustavo) e E7-7
+   (fechamento e higiene).
 
 ## 4. Bloqueios / perguntas em aberto
 
@@ -660,7 +719,15 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
   regressão estrutural) passam a rodar em paralelo à execução da Etapa 7, não
   antes dela; item 6 (nome no Telegram) é conferido no mesmo log mas não
   bloqueia. **Exceção que reintroduz o bloqueio:** item 5 com defeito real
-  (`user_id` NULL numa linha nova, erro de gravação) pausa a Etapa 7. Detalhe
+  (`user_id` NULL numa linha nova, erro de gravação) pausa a Etapa 7.
+  **✅ GATE CUMPRIDO E BLOQUEIO ENCERRADO (17/08/2026):** o item 5 foi
+  confirmado por prova direta de banco (3 linhas de perna em `alert_log` na
+  janela 08h–09h BRT de 17/08, todas com `user_id` preenchido, zero NULL) e o
+  item 6 por print da mensagem ("👤 Elton"). A exceção **foi medida e não se
+  materializou**. Este item deixa de ser bloqueio; o que resta da Etapa 7 é a
+  E7-5 parcialmente aberta (fan-out com dois `user_id` distintos na mesma
+  execução, ainda sem observação) mais E7-6 e E7-7 — ver item 7 da seção 3.
+  Detalhe
   completo na abertura da seção "Etapa 7" do `PLANO-ATIVO.md` — não
   reproduzido aqui. Não há mais pergunta de produto em aberto sobre a Etapa 7:
   as quatro que existiam foram fechadas em 15/08/2026 (teto R$300,
@@ -716,6 +783,38 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
     proposta.
 - **✅ DECIDIDO em 11/08/2026 — ALERTA DE OPORTUNIDADE (E RESUMO SEMANAL) FORA DA JANELA DE COMPRA** — ver item acima ("DECIDIDO em 11/08/2026") e seção 2, "Decisões vivas", para o texto completo da decisão (que passou a cobrir também o resumo semanal, não só o alerta de oportunidade). **Implementada e publicada (Fatia D1, 12/08/2026, commit `757ab3e`)**, verificação de produção em andamento até 17/08/2026 (`PLANO-ATIVO.md`, "Etapa 6" → "Fatia D1").
 - **PERGUNTA ABERTA, REGISTRADA 11/08/2026 — "execução extra do dia" parece pular Travelpayouts, não só rotas flexíveis.** O item 1 da seção 1 já documenta que só a primeira execução do dia roda "rotas flexíveis/cache Travelpayouts/notificações", com as execuções extras rodando só o lote `fli`. Em observação recente, o usuário notou que a execução extra também não roda Travelpayouts — ainda não está claro se isso é exatamente esse comportamento já documentado (e portanto intencional) ou um achado novo/divergente. **Travelpayouts deve continuar rodando normalmente** — não é decisão de reduzir seu uso. **Sem ação agora** — só registrado para não esquecer; investigar em sessão futura antes de tirar conclusão.
+
+- **✅ FECHADO (17/08/2026) — BLOQUEIO DO SCRAPING DE 16/08 ~23h16 BRT ERA
+  TRANSITÓRIO E AUTORRECUPERADO.** A execução extra fora de padrão de 16/08
+  ~23h16 BRT bateu o detector de bloqueio (falhas seguidas após 6 consultas,
+  lote interrompido em 6/20 pernas) — primeira ocorrência de bloqueio real
+  naquela sequência de logs, registrada com causa não investigada.
+  **Encerrado pela mensagem do próprio bot em 17/08/2026 08h16 BRT:**
+  *"✅ Consulta ao vivo normalizada — voltou a funcionar depois de 1 dia sem
+  sucesso"* — a fonte voltou **sozinha, sem intervenção nenhuma**. Registrado
+  como ocorrência **transitória e autorrecuperada**, **não** como problema
+  persistente da fonte, e **não** como sinal estrutural ligado à lacuna do
+  `LIVE_CHECK_WINDOW_DAYS` (achado (b) de 14/08, acima). **Deixa de ser
+  pendência — não deve reaparecer como "em aberto".** Resta só a pergunta
+  lateral **(a)**: o que disparou a execução extra tão perto do horário
+  agendado (suspeita não confirmada: `workflow_dispatch` acionado por push de
+  sessão de trabalho) — leia junto com a pergunta aberta de 11/08/2026 sobre a
+  "execução extra do dia", logo acima, que é do mesmo tema.
+- **PERGUNTA ABERTA, REGISTRADA 17/08/2026 — o `reason` do primeiro alerta
+  real cita meta de R$ 500, mas o teto padrão registrado é R$ 300.** As 3
+  linhas de `alert_log` de 17/08 08h–09h BRT trazem
+  `reason = 'abaixo da meta fixa (R$ 500.0)'`, e o alerta disparou a R$ 334 —
+  o que a R$300 não teria acontecido. Só que o teto padrão registrado neste
+  arquivo e no `PLANO-ATIVO.md` é **R$ 300** (recalibração de 04-05/08/2026,
+  verificada em produção em 06/08), e é R$300 que aparece nos logs das três
+  execuções da E7-5 ("2 usuários, menor teto R$ 300"). **Divergência
+  registrada como fato, sem causa investigada** — hipóteses não conferidas:
+  override por perna em `weekend_leg_user_state`, novo save do teto padrão via
+  painel (há precedente: o incidente de gravação de 04/08), ou outra coisa.
+  **Não afeta a confirmação do item 5 da D4**, que é sobre `user_id` e não
+  sobre qual teto foi usado. **Sem ação agora** — conferir em sessão futura
+  (`weekend_leg_effective` e `weekend_leg_ceiling_audit` respondem) antes de
+  tirar conclusão, e antes de qualquer recalibração de teto.
 
 ## 5. Fora de escopo (lembrete de disciplina)
 
