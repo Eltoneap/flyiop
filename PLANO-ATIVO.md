@@ -1529,6 +1529,43 @@ afiada).
 *Efeito esperado, não defeito:* o volume de alerta no grupo pode dobrar (~30
 alertas/14 dias viram ~60).
 
+**CONFIRMADA PARCIALMENTE (17/08/2026), via três execuções observadas desde a
+criação da conta do Gustavo (E7-2):** 16/08 ~08h BRT (1 usuário, antes da
+conta existir, 20/20 sem bloqueio — linha de base, não conta como evidência
+de fan-out), 16/08 ~23h16 BRT (2 usuários, execução extra fora de padrão, ver
+achado novo abaixo), 17/08 ~08h BRT (2 usuários, execução agendada normal,
+20/20 pernas checadas, zero erro).
+
+1. **Fan-out confirmado parcialmente.** Desde a criação da conta, toda linha
+   de perna avaliada traz "2 usuários, menor teto R$ 300" — o laço `per_user`
+   está rodando com os dois usuários. **Ainda NÃO confirmado:** `alert_log`
+   recebendo linhas com dois `user_id` distintos, e mensagens de Telegram com
+   "Elton"/"Gustavo" — porque **nenhum alerta disparou** nas três execuções
+   (preço mínimo observado R$334, acima do teto de R$300 dos dois). Ausência
+   de gatilho, não reprovação.
+2. **Item 5 da verificação da D4 segue sem confirmação**, mesma causa do item
+   1 acima — sem alerta, sem linha nova em `alert_log` para observar se
+   `user_id` grava corretamente. Terceira instância consecutiva de "execução
+   rodou, sem prova nem a favor nem contra".
+3. **ACHADO NOVO — execução extra fora de padrão.** Em 16/08 ~23h16 BRT
+   (perto do horário agendado de ~20h) rodou uma "execução extra" (pulando
+   rotas flexíveis/Travelpayouts), não a agendada normal. Duas perguntas em
+   aberto, **não investigadas ainda**:
+   - (a) o que disparou essa execução extra tão perto do horário agendado —
+     suspeita não confirmada: algum push/commit desta sessão de trabalho pode
+     ter acionado `workflow_dispatch` coincidindo com a janela;
+   - (b) essa execução bateu no detector de bloqueio (falhas seguidas após 6
+     consultas, lote interrompido em 6/20 pernas). Sistema se comportou
+     corretamente (parou, não contornou) — mas é a primeira ocorrência de
+     bloqueio real observada nesta sequência de logs. Não se sabe se é ruído
+     pontual do Google Flights ou sinal de algo estrutural (relacionado à
+     lacuna já registrada do `LIVE_CHECK_WINDOW_DAYS`).
+   **Pendência nomeada, sem decisão sobre investigar** — registrada aqui só
+   como fato observado, decisão de investigar ou não fica para rodada futura.
+4. **Execução de 17/08 ~08h BRT: limpa.** 20/20 pernas checadas, zero erro,
+   zero traceback, job concluído com sucesso, 2 usuários avaliados
+   corretamente em todas as pernas.
+
 **E7-6 — Painel do Gustavo + a linha da Fatia C. REVERSÍVEL: só leitura, exceto
 a compra de teste (desfeita no fim).**
 Login do Gustavo: Compras carrega 132 pernas com o teto dele, Dashboard idem,

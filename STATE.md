@@ -1,7 +1,24 @@
 # STATE.md — FlyIop
 
-> Atualizado em: 15/08/2026
-> Última sessão: Claude Code (15/08/2026, implementação) — **Fatia D4
+> Atualizado em: 17/08/2026
+> Última sessão: Claude Code (17/08/2026, documentação apenas) — **Etapa 7
+> (E7-5): fan-out confirmado parcialmente**, via 3 execuções observadas desde
+> a criação da conta do Gustavo — toda linha de perna avaliada já traz "2
+> usuários, menor teto R$ 300", mas nenhum alerta disparou nas três execuções
+> (preço mínimo R$334, acima do teto R$300 dos dois), então `alert_log` com
+> dois `user_id` distintos e mensagem com "Elton"/"Gustavo" seguem sem
+> confirmação — mesma causa do item 5 da verificação da D4, ainda sem
+> gatilho. **Achado novo:** execução extra fora de padrão em 16/08 ~23h16
+> BRT (pulou rotas flexíveis/Travelpayouts) bateu o detector de bloqueio após
+> 6 consultas (lote interrompido em 6/20) — sistema parou corretamente, mas é
+> a primeira ocorrência de bloqueio real nesta sequência; causa não
+> investigada (duas perguntas em aberto: o que disparou a execução extra, e
+> se o bloqueio é ruído pontual ou sinal estrutural), registrada como
+> pendência nomeada, sem decisão de investigar. Execução agendada de 17/08
+> ~08h BRT: limpa, 20/20 pernas, zero erro. Detalhe completo em
+> `PLANO-ATIVO.md`, "Etapa 7" → "E7-5". Sessão só de documentação: nenhum
+> arquivo em `src/`, `docs/` ou `sql/` tocado, nenhum SQL executado.
+> Sessão anterior: Claude Code (15/08/2026, implementação) — **Fatia D4
 > implementada: avaliação por usuário**, última fatia da Etapa 6 — aposenta
 > o MIN de teto entre usuários e a escolha de UM usuário para os limiares
 > gerais (as duas regras provisórias da Etapa 4.2), individualiza teto,
