@@ -972,6 +972,16 @@ numeração" no fim desta lista.
    linhas com **dois `user_id` distintos na mesma execução** — que é
    exatamente o que continua faltando para fechar a **E7-5** por completo.
    São itens diferentes; confirmar o 5 não fecha a E7-5.
+   **EVIDÊNCIA PARCIAL ADICIONAL (17-18/08/2026).** A execução primária de
+   18/08 ~08h BRT (run `87096672271`) mostra, no log de execução, decisão
+   **INDIVIDUAL por usuário**: os dois `user_id` reais — Elton
+   (`c72bf50e...`) e Gustavo (`2446ec67...`) — aparecem processados
+   **separadamente** em linhas de supressão por janela de compra. Confirma
+   que o laço por usuário decide por conta própria (cada `user_id` avaliado
+   e registrado à parte), mas **não fecha** o que falta: continua sem
+   observação de `alert_log` recebendo linhas com dois `user_id` distintos
+   **na mesma execução** — supressão por janela não é linha de alerta.
+   Registrado como evidência parcial; confirmar o 5 não fecha a E7-5.
 6. ✅ **CONFIRMADO (17/08/2026) — CAMADA DE MENSAGEM. A mensagem no Telegram
    traz o nome do usuário, não `uuid[:8]`.**
    *Enunciado original:* a mensagem no Telegram traz **`Elton`** — o nome
@@ -1699,6 +1709,14 @@ achado novo abaixo), 17/08 ~08h BRT (2 usuários, execução agendada normal,
    **Pendência nomeada, restringida ao subitem (a).** O subitem (b) está
    fechado (acima). Resta só **(a)**: o que disparou a execução extra tão perto
    do horário agendado — sem decisão sobre investigar, fica para rodada futura.
+   **TERCEIRA OCORRÊNCIA DO PADRÃO (17/08/2026 ~23h18 BRT, run
+   `86964564238`).** Mesmo padrão de horário das duas observações anteriores
+   (16/08 e 16/08 execução extra bloqueada), agora sem sequer tentar
+   live-check: `"[main] Estágio 0 já rodou os lotes fli esperados hoje —
+   pulado nesta execução"`. Subitem (a) **permanece ABERTO** — a causa (push/
+   commit disparando `workflow_dispatch`) segue suspeita não confirmada;
+   `is_primary_run` não está em `main.py` e ainda não foi lida. Só registro
+   da recorrência, causa não investigada nesta rodada.
 4. **Execução de 17/08 ~08h BRT: limpa.** 20/20 pernas checadas, zero erro,
    zero traceback, job concluído com sucesso, 2 usuários avaliados
    corretamente em todas as pernas. **É a execução que produziu, às ~08h16
