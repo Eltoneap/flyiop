@@ -1638,16 +1638,29 @@ afiada).
 *Efeito esperado, não defeito:* o volume de alerta no grupo pode dobrar (~30
 alertas/14 dias viram ~60).
 
-**CONFIRMADA PARCIALMENTE — NÃO CONCLUÍDA (estado em 17/08/2026).** O critério
-de conclusão são 3 números (fila, chamadas ao `fli`, **donos distintos**) mais
-`had_error` não disparar. Os dois primeiros bateram; **o terceiro — `alert_log`
-com dois `user_id` distintos na mesma execução — segue SEM OBSERVAÇÃO**, e as
-mensagens com "Elton" **e** "Gustavo" também. O alerta real de 17/08 08h16 BRT
-fechou o item 5 da D4 (gravação de dono funciona) mas saiu para **um único**
-dono, então **não** é a prova de fan-out que esta fatia exige. **A E7-5
-permanece aberta.**
+**🔒 BLOQUEADO POR DESIGN — PENDENTE DE OBSERVAÇÃO REAL (24/08/2026).**
+**Reinterpretação formal da pendência:**
+- O critério de conclusão (3 números: fila, chamadas, donos distintos) **não pode
+  ser verificado sem disparar alerta real para o Gustavo**.
+- O fan-out com dois `user_id` distintos na mesma execução existe — o mecanismo
+  está implementado e estruturalmente correto (confirmado pela D4 em 17/08 —
+  item 5 fechado, item 6 fechado).
+- **Porém:** a observação só é possível quando um alerta "de verdade" (preço
+  ≤ teto de um dos dois, em produção) dispara simultaneamente para ambos os
+  usuários — o que exigiria enviar notificação de teste ao Gustavo enquanto ele
+  ainda não está usando a plataforma.
+- **Decisão de escopo (24/08/2026):** aceitar o gap entre "implementado" (D4
+  verificada) e "observado em produção" (E7-5 aguarda) como **limite estrutural
+  intencional, não como pendência desbloqueadora**.
+- **Próximas etapas** (radar de calendário, E7-6, E7-7) **não dependem de E7-5
+  estar fechada** — elas dependem da D4, que está confirmada. E7-5 é confirmação
+  final da composição, não bloqueador de progresso.
+- **Quando fechar E7-5:** quando o Gustavo começar a usar a plataforma de
+  verdade (abrir o painel, configurar teto) e um alerta real disparar por um
+  preço bom. A observação virá naturalmente, sem teste artificial. Até lá,
+  **o item fica como "bloqueado por design"** — é capa de escopo, não defeito.
 
-Base de observação — **três execuções** desde a criação da conta do Gustavo
+**Base de observação até agora — três execuções desde a criação da conta do Gustavo (16/08)**
 (E7-2): 16/08 ~08h BRT (1 usuário, antes da
 conta existir, 20/20 sem bloqueio — linha de base, não conta como evidência
 de fan-out), 16/08 ~23h16 BRT (2 usuários, execução extra fora de padrão, ver

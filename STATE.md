@@ -58,10 +58,14 @@
 > 17/08 08h16 BRT ("✅ Consulta ao vivo normalizada — voltou a funcionar
 > depois de 1 dia sem sucesso"), sem intervenção; não é problema persistente
 > da fonte e deixa de ser pendência (resta só a pergunta (a): o que disparou a
-> execução extra). **E7-5 SEGUE PARCIALMENTE ABERTA:** as 3 linhas são todas
-> do MESMO usuário, então `alert_log` com **dois `user_id` distintos na mesma
-> execução** — e mensagens com "Elton" **e** "Gustavo" — continua **sem
-> observação**; é item diferente do item 5 e não fechou. A Fatia D4 **não** foi
+> execução extra). **E7-5 BLOQUEADA POR DESIGN, PENDENTE DE OBSERVAÇÃO REAL
+> (24/08/2026):** o fan-out com dois `user_id` distintos existe e está
+> estruturalmente correto (D4 verificada), mas a observação só é possível
+> quando um alerta real dispara para ambos os usuários **em produção**, o que
+> exigiria enviar notificação de teste ao Gustavo enquanto ele ainda não usa a
+> plataforma. Aceitamos o gap entre "implementado" e "observado" como limite
+> estrutural intencional, não como bloqueador. E7-5 fecha quando o Gustavo
+> começar a usar e um alerta real disparar naturalmente. A Fatia D4 **não** foi
 > marcada como concluída (itens 4 e 7-10 seguem sem marca de fechamento no
 > plano; itens 7-10 não foram avaliados nesta rodada). **Fato colateral
 > registrado sem causa investigada:** o `reason` cita meta de R$ 500, enquanto
