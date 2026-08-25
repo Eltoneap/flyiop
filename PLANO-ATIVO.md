@@ -1659,9 +1659,30 @@ mesma execução (`sent_at` a <1s de diferença um do outro):
 | leg_id | user_id | price | ceiling | sent_at |
 |---|---|---|---|---|
 | `d7bf81ee…` | `c72bf50e…` (Elton) | 317 | 500 | 2026-08-21 11:17:11.147184 |
-| `d7bf81ee…` | `2446ec67…` (Gustavo) | 317 | 500 | 2026-08-21 11:17:10.619666 |
+| `d7bf81ee…` | `2446ec67…` (Gustavo) | 317 | 500¹ | 2026-08-21 11:17:10.619666 |
 | `b4f28800…` | `c72bf50e…` (Elton) | 316 | 500 | 2026-08-20 11:17:31.688946 |
 | `b4f28800…` | `2446ec67…` (Gustavo) | 316 | 400 | 2026-08-20 11:17:31.194447 |
+
+¹ **Nota de correção (24/08/2026, corrigindo esta mesma tabela no mesmo dia
+em que foi escrita):** a coluna `ceiling` veio de um JOIN entre `alert_log`
+(histórico) e `weekend_leg_effective` (estado ATUAL do teto, não um
+snapshot do momento do alerta) — pega o valor certo quando o override é
+anterior ao alerta (é o caso das outras três linhas), mas erra quando é
+posterior. Para **esta linha específica** (Gustavo/`d7bf81ee…`, 21/08),
+`weekend_leg_ceiling_audit` mostra que o override de Gustavo para 500 nessa
+perna só aconteceu em **2026-08-25 00:03:36 — 3,5 dias DEPOIS** deste
+alerta; o teto real no momento era o default, **R$300**. Confirmado pelo
+próprio `reason` do alerta, que diz só `"15,1% abaixo da média histórica"`,
+sem `"abaixo da meta fixa"` — se o teto fosse 500 (ou mesmo 300, já que
+R$317 > R$300), o gatilho de meta fixa não dispararia mesmo, então o
+`reason` observado é consistente com teto 300, não prova sozinho, mas bate
+com a auditoria. As outras três linhas (Elton nas duas pernas, Gustavo em
+`b4f28800…`) não têm esse problema — os overrides correspondentes
+aconteceram **antes** dos respectivos alertas, confirmado em
+`weekend_leg_ceiling_audit`. Não muda a conclusão desta fatia: o fan-out
+(dois `user_id` distintos, mesma perna, mesma execução) não depende do valor
+do teto, só de ele ter sido avaliado por usuário — o que aconteceu nos dois
+casos, com qualquer teto.
 
 Os 3 números do critério de conclusão batem: fila normal (mesma execução
 agendada, sem alteração de volume), donos distintos confirmados (`c72bf50e…`
