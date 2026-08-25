@@ -2627,3 +2627,172 @@ fora do pipeline de produção; `src/live_check.py` não foi tocado. Próxima
 fatia (ainda não iniciada, sem prompt escrito): desenhar e implementar o
 radar de calendário, substituindo ou complementando o lote rotativo atual —
 decisão de qual dos dois fica para a próxima conversa de planejamento.
+
+---
+
+## Radar de calendário — implementação (fatia 1): IMPLEMENTADA, NÃO ATIVADA EM PRODUÇÃO (`radar_enabled=false`)
+
+Sessão de Plan Mode dedicada, a partir dos 7 achados da Etapa 0 acima. As 7
+decisões de arquitetura chegaram fechadas no prompt (regime C+D, gatilho
+radar→precisão, agendamento em 4 direções dentro do `daily.yml` existente,
+transição de regime implícita sem coluna nova, RIA fora de escopo, schema
+com kill-switch próprio, sem mudança em `weekend_legs`/`alert_log`) — a
+sessão resolveu só o "como" (nomes de função, assinaturas, formato de log) e
+3 pontos que a leitura do código levantou antes da implementação:
+
+1. **Ordem de operações do `known_count`** (linha de base do detector de
+   anomalia por bloco): precisa ser medida **ANTES** do upsert da varredura
+   de hoje. Medida depois, compararia a varredura de hoje contra ela mesma
+   e o detector nunca dispararia. `radar_check.py:run_sweep` segue essa
+   ordem por bloco (`get_weekend_radar_grid_known_count` → `search_dates_block`
+   → `detect_block_anomaly` → upsert condicional), com teste dedicado
+   (`test_known_count_is_measured_before_upsert_for_the_same_block`) que
+   mocka as duas chamadas e verifica a ordem observável.
+2. **Domingo/segunda na grade não é "limitação herdada" — é achado não
+   previsto, fora de escopo desta fatia.** A grade do radar varre o
+   intervalo inteiro, então `weekend_radar_grid` já grava os preços das
+   DUAS datas candidatas de uma perna de volta. Só
+   `select_precision_candidates` usa uma (a de `leg_travel_date`, variante
+   corrente ou domingo) — decisão de escopo desta fatia 1, alinhada ao que
+   `check_and_evaluate_leg` já faz hoje. O dado da outra variante já fica
+   disponível na grade pra uso futuro, sem trabalho extra de coleta quando
+   essa fatia seguinte vier.
+3. **Varredura parcial é estado normal, sem trava adicional.** O upsert é
+   por bloco, não transação única: blocos gravados antes de uma
+   interrupção (anomalia total, ou falha) permanecem na grade. `main.py`
+   no step de precisão pode legitimamente ler uma grade parcial do dia — o
+   único filtro que governa isso é o frescor (`swept_at` nas últimas 24h,
+   `RADAR_GRID_MAX_AGE_HOURS`); datas ausentes da varredura simplesmente
+   não geram candidata nesta execução.
+
+### Arquitetura entregue
+
+```
+daily.yml  step 1: python src/radar_check.py   → varre SearchDates, grava weekend_radar_grid
+           step 2: python src/main.py          → lê a grade, escolhe candidatas,
+                                                 roda SearchFlights nelas,
+                                                 alerta pelo laço de sempre
+```
+
+`radar_check.py` não importa `main.py` — sem ciclo. A seleção de candidatas
+(`select_precision_candidates`/`load_radar_candidates`, em `radar_check.py`)
+é lógica pura de leitura; quem processa e alerta é `main.py`, chamando o
+MESMO `check_and_evaluate_leg` do lote fli — fan-out por usuário, cooldown,
+`degraded_alert` e `insert_weekend_alert_log` continuam com fonte única, sem
+duplicação (o risco real identificado na revisão do "como", antes do
+código).
+
+**Duas constantes decididas durante a implementação, sem terem passado por
+revisão explícita no prompt original — registradas aqui, não só como
+comentário inline no código:**
+
+- **`RADAR_METADATA_REFRESH_DAYS = 7`** (`src/live_check.py`). Controla de
+  quanto em quanto tempo uma perna já coberta pelo radar (regime 'metadata'
+  em `batch_regime`) volta ao lote fli só pra atualizar
+  companhia/horário — nunca preço novo, nunca avaliação de teto
+  (`suppress_alert=True`). Valor escolhido por analogia direta: é a mesma
+  ordem de grandeza da cadência de varredura do próprio radar
+  (`radar_sweeps_per_day`, default 2/dia) multiplicada por uma folga
+  generosa — não vale a pena reconsultar companhia/horário todo dia pra
+  uma perna cujo preço quem descobre é o radar; 7 dias equilibra dado
+  razoavelmente fresco contra gasto de cota do lote fli em algo que não é
+  preço. Não veio explícito no prompt original.
+- **`ANOMALY_MIN_BLOCKS_WITH_HISTORY = 3`** (`src/radar_check.py`). Amostra
+  mínima de blocos com histórico suficiente (`known_count >= ANOMALY_MIN_KNOWN`)
+  antes do detector de bloqueio da VARREDURA INTEIRA poder interromper por
+  "100% dos blocos com histórico vieram anômalos até agora". Sem esse piso,
+  o primeiríssimo bloco anômalo do run (podendo ser 1 em ~20) já derrubaria
+  a varredura inteira e avisaria no Telegram por uma amostra de tamanho 1 —
+  ruído demais pro sinal que o detector existe pra pegar (bloqueio real da
+  fonte, não uma anomalia isolada de 1 rota/data). Mesma cautela já aplicada
+  em `live_check.py` (`MIN_SAMPLE_FOR_RATE_CHECK = 8`, pro detector de
+  bloqueio do lote fli), reaplicada aqui por analogia direta, com um número
+  menor porque cada "amostra" do radar (um bloco de até 61 dias) já
+  representa muito mais volume de dado que uma consulta individual do lote.
+  Não veio explícito no prompt original — revisar se 3 continua adequado
+  depois de alguma varredura real em produção.
+
+### Arquivos
+
+- **`sql/radar_calendario.sql` (novo, NÃO RODADO — 100% manual, SQL Editor):**
+  3 colunas em `system_config` (`radar_enabled` bool default false,
+  `radar_sweeps_per_day` int default 2, `radar_precision_max_per_run` int
+  default 10) + tabela nova `weekend_radar_grid` (chave natural
+  origin/destination/flight_date, upsert por essa chave). Com RLS ligada e
+  `revoke all from anon, authenticated` — mesmo par que toda tabela nova do
+  projeto recebeu (Fatia C, Etapa 4.4); não estava no prompt original,
+  acrescentado nesta revisão e marcado como tal no cabeçalho do script.
+  Blocos de verificação V1 (colunas de system_config), V2 (RLS/privilégios
+  da tabela nova), V3 (chave primária composta bate com o `on_conflict` do
+  upsert em Python).
+- **`src/radar_check.py` (novo):** nível RADAR — `date_blocks` (fatia
+  <=61 dias, invariante que impede o particionamento paralelo interno da
+  lib), `search_dates_block` (1 chamada `SearchDates`, best-effort),
+  `detect_block_anomaly` (amostra mínima de 5 datas conhecidas por bloco),
+  `run_sweep` (kill-switch → cota diária em `bot_state` → 4 direções × ~5
+  blocos sequenciais espaçados 2,5s → anomalia de bloco isolado vs.
+  anomalia da varredura inteira — 3+ blocos com histórico 100% anômalos
+  interrompe e avisa no Telegram). Nível PRECISÃO, só leitura:
+  `select_precision_candidates` (pura — MAIOR teto entre usuários, nunca
+  `queue_ceiling`; gatilho por teto OU `lowest_seen`, sem margem %; ordem
+  por MAIOR folga abaixo do teto, `(radar_price - max_ceiling)` crescente;
+  corte em `radar_precision_max_per_run`), `load_radar_candidates` (lê
+  `weekend_radar_grid` só dentro de 24h de frescor), `log_precision_divergence`
+  (compara preço da precisão contra o do radar, tolerância 5%).
+- **`src/live_check.py`:** `batch_regime(leg, today, radar_on)` (pura —
+  'price'/'metadata'/None); `select_batch` ganha o filtro de regime na
+  ordenação (`price` antes de `metadata`) sem mudar assinatura —
+  `radar_enabled` chega dentro do dict `system_settings` que já era
+  parâmetro único. Passou a usar `current_brt_date()` no lugar de
+  `date.today()` (2 ocorrências), conforme decisão fechada no prompt.
+  `check_and_evaluate_leg` ganha `suppress_alert: bool = False`.
+- **`src/weekends.py`:** `evaluate_and_record_leg_price` ganha
+  `suppress_alert: bool = False` — com `True`, grava preço/companhia/horário
+  e atualiza a perna normalmente, mas retorna ANTES de qualquer avaliação de
+  teto (nem histórico de 90d, nem suspeita, nem janela de compra, nem laço
+  por usuário). Report ganha `alert_suppressed` (bool) em todo caminho.
+- **`src/main.py`:** `_weekend_report_priority` corrigido — achado da
+  revisão do "como", não estava no prompt original. Uma perna pode cair no
+  mesmo run como refresh de metadado do lote (`alert_suppressed=True`) E
+  como candidata de precisão do radar (avalia teto de verdade) — as duas
+  batem `source == 'live'`. Sem separar as duas, a prioridade antiga (as
+  duas valendo o mesmo peso, a primeira processada vencendo) podia deixar o
+  report suprimido esconder um alerta real do mesmo run. Nova escala: `live
+  alertável (4) > cache ok (3) > live suprimido (2) > no_data (1) > error
+  (0)`. Bloco novo entre o lote fli e a avaliação de bloqueio: com
+  `radar_enabled` ligado, lê `get_active_legs()`, chama
+  `load_radar_candidates`, processa cada candidata pelo `check_and_evaluate_leg`
+  de sempre (sequencial, espaçado 2,5s), loga divergência, acumula em
+  `radar_reports` — protegido por try/except (falha do radar não derruba
+  rotas flexíveis/cache/lote fli, que já rodaram antes). `radar_reports`
+  entra no `dedupe_weekend_reports` junto com `cache_reports`/`live_reports`.
+- **`.github/workflows/daily.yml`:** step novo `python src/radar_check.py`
+  antes do `python src/main.py`, mesmos secrets (exceto `TRAVELPAYOUTS_TOKEN`,
+  que o radar não usa). Sem `if:` — o próprio script lê `radar_enabled` e
+  sai cedo (exit 0) quando falso, pra não duplicar a decisão em dois
+  lugares. Cron inalterado (2x/dia).
+- **Testes:** `tests/test_radar_check.py` (novo, 45 casos entre os três
+  arquivos de teste tocados) + extensões em `tests/test_live_check.py`
+  (`batch_regime` pura, `select_batch` com radar ligado/desligado,
+  `_weekend_report_priority` com report suprimido) e `tests/test_weekends.py`
+  (`suppress_alert` — grava preço e atualiza a perna, nunca avalia teto).
+
+### Verificação local (antes de qualquer commit)
+
+`python -m unittest discover tests -v` — **312 testes, incluindo os 267 já
+existentes sem NENHUMA alteração de asserção** (só 2 ajustes de mock para
+destravar chamada de rede não mockada, sem mudar o que é testado) — prova de
+que com `radar_enabled=false`/coluna ausente, o comportamento é idêntico ao
+de antes desta fatia em toda chamada existente.
+
+### Pendente (fora do escopo desta sessão de código)
+
+1. Diff completo revisado no chat — feito nesta sessão, antes do commit.
+2. Usuário roda `sql/radar_calendario.sql` no SQL Editor, confere V1-V3.
+3. Push (não incluso automaticamente — só quando pedido).
+4. Ligar `radar_enabled=true` é decisão separada do usuário, depois de ler
+   a primeira varredura real no log do Actions.
+5. Observar em produção: log `[radar] regime: ...` (1 linha/execução,
+   contagem de pernas por regime), log `[radar] precisão: ...` (candidatas
+   selecionadas) e o formato de divergência radar×precisão por candidata —
+   nenhum desses foi visto em execução real ainda, só em teste local com mock.

@@ -367,6 +367,27 @@ def build_block_recovered_message(streak_days: int) -> str:
     return f"✅ <b>Consulta ao vivo normalizada</b> — voltou a funcionar depois de {dias} sem sucesso."
 
 
+def build_radar_anomaly_message(diag: dict) -> str:
+    """Alerta de anomalia da varredura do radar de calendário
+    (radar_check.py:run_sweep) — 100% dos blocos com histórico suficiente
+    vieram anômalos (vazio ou volume caiu pela metade) nesta varredura.
+    Kill-switch próprio (radar_enabled), separado do lote fli — nunca
+    sugere proxy/IP/evasão, a resposta a bloqueio é sempre recuar.
+
+    diag: blocks_checked, blocks_total, anomalous_blocks, config_url."""
+    return "\n".join([
+        "🚫 <b>Radar de calendário — anomalia de volume</b>",
+        f"{diag['anomalous_blocks']} de {diag['blocks_checked']}/{diag['blocks_total']} blocos consultados "
+        "vieram com volume anômalo em relação ao histórico — varredura interrompida antes de completar.",
+        "",
+        "✅ Blocos gravados antes da interrupção continuam na grade · consulta ao vivo (fli) segue funcionando normalmente",
+        "",
+        "Isso costuma ser temporário — a próxima varredura tenta do zero. Se persistir, considere desligar "
+        '"Radar de calendário" via SQL Editor (RUNBOOK.md).',
+        f'⚙️ <a href="{diag["config_url"]}">Abrir Configurações</a>',
+    ])
+
+
 # ----------------------------------------------------------------------------
 # Avisos de DEGRADAÇÃO — não são mais estado provisório (Fatia D4, 15/08/2026).
 # Os dois avisos que existiam por causa do multiusuário parcial da Etapa 4.2

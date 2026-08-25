@@ -7,7 +7,7 @@ Uso: python -m unittest tests/test_live_check.py -v  (a partir da raiz do repo)
 import os
 import sys
 import unittest
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -183,6 +183,84 @@ class SelectBatchTest(unittest.TestCase):
         with patch("live_check.get_active_legs", return_value=[far, near]):
             batch = live_check.select_batch(SYSTEM_SETTINGS)
         self.assertEqual(batch[0]["id"], "near")
+
+    # --- Radar de calendário: regime='price' quando radar_enabled ausente --
+    # (trava de regressão) — SYSTEM_SETTINGS não tem a chave 'radar_enabled'
+    # (código subiu antes do SQL, ou coluna ainda default false): toda perna
+    # elegível continua regime 'price', igual a antes desta fatia.
+
+    def test_radar_key_absent_is_same_as_radar_off(self):
+        leg = {**OUTBOUND_LEG, "id": "leg-1"}
+        with patch("live_check.get_active_legs", return_value=[leg]):
+            batch = live_check.select_batch(SYSTEM_SETTINGS)
+        self.assertEqual(batch[0]["_batch_regime"], "price")
+
+    def test_radar_off_leg_beyond_183_days_is_excluded(self):
+        """Trava de regressão do bug corrigido nesta revisão: sem radar, o
+        cutoff de 183 dias continua valendo exatamente como sempre."""
+        far = {**OUTBOUND_LEG, "id": "far", "outbound_date": days_from_today(400)}
+        with patch("live_check.get_active_legs", return_value=[far]):
+            batch = live_check.select_batch(SYSTEM_SETTINGS)
+        self.assertEqual(batch, [])
+
+    def test_radar_on_leg_beyond_183_days_enters_with_price_regime(self):
+        """O bug: `select_batch` aplicava o cutoff de 183 dias ANTES de
+        chamar `batch_regime`, então uma perna além disso nunca alcançava o
+        regime 'price' (>305 dias) mesmo com radar_on=True — a cobertura
+        estendida da fatia nunca acontecia de verdade. Corrigido: com radar
+        ligado, o universo inteiro de pernas ativas passa por
+        `batch_regime`, sem cutoff antecipado."""
+        far = {**OUTBOUND_LEG, "id": "far", "outbound_date": days_from_today(400)}
+        settings = {**SYSTEM_SETTINGS, "radar_enabled": True}
+        with patch("live_check.get_active_legs", return_value=[far]):
+            batch = live_check.select_batch(settings)
+        self.assertEqual(len(batch), 1)
+        self.assertEqual(batch[0]["id"], "far")
+        self.assertEqual(batch[0]["_batch_regime"], "price")
+
+    def test_radar_on_leg_checked_recently_is_excluded_from_batch(self):
+        recent = {**OUTBOUND_LEG, "id": "recent", "outbound_date": days_from_today(30),
+                  "last_live_check_at": (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()}
+        settings = {**SYSTEM_SETTINGS, "radar_enabled": True}
+        with patch("live_check.get_active_legs", return_value=[recent]):
+            batch = live_check.select_batch(settings)
+        self.assertEqual(batch, [])
+
+    def test_radar_on_leg_checked_long_ago_enters_as_metadata(self):
+        stale = {**OUTBOUND_LEG, "id": "stale", "outbound_date": days_from_today(30),
+                 "last_live_check_at": (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()}
+        settings = {**SYSTEM_SETTINGS, "radar_enabled": True}
+        with patch("live_check.get_active_legs", return_value=[stale]):
+            batch = live_check.select_batch(settings)
+        self.assertEqual(len(batch), 1)
+        self.assertEqual(batch[0]["_batch_regime"], "metadata")
+
+class BatchRegimeTest(unittest.TestCase):
+    """Pura — decisão 1 do radar de calendário."""
+
+    TODAY = date.today()
+
+    def test_radar_off_is_always_price(self):
+        leg = {**OUTBOUND_LEG, "outbound_date": days_from_today(400)}
+        self.assertEqual(live_check.batch_regime(leg, self.TODAY, radar_on=False), "price")
+
+    def test_beyond_radar_window_is_price(self):
+        leg = {**OUTBOUND_LEG, "outbound_date": days_from_today(320)}
+        self.assertEqual(live_check.batch_regime(leg, self.TODAY, radar_on=True), "price")
+
+    def test_within_window_never_checked_is_metadata(self):
+        leg = {**OUTBOUND_LEG, "outbound_date": days_from_today(30), "last_live_check_at": None}
+        self.assertEqual(live_check.batch_regime(leg, self.TODAY, radar_on=True), "metadata")
+
+    def test_within_window_checked_recently_is_none(self):
+        leg = {**OUTBOUND_LEG, "outbound_date": days_from_today(30),
+               "last_live_check_at": (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()}
+        self.assertIsNone(live_check.batch_regime(leg, self.TODAY, radar_on=True))
+
+    def test_within_window_checked_exactly_at_threshold_is_metadata(self):
+        leg = {**OUTBOUND_LEG, "outbound_date": days_from_today(30),
+               "last_live_check_at": (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()}
+        self.assertEqual(live_check.batch_regime(leg, self.TODAY, radar_on=True), "metadata")
 
 
 class CheckAndEvaluateLegTest(unittest.TestCase):
@@ -514,6 +592,42 @@ class UserLabelTest(unittest.TestCase):
 
     def test_user_absent_from_the_cache_falls_back(self):
         self.assertEqual(user_label(self.UUID, {}), "c72bf50e")
+
+
+class WeekendReportPriorityTest(unittest.TestCase):
+    """Radar de calendário: uma perna pode cair no mesmo run como refresh de
+    metadado do lote (suppress_alert=True, nunca avalia teto) E como
+    candidata de precisão do radar (avalia teto de verdade) — as duas batem
+    source == 'live'. O report suprimido nunca pode vencer um alertável."""
+
+    def leg(self, leg_id="leg-1"):
+        return {"id": leg_id}
+
+    def test_live_alertable_beats_live_suppressed(self):
+        suppressed = {"leg": self.leg(), "status": "ok", "source": "live", "alert_suppressed": True}
+        alertable = {"leg": self.leg(), "status": "ok", "source": "live", "alert_suppressed": False}
+        result = main.dedupe_weekend_reports([suppressed, alertable])
+        self.assertFalse(result[0]["alert_suppressed"])
+
+    def test_order_of_appearance_does_not_matter_for_suppressed_vs_alertable(self):
+        suppressed = {"leg": self.leg(), "status": "ok", "source": "live", "alert_suppressed": True}
+        alertable = {"leg": self.leg(), "status": "ok", "source": "live", "alert_suppressed": False}
+        result = main.dedupe_weekend_reports([alertable, suppressed])
+        self.assertFalse(result[0]["alert_suppressed"])
+
+    def test_live_suppressed_still_beats_no_data(self):
+        suppressed = {"leg": self.leg(), "status": "ok", "source": "live", "alert_suppressed": True}
+        no_data = {"leg": self.leg(), "status": "no_data"}
+        result = main.dedupe_weekend_reports([no_data, suppressed])
+        self.assertEqual(result[0]["status"], "ok")
+
+    def test_cache_ok_beats_live_suppressed(self):
+        """Cache é conferidor secundário, mas ainda avalia teto de verdade —
+        vence um live suprimido (que não avaliou nada)."""
+        suppressed = {"leg": self.leg(), "status": "ok", "source": "live", "alert_suppressed": True}
+        cache = {"leg": self.leg(), "status": "ok", "source": "cache"}
+        result = main.dedupe_weekend_reports([suppressed, cache])
+        self.assertEqual(result[0]["source"], "cache")
 
 
 class DedupeWeekendReportsTest(unittest.TestCase):

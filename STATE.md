@@ -517,11 +517,26 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
   pontual atual (`SearchFlights`), 0,0% de diferença. **Propriedade conhecida
   do sistema, não bug:** a lib não busca além de hoje+305 dias — degrada pra
   lista vazia, sem erro; datas além disso ainda não foram abertas pra venda
-  por nenhuma companhia, em nenhuma fonte. **Decisão de arquitetura
-  registrada, implementação ainda não iniciada:** dois níveis — RADAR
-  (`SearchDates`, varre ~305 dias várias vezes ao dia, fatiado manualmente em
-  blocos <=61 dias, sequencial) + PRECISÃO (`SearchFlights`, só nas datas que
-  o radar apontar perto do teto). Detalhe completo em `HISTORICO.md`, item 24.
+  por nenhuma companhia, em nenhuma fonte. Detalhe completo em `HISTORICO.md`,
+  item 24.
+- **Radar de calendário — IMPLEMENTADO, NÃO ATIVADO EM PRODUÇÃO
+  (`radar_enabled=false`).** A arquitetura de dois níveis decidida a partir
+  do achado da Etapa 0 (RADAR — `SearchDates`, varre ~305 dias, fatiado
+  manualmente em blocos <=61 dias, sequencial e espaçado; PRECISÃO —
+  `SearchFlights`, só nas datas que o radar apontar perto do MAIOR teto entre
+  usuários, e sempre ela quem vira alerta) saiu do papel: `src/radar_check.py`
+  (novo), filtro de regime em `src/live_check.py:select_batch`
+  (`batch_regime`), `suppress_alert` em
+  `src/weekends.py:evaluate_and_record_leg_price` (refresh de metadado nunca
+  avalia teto), step novo em `daily.yml` antes de `main.py`. Schema em
+  `sql/radar_calendario.sql`, **NÃO RODADO** (3 colunas em `system_config` +
+  tabela nova `weekend_radar_grid`) — kill-switch próprio
+  (`radar_enabled`), separado de `fast_flights_enabled`. 312 testes locais
+  passando, incluindo os 267 pré-existentes sem alteração de asserção
+  (prova de que o comportamento atual não muda enquanto o radar estiver
+  desligado). Falta: rodar o SQL, push, ligar manualmente e ler a primeira
+  varredura real no Actions. Detalhe completo em `PLANO-ATIVO.md`, seção
+  "Radar de calendário — implementação (fatia 1)".
 - **Limitação conhecida e não corrigida: `Airport.RIA` não é utilizável com a
   versão pinada da `fli`.** `Airport.RIA` é alias silencioso de `Airport.AJU`
   (Aracaju, cidade diferente) na tabela de aeroportos da lib — qualquer
@@ -835,12 +850,18 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
    (fechamento e higiene).
 
 8. **Etapa 0 (validação da grade de calendário) — ✅ CONCLUÍDA (24/08/2026).**
-   Ver seção 2, "Decisões vivas", e `HISTORICO.md`, item 24. **Próxima
-   fatia, ainda sem prompt escrito:** desenhar e implementar o radar de
-   calendário (`SearchDates`), substituindo ou complementando o lote
-   rotativo atual de `src/live_check.py` — decisão de qual dos dois modelos
-   (substituição vs. complemento) fica para a próxima conversa de
-   planejamento, não decidida nesta rodada de documentação.
+   Ver seção 2, "Decisões vivas", e `HISTORICO.md`, item 24.
+9. **Radar de calendário — IMPLEMENTADO, faltam 4 passos pra ativar em
+   produção (ver seção 2, "Decisões vivas", e `PLANO-ATIVO.md`).**
+   a) Usuário roda `sql/radar_calendario.sql` no SQL Editor, confere V1-V3.
+   b) Push do código desta fatia (não incluso automaticamente).
+   c) Ligar `radar_enabled=true` via SQL Editor (RUNBOOK.md) — decisão
+      separada, só depois de (a) e (b) em produção.
+   d) Ler a primeira varredura real no log do Actions: linha `[radar]
+      regime: ...` (contagem de pernas por regime), `[radar] precisão:
+      ...` (candidatas selecionadas) e o formato de divergência
+      radar×precisão por candidata — nenhum desses foi visto em execução
+      real ainda, só em teste local com mock.
 
 ## 4. Bloqueios / perguntas em aberto
 

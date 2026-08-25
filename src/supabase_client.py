@@ -29,6 +29,13 @@ DEFAULT_SYSTEM_CONFIG = {
     # degradado — nunca deixa o Telegram voltar a alertar/contar as 132
     # pernas inteiras em silêncio (main.py avisa quando cai aqui).
     "weekend_buying_cutoff_date": "2027-01-29",
+    # Radar de calendário (sql/radar_calendario.sql) — kill-switch PRÓPRIO,
+    # separado de fast_flights_enabled: desligar um não pode desligar o
+    # outro. Nasce false — fallback conservador se a coluna ainda não
+    # existir (código subiu antes do SQL, mesma regra de sempre).
+    "radar_enabled": False,
+    "radar_sweeps_per_day": 2,
+    "radar_precision_max_per_run": 10,
 }
 
 
@@ -78,7 +85,8 @@ def get_system_config() -> dict | None:
     resp = requests.get(
         _url(
             "system_config?select=suspicious_below_avg_pct,fast_flights_enabled,"
-            "fast_flights_daily_batch_size,weekend_buying_cutoff_date&limit=1"
+            "fast_flights_daily_batch_size,weekend_buying_cutoff_date,"
+            "radar_enabled,radar_sweeps_per_day,radar_precision_max_per_run&limit=1"
         ),
         headers=_headers(), timeout=30,
     )
@@ -569,3 +577,94 @@ def set_weekend_scrape_state(**fields) -> None:
             json={"key": key_by_field[field], "value": str_value}, timeout=30,
         )
         resp.raise_for_status()
+
+
+RADAR_SWEEP_STATE_KEYS = ("radar_last_sweep_date", "radar_sweeps_today")
+
+
+def get_radar_sweep_state() -> dict:
+    """Cota diária de varreduras do radar (radar_check.py) — mesmo padrão
+    por-estado de get_weekend_scrape_state: 'já rodou hoje quantas vezes',
+    não hora BRT fixa (sobrevive a atraso de disparo do cron do GitHub
+    Actions, mesma correção de 30/07/2026 aplicada ao lote fli)."""
+    resp = requests.get(
+        _url(f"bot_state?key=in.({','.join(RADAR_SWEEP_STATE_KEYS)})&select=key,value"),
+        headers=_headers(), timeout=30,
+    )
+    resp.raise_for_status()
+    rows = {r["key"]: r["value"] for r in resp.json()}
+    return {
+        "last_sweep_date": rows.get("radar_last_sweep_date"),
+        "sweeps_today": int(rows.get("radar_sweeps_today") or 0),
+    }
+
+
+def set_radar_sweep_state(**fields) -> None:
+    """Grava só as chaves passadas (last_sweep_date/sweeps_today) — mesmo
+    padrão merge-duplicates das outras funções de bot_state."""
+    key_by_field = {"last_sweep_date": "radar_last_sweep_date", "sweeps_today": "radar_sweeps_today"}
+    headers = {**_headers(), "Prefer": "resolution=merge-duplicates"}
+    for field, value in fields.items():
+        if field not in key_by_field or value is None:
+            continue
+        resp = requests.post(
+            _url("bot_state"), headers=headers,
+            json={"key": key_by_field[field], "value": str(value)}, timeout=30,
+        )
+        resp.raise_for_status()
+
+
+def get_weekend_radar_grid_known_count(origin: str, destination: str, from_date: str, to_date: str) -> int:
+    """Quantas datas dessa direção/bloco já estavam gravadas em
+    weekend_radar_grid ANTES da varredura de hoje — a linha de base do
+    detector de anomalia (radar_check.py:detect_block_anomaly). CHAMAR
+    ANTES do upsert do bloco: chamada depois compararia a varredura de hoje
+    contra ela mesma e o detector nunca dispararia.
+
+    `limit=1` + `Prefer: count=exact`: pede a contagem total via o header
+    `Content-Range` da resposta, sem baixar as linhas em si — mesmo efeito
+    de um `count(*)`, sem repetir o padrão de paginação usado em outro
+    lugar do arquivo."""
+    params = {
+        "origin": f"eq.{origin}", "destination": f"eq.{destination}",
+        "flight_date": [f"gte.{from_date}", f"lte.{to_date}"],
+        "select": "origin", "limit": "1",
+    }
+    headers = {**_headers(), "Prefer": "count=exact"}
+    resp = requests.get(_url("weekend_radar_grid"), headers=headers, params=params, timeout=30)
+    resp.raise_for_status()
+    content_range = resp.headers.get("Content-Range", "*/0")
+    return int(content_range.split("/")[-1])
+
+
+def upsert_weekend_radar_grid(rows: list[dict]) -> None:
+    """Upsert por chave natural (origin, destination, flight_date) — cada
+    varredura sobrescreve o preço mais recente daquela data, nunca acumula
+    linha duplicada por dia (sql/radar_calendario.sql)."""
+    if not rows:
+        return
+    headers = {**_headers(), "Prefer": "resolution=merge-duplicates"}
+    params = {"on_conflict": "origin,destination,flight_date"}
+    resp = requests.post(_url("weekend_radar_grid"), headers=headers, params=params, json=rows, timeout=30)
+    resp.raise_for_status()
+
+
+def get_weekend_radar_grid_for_dates(dates: list[str], since_iso: str) -> list[dict]:
+    """Linhas da grade do radar para as datas pedidas, só as gravadas dentro
+    da janela de frescor (`since_iso`, tipicamente agora−24h) — grade mais
+    velha que isso é tratada como morta: o gatilho de precisão não dispara
+    sobre preço que pode já ter mudado (radar_check.py:load_radar_candidates).
+    Varredura parcial (upsert é por bloco, não transação única) não é
+    filtrada aqui — datas ausentes simplesmente não geram linha, tratado
+    igual a qualquer outra ausência de dado."""
+    if not dates:
+        return []
+    unique_dates = sorted(set(dates))
+    params = {
+        "flight_date": f"in.({','.join(unique_dates)})",
+        "swept_at": f"gte.{since_iso}",
+        "select": "origin,destination,flight_date,price,swept_at",
+    }
+    resp = requests.get(_url("weekend_radar_grid"), headers=_headers(), params=params, timeout=30)
+    resp.raise_for_status()
+    return resp.json()

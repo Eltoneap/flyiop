@@ -261,7 +261,8 @@ def get_active_legs() -> list[dict]:
 def evaluate_and_record_leg_price(leg: dict, system_settings: dict, settings_by_user: dict[str, dict],
                                   price: float, airport: str | None,
                                   variant: str | None, transfers: int | None, source: str,
-                                  airline: str | None = None, departure_time: str | None = None) -> dict:
+                                  airline: str | None = None, departure_time: str | None = None,
+                                  suppress_alert: bool = False) -> dict:
     """Núcleo compartilhado entre a varredura cache (process_weekend_leg, abaixo)
     e o lote fast-flights (live_check.py, Parte 3): grava o preço, avalia
     teto/oportunidade/suspeita/cooldown, e atualiza a perna. `source` é
@@ -287,6 +288,15 @@ def evaluate_and_record_leg_price(leg: dict, system_settings: dict, settings_by_
       alerta, cooldown) entra em `weekend_legs` nem em `weekend_leg_run_log` —
       decisão pessoal vive em `weekend_leg_user_state` e em `alert_log`.
 
+    `suppress_alert` (radar de calendário, decisão 1): usado só pelo refresh
+    de metadado do regime 'metadata' em live_check.py — a perna já está
+    coberta pelo radar, esta chamada existe só pra atualizar
+    companhia/horário. Grava o preço e atualiza a perna normalmente, mas
+    RETORNA ANTES de qualquer avaliação de teto/oportunidade (nem histórico
+    de 90d, nem suspeita, nem janela de compra, nem laço por usuário) — nunca
+    decide alertar. Default `False` = comportamento idêntico ao de antes
+    desta fatia em toda chamada existente.
+
     `system_settings` é o `system_config` que main.py monta (não um dicionário
     novo): fornece `suspicious_below_avg_pct` e `weekend_buying_cutoff_date`.
     `settings_by_user` é o `settings_cache` de main.py, {user_id: settings}."""
@@ -298,6 +308,47 @@ def evaluate_and_record_leg_price(leg: dict, system_settings: dict, settings_by_
         leg_date = leg["return_sunday"] if variant == "sunday" else leg["return_monday"]
 
     insert_weekend_leg_price(leg_id, price, airport, variant, source, transfers, airline, departure_time)
+
+    if suppress_alert:
+        lowest_seen = leg.get("lowest_seen")
+        is_new_low = lowest_seen is None or price < float(lowest_seen)
+        update_fields = {
+            "current_price": price,
+            "current_airport": airport,
+            "current_variant": variant,
+            "current_source": source,
+            "current_airline": airline,
+            "current_departure_time": departure_time,
+        }
+        if is_new_low:
+            update_fields["lowest_seen"] = price
+            update_fields["lowest_seen_at"] = datetime.now(timezone.utc).isoformat()
+        update_weekend_leg(leg_id, **update_fields)
+        insert_weekend_leg_run_log(leg_id, "ok", price=price, source=source)
+
+        variant_label = f", {variant}" if variant else ""
+        print(
+            f"[perna {direction} {leg['outbound_date']}] R$ {price:.2f} ({airport}{variant_label}, {source}) "
+            "refresh de metadado (radar) — sem avaliação de teto"
+        )
+        return {
+            "leg": leg,
+            "status": "ok",
+            "direction": direction,
+            "weekend_id": leg["weekend_id"],
+            "outbound_date": leg["outbound_date"],
+            "price": price,
+            "date": leg_date,
+            "airport": airport,
+            "variant": variant,
+            "transfers": transfers,
+            "source": source,
+            "suspicious": None,
+            "per_user": [],
+            "degraded_alert": None,
+            "should_alert": False,
+            "alert_suppressed": True,
+        }
 
     history = get_weekend_leg_price_history(leg_id, days=90)
     history_prices = [float(h["price"]) for h in history]
@@ -471,6 +522,10 @@ def evaluate_and_record_leg_price(leg: dict, system_settings: dict, settings_by_
         # funcionando sem saber nada sobre usuários. Só existe em memória —
         # não chega a tabela nenhuma.
         "should_alert": any(u["should_alert"] for u in per_user) or degraded_alert is not None,
+        # False aqui, True no ramo suppress_alert acima — main.py usa isso pra
+        # nunca deixar um report suprimido (radar, regime 'metadata') vencer um
+        # report alertável de verdade no dedupe da mesma perna no mesmo run.
+        "alert_suppressed": False,
     }
 
 

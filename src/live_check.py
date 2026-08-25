@@ -48,6 +48,7 @@ from supabase_client import (
     set_weekend_block_streak,
     update_weekend_leg,
 )
+from scrape_schedule import current_brt_date
 from telegram_notifier import build_block_alert_message, build_block_recovered_message, send_message
 from weekends import BSB, GIG, SDU, evaluate_and_record_leg_price, get_active_legs
 
@@ -57,6 +58,17 @@ BLOCK_STREAK_THRESHOLD = 5
 BLOCK_RATE_THRESHOLD = 0.5
 MIN_SAMPLE_FOR_RATE_CHECK = 8
 WEEKEND_CONFIG_URL = "https://eltoneap.github.io/flyiop/config.html"
+
+# Radar de calendário (radar_check.py) — teto real da SearchDates (Etapa 0,
+# HISTORICO.md item 24). Duplicado aqui de propósito, não importado de
+# radar_check.py: radar_check.py já importa `leg_travel_date` DESTE módulo,
+# e um import de volta criaria ciclo. Os dois valores DEVEM ficar em sincronia.
+RADAR_COVERAGE_WINDOW_DAYS = 305
+# Perna já coberta pelo radar volta ao lote só pra refresh de metadado
+# (companhia/horário) quando a última consulta SearchFlights estiver mais
+# velha que isto — nunca força preço novo nem avaliação de teto (decisão 1,
+# ver suppress_alert em weekends.evaluate_and_record_leg_price).
+RADAR_METADATA_REFRESH_DAYS = 7
 
 
 def check_live_price(origin: str, destination: str, travel_date: str) -> dict | None:
@@ -108,21 +120,97 @@ def leg_travel_date(leg: dict) -> str:
     return leg["return_sunday"] if variant == "sunday" else leg["return_monday"]
 
 
-def select_batch(system_settings: dict) -> list[dict]:
-    """Pernas elegíveis pro lote de hoje: dentro da janela de 6 meses,
-    'monitoring'. Ordenadas por last_live_check_at (nunca checada primeiro)
-    — garante rotação; desempate por (dias até a data, distância até o
-    teto) — prioriza as mais urgentes e mais perto de bater meta.
+def batch_regime(leg: dict, today: date, radar_on: bool) -> str | None:
+    """'price' (o lote descobre o preço, como sempre) | 'metadata' (o radar já
+    descobre o preço desta perna; o lote só atualiza companhia/horário) |
+    None (não entra no lote hoje). Pura — decisão 1 do radar de calendário.
 
-    Só configuração de SISTEMA entra aqui (`batch_size`): a seleção do lote é
-    sobre quanto o robô consulta, não sobre a decisão de quem alerta — por isso
-    `settings_by_user` não passa por esta função (Fatia D4)."""
-    cutoff = (date.today() + timedelta(days=LIVE_CHECK_WINDOW_DAYS)).isoformat()
-    legs = [leg for leg in get_active_legs() if leg_travel_date(leg) <= cutoff]
+    Sem radar (`radar_on=False`), toda perna é 'price' — comportamento
+    idêntico ao de antes desta fatia, sempre, mesmo com a coluna
+    `radar_enabled` inexistente/ausente em `system_settings`."""
+    if not radar_on:
+        return "price"
+    try:
+        travel_date = date.fromisoformat(leg_travel_date(leg))
+    except ValueError:
+        return "price"
+    if travel_date > today + timedelta(days=RADAR_COVERAGE_WINDOW_DAYS):
+        return "price"  # fora do alcance do radar — lote continua sendo a fonte
+
+    last_check = leg.get("last_live_check_at")
+    if not last_check:
+        return "metadata"
+    try:
+        last_check_dt = datetime.fromisoformat(last_check.replace("Z", "+00:00"))
+    except ValueError:
+        return "metadata"
+    age_days = (datetime.now(timezone.utc) - last_check_dt).days
+    return "metadata" if age_days >= RADAR_METADATA_REFRESH_DAYS else None
+
+
+def select_batch(system_settings: dict) -> list[dict]:
+    """Pernas elegíveis pro lote de hoje, 'monitoring'. Sem radar
+    (`radar_enabled=false`): dentro da janela de 6 meses, como sempre — o
+    resto fica dormente. Com radar ligado: SEM esse teto de 6 meses — o
+    universo inteiro de pernas ativas passa por `batch_regime`, que decide
+    por perna se o lote é a fonte de preço ('price', pernas além do alcance
+    do radar) ou só refresh de metadado ('metadata') ou nem entra hoje
+    (`None`) — é assim que a cobertura real de descoberta de preço sobe de
+    ~6 para ~10 meses (a extensão que motivou esta fatia).
+
+    Ordenadas por regime (preço antes de metadado), depois
+    last_live_check_at (nunca checada primeiro) — garante rotação; desempate
+    por (dias até a data, distância até o teto) — prioriza as mais urgentes e
+    mais perto de bater meta. `batch_size` (inalterado por este filtro)
+    continua sendo o teto real de quantas consultas o lote faz por dia.
+
+    Só configuração de SISTEMA entra aqui (`batch_size`, `radar_enabled`): a
+    seleção do lote é sobre quanto o robô consulta, não sobre a decisão de
+    quem alerta — por isso `settings_by_user` não passa por esta função
+    (Fatia D4)."""
+    today = date.fromisoformat(current_brt_date())
+    radar_on = bool(system_settings.get("radar_enabled", False))
+    # Sem radar: cutoff de 183 dias aplicado ANTES de tudo — idêntico ao
+    # comportamento de sempre, pernas além disso ficam dormentes.
+    # Com radar: SEM cutoff antecipado aqui. `get_active_legs()` já é o
+    # universo inteiro de pernas ativas (sem teto artificial na ponta
+    # distante) — é essa a "fonte de MAX(data) real" reusada, sem precisar
+    # de query nova: `batch_regime` decide 'price'/'metadata'/None por
+    # perna, e é ELE quem sabe que além de RADAR_COVERAGE_WINDOW_DAYS o
+    # lote continua sendo a fonte (regime 'price'). Filtrar por cutoff de
+    # 183 dias antes disso impedia esse caminho de ser alcançado — bug
+    # corrigido nesta revisão: nenhuma perna além de 183 dias chegava a
+    # batch_regime, então o regime 'price' (>305 dias) nunca disparava.
+    cutoff = None if radar_on else (today + timedelta(days=LIVE_CHECK_WINDOW_DAYS)).isoformat()
+
+    legs = []
+    regime_counts = {"price": 0, "metadata": 0, "none": 0}
+    for leg in get_active_legs():
+        if cutoff is not None and leg_travel_date(leg) > cutoff:
+            continue
+        regime = batch_regime(leg, today, radar_on)
+        regime_counts[regime or "none"] += 1
+        if regime is None:
+            continue
+        legs.append({**leg, "_batch_regime": regime})
+
+    # Observabilidade do regime (decisão 4 do radar — sem coluna nova): só
+    # imprime com o radar ligado, senão toda perna é 'price' e a linha não
+    # diria nada de novo. `regime_counts['price']` aqui só conta pernas além
+    # do alcance do radar (>hoje+305) — com radar_on=True, batch_regime só
+    # devolve 'price' por esse motivo.
+    if radar_on:
+        in_radar_window = regime_counts["metadata"] + regime_counts["none"]
+        print(
+            f"[radar] regime: {in_radar_window} perna(s) dentro do alcance do radar "
+            f"(hoje..hoje+{RADAR_COVERAGE_WINDOW_DAYS}d), {regime_counts['price']} fora do radar "
+            f"(lote fli cobre), {regime_counts['metadata']} elegível(is) a refresh de metadado hoje"
+        )
 
     def sort_key(leg: dict) -> tuple:
+        regime_rank = 0 if leg["_batch_regime"] == "price" else 1
         last_check = leg.get("last_live_check_at") or ""  # vazio ordena primeiro (nunca checada)
-        days_until = (date.fromisoformat(leg_travel_date(leg)) - date.today()).days
+        days_until = (date.fromisoformat(leg_travel_date(leg)) - today).days
         current_price = leg.get("current_price")
         # `queue_ceiling` é HEURÍSTICA DE PRIORIDADE DE FILA, não decisão de
         # alerta (Fatia D4): é o menor teto entre os usuários que monitoram a
@@ -137,7 +225,7 @@ def select_batch(system_settings: dict) -> list[dict]:
             if current_price is not None and ceiling is not None
             else float("inf")
         )
-        return (last_check, days_until, price_gap)
+        return (regime_rank, last_check, days_until, price_gap)
 
     legs.sort(key=sort_key)
     batch_size = int(
@@ -146,10 +234,17 @@ def select_batch(system_settings: dict) -> list[dict]:
     return legs[:batch_size]
 
 
-def check_and_evaluate_leg(leg: dict, system_settings: dict, settings_by_user: dict[str, dict]) -> tuple[dict, bool]:
+def check_and_evaluate_leg(leg: dict, system_settings: dict, settings_by_user: dict[str, dict],
+                           suppress_alert: bool = False) -> tuple[dict, bool]:
     """Checa 1 perna via consulta ao vivo (GIG, com fallback SDU se GIG vier
     vazio). Retorna (report, teve_sucesso). last_live_check_at avança em
-    toda tentativa — sucesso ou falha — pra rotação sempre andar."""
+    toda tentativa — sucesso ou falha — pra rotação sempre andar.
+
+    `suppress_alert` (regime 'metadata', radar de calendário): grava
+    preço/companhia/horário normalmente, mas evaluate_and_record_leg_price
+    pula a avaliação de teto/oportunidade inteira — nunca decide alertar.
+    Default `False` mantém a chamada a evaluate_and_record_leg_price
+    idêntica à de antes desta fatia."""
     direction = leg["direction"]
     travel_date = leg_travel_date(leg)
     variant = None if direction == "outbound" else (leg.get("current_variant") or "sunday")
@@ -174,9 +269,11 @@ def check_and_evaluate_leg(leg: dict, system_settings: dict, settings_by_user: d
         insert_weekend_leg_run_log(leg["id"], "no_data", source="live")
         return {"leg": leg, "status": "no_data"}, False
 
+    extra_kwargs = {"suppress_alert": True} if suppress_alert else {}
     report = evaluate_and_record_leg_price(
         leg, system_settings, settings_by_user, result["price"], used_airport, variant,
         result.get("transfers"), "live", result.get("airline"), result.get("departure_time"),
+        **extra_kwargs,
     )
     update_weekend_leg(leg["id"], last_live_check_at=now_iso)
     return report, True
@@ -227,7 +324,8 @@ def run_daily_batch(system_settings: dict, settings_by_user: dict[str, dict]) ->
         if i > 0:
             time.sleep(LIVE_CHECK_DELAY_SECONDS)
 
-        report, ok = check_and_evaluate_leg(leg, system_settings, settings_by_user)
+        suppress_alert = leg.get("_batch_regime") == "metadata"
+        report, ok = check_and_evaluate_leg(leg, system_settings, settings_by_user, suppress_alert)
         reports.append(report)
         checked += 1
 

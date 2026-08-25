@@ -861,5 +861,74 @@ class ProcessAllWeekendLegsTest(unittest.TestCase):
         mock_fetch.assert_not_called()
 
 
+class SuppressAlertTest(unittest.TestCase):
+    """Radar de calendário, decisão 1 — refresh de metadado (live_check.py,
+    regime 'metadata') não pode virar alerta. `suppress_alert=True` grava
+    preço/companhia/horário e atualiza a perna normalmente, mas retorna
+    ANTES de qualquer avaliação de teto/oportunidade — nem histórico de
+    90d, nem suspeita, nem janela de compra, nem laço por usuário."""
+
+    def call(self, **overrides):
+        kwargs = dict(
+            leg=OUTBOUND_LEG, system_settings=SYSTEM_SETTINGS, settings_by_user=SETTINGS_BY_USER,
+            price=150.0, airport="GIG", variant=None, transfers=0, source="live",
+            airline="GOL", departure_time="2026-09-04T07:00:00", suppress_alert=True,
+        )
+        kwargs.update(overrides)
+        with patch("weekends.insert_weekend_leg_price") as mock_insert, \
+             patch("weekends.get_weekend_leg_price_history") as mock_history, \
+             patch("weekends.update_weekend_leg") as mock_update, \
+             patch("weekends.insert_weekend_leg_run_log") as mock_run_log:
+            report = weekends.evaluate_and_record_leg_price(**kwargs)
+        return report, mock_insert, mock_history, mock_update, mock_run_log
+
+    def test_records_price_and_updates_leg(self):
+        report, mock_insert, _, mock_update, mock_run_log = self.call()
+        self.assertEqual(report["status"], "ok")
+        self.assertEqual(report["price"], 150.0)
+        mock_insert.assert_called_once_with(
+            "leg-out-1", 150.0, "GIG", None, "live", 0, "GOL", "2026-09-04T07:00:00"
+        )
+        mock_update.assert_called_once()
+        update_fields = mock_update.call_args.kwargs
+        self.assertEqual(update_fields["current_price"], 150.0)
+        self.assertEqual(update_fields["current_airline"], "GOL")
+        mock_run_log.assert_called_once_with("leg-out-1", "ok", price=150.0, source="live")
+
+    def test_never_evaluates_ceiling(self):
+        """Se avaliasse teto, R$150 < R$200 dispararia alerta — a prova de
+        que a avaliação nem roda é o histórico nunca ser lido."""
+        report, _, mock_history, _, _ = self.call()
+        mock_history.assert_not_called()
+        self.assertEqual(report["per_user"], [])
+        self.assertIsNone(report["degraded_alert"])
+        self.assertFalse(report["should_alert"])
+        self.assertTrue(report["alert_suppressed"])
+
+    def test_records_new_low_when_price_is_lower(self):
+        leg = {**OUTBOUND_LEG, "lowest_seen": 300.0}
+        _, _, _, mock_update, _ = self.call(leg=leg, price=150.0)
+        self.assertEqual(mock_update.call_args.kwargs["lowest_seen"], 150.0)
+
+    def test_does_not_lower_lowest_seen_when_price_is_higher(self):
+        leg = {**OUTBOUND_LEG, "lowest_seen": 100.0}
+        _, _, _, mock_update, _ = self.call(leg=leg, price=150.0)
+        self.assertNotIn("lowest_seen", mock_update.call_args.kwargs)
+
+    def test_default_suppress_alert_is_false_and_evaluates_normally(self):
+        """Sem passar suppress_alert (todo o resto do código): comportamento
+        idêntico ao de antes desta fatia — histórico É lido."""
+        with patch("weekends.insert_weekend_leg_price"), \
+             patch("weekends.get_weekend_leg_price_history", return_value=[]) as mock_history, \
+             patch("weekends.get_last_weekend_leg_alert", return_value=None), \
+             patch("weekends.update_weekend_leg"), \
+             patch("weekends.insert_weekend_leg_run_log"):
+            report = weekends.evaluate_and_record_leg_price(
+                OUTBOUND_LEG, SYSTEM_SETTINGS, SETTINGS_BY_USER, 150.0, "GIG", None, 0, "live",
+            )
+        mock_history.assert_called_once()
+        self.assertFalse(report["alert_suppressed"])
+
+
 if __name__ == "__main__":
     unittest.main()

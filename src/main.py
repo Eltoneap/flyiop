@@ -41,7 +41,8 @@ from telegram_notifier import (
     send_message,
     user_label,
 )
-from live_check import build_package_comparison, run_daily_batch
+from live_check import LIVE_CHECK_DELAY_SECONDS, build_package_comparison, check_and_evaluate_leg, run_daily_batch
+from radar_check import load_radar_candidates, log_precision_divergence
 from scrape_schedule import (
     apply_block_reversion,
     current_brt_date,
@@ -53,7 +54,7 @@ from scrape_schedule import (
     should_run_live_batch,
 )
 from travelpayouts_client import get_prices_for_dates
-from weekends import LEG_LOAD_DIAGNOSTICS, process_all_weekend_legs, resolve_buying_cutoff
+from weekends import LEG_LOAD_DIAGNOSTICS, get_active_legs, process_all_weekend_legs, resolve_buying_cutoff
 
 MONTHS_AHEAD = 6  # varre de "em cima da hora" até ~6 meses à frente; o histórico aprende sozinho qual faixa é mais barata
 REQUEST_DELAY_SECONDS = 0.3  # precaução contra possível limite de requisições da Travelpayouts
@@ -232,11 +233,22 @@ def process_route(route: dict, settings: dict) -> dict:
 
 
 def _weekend_report_priority(r: dict) -> int:
-    """Prioridade pra dedupe_weekend_reports: 'ok' com fonte live > 'ok' com
-    cache > 'no_data' > 'error'. Live é a fonte primária desde a Parte 3."""
-    if r.get("status") == "ok" and r.get("source") == "live":
+    """Prioridade pra dedupe_weekend_reports: 'ok' live alertável > 'ok'
+    cache > 'ok' live SUPRIMIDO (radar, regime 'metadata') > 'no_data' >
+    'error'. Live é a fonte primária desde a Parte 3.
+
+    Radar de calendário (decisão 1): uma perna pode cair no mesmo run como
+    refresh de metadado do lote (`suppress_alert=True`, nunca avalia teto) E
+    como candidata de precisão do radar (avalia teto de verdade) — as duas
+    batem `source == 'live'`. Sem separar as duas, a prioridade antiga (as
+    duas valendo 3, a primeira processada vencendo) podia deixar o report
+    SUPRIMIDO esconder um alerta real do mesmo run. `alert_suppressed` (só
+    existe em reports com `status == 'ok'`, ver weekends.py) resolve isso."""
+    if r.get("status") == "ok" and r.get("source") == "live" and not r.get("alert_suppressed"):
+        return 4
+    if r.get("status") == "ok" and r.get("source") == "cache":
         return 3
-    if r.get("status") == "ok":
+    if r.get("status") == "ok":  # live, suprimido (refresh de metadado do radar)
         return 2
     if r.get("status") == "no_data":
         return 1
@@ -401,6 +413,30 @@ def main() -> None:
         live_reports, blocked = [], False
         is_last_batch_of_day = False
 
+    # Radar de calendário — nível PRECISÃO (decisão 3): independente do
+    # estágio/cota do lote fli acima, roda em toda execução em que o radar
+    # está ligado. `radar_check.py` (step separado do daily.yml) só varre e
+    # grava `weekend_radar_grid` — nunca decide alerta. A seleção de
+    # candidatas é lógica pura de leitura (radar_check.load_radar_candidates);
+    # quem processa e alerta é o MESMO check_and_evaluate_leg do lote fli,
+    # então fan-out por usuário/cooldown/degraded_alert/insert_weekend_alert_log
+    # continuam com fonte única (main.py, no laço de envio abaixo).
+    # Protegido por try/except: falha do radar não pode derrubar rotas
+    # flexíveis, cache nem o lote fli, que já rodaram acima.
+    radar_reports: list[dict] = []
+    if system_config.get("radar_enabled", False):
+        try:
+            radar_candidates = load_radar_candidates(system_config, get_active_legs())
+            print(f"[radar] precisão: {len(radar_candidates)} candidata(s) selecionada(s) pela grade")
+            for i, candidate in enumerate(radar_candidates):
+                if i > 0:
+                    time.sleep(LIVE_CHECK_DELAY_SECONDS)
+                candidate_report, _ok = check_and_evaluate_leg(candidate["leg"], system_config, settings_cache)
+                log_precision_divergence(candidate, candidate_report)
+                radar_reports.append(candidate_report)
+        except Exception:
+            print(f"[radar] ERRO na seleção/checagem de precisão:\n{traceback.format_exc()}")
+
     if blocked:
         scrape_state = apply_block_reversion(scrape_state)
         set_weekend_scrape_state(
@@ -432,7 +468,7 @@ def main() -> None:
     if buying_cutoff_degraded:
         send_message(build_buying_cutoff_fallback_message(buying_cutoff))
 
-    weekend_reports = dedupe_weekend_reports(cache_reports + live_reports)
+    weekend_reports = dedupe_weekend_reports(cache_reports + live_reports + radar_reports)
     if any(wr["status"] == "error" for wr in weekend_reports):
         had_error = True
 

@@ -36,6 +36,39 @@ estágio).
 
 Conferir efeito: Dashboard → seção "Saúde do sistema".
 
+## Radar de calendário (grade via SearchDates — descoberta de preço em lote)
+
+**Kill-switch PRÓPRIO, separado do lote fli (`fast_flights_enabled`).** Nasce
+`radar_enabled = false` — desligar o lote fli não desliga o radar e
+vice-versa. Ligar exige rodar `sql/radar_calendario.sql` primeiro (schema)
+e revisar V1-V3.
+
+Ver estado atual:
+```sql
+select radar_enabled, radar_sweeps_per_day, radar_precision_max_per_run from system_config;
+```
+
+Ligar (depois do SQL rodado e do código em produção):
+```sql
+update system_config set radar_enabled = true, updated_at = now();
+```
+
+Desligar (volta a descoberta de preço 100% pro lote fli, regime 'price' pra
+toda perna — nenhuma mudança de comportamento além dessa):
+```sql
+update system_config set radar_enabled = false, updated_at = now();
+```
+
+`radar_sweeps_per_day` (varreduras completas da grade por dia, default 2) e
+`radar_precision_max_per_run` (candidatas de precisão/SearchFlights por
+execução, default 10) seguem o mesmo padrão de `update`. Subir os dois é
+decisão de chat de planejamento — cada varredura completa já custa ~20
+requisições (4 direções × ~5 blocos de <=61 dias).
+
+Alerta de anomalia de volume no Telegram ("Radar de calendário — anomalia de
+volume") normalmente não requer ação — a próxima varredura tenta do zero.
+Persistindo, considere desligar o radar por aqui até investigar.
+
 ## Outros ajustes de sistema
 
 `suspicious_below_avg_pct` (limiar de preço suspeito) e

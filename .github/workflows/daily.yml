@@ -22,6 +22,22 @@ jobs:
 
       - run: pip install -r requirements.txt
 
+      # Radar de calendário (grade via SearchDates, sql/radar_calendario.sql)
+      # — nível RADAR, só descobre e grava preço em weekend_radar_grid, nunca
+      # decide alerta. Kill-switch próprio (system_config.radar_enabled,
+      # nasce false): o script lê a config e sai cedo (exit 0) quando
+      # desligado — sem `if:` aqui, pra não duplicar a decisão em dois
+      # lugares. Step separado de main.py (não substitui, roda antes): quem
+      # decide e envia alerta de perna continua sendo só main.py, que no
+      # próprio step seguinte lê a grade recém-gravada pra escolher
+      # candidatas de precisão (SearchFlights).
+      - run: python src/radar_check.py
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
       - run: python src/main.py
         env:
           TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
