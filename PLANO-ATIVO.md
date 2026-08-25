@@ -1638,30 +1638,49 @@ afiada).
 *Efeito esperado, não defeito:* o volume de alerta no grupo pode dobrar (~30
 alertas/14 dias viram ~60).
 
-**🔒 BLOQUEADO POR DESIGN — PENDENTE DE OBSERVAÇÃO REAL (24/08/2026).**
-**Reinterpretação formal da pendência:**
-- O critério de conclusão (3 números: fila, chamadas, donos distintos) **não pode
-  ser verificado sem disparar alerta real para o Gustavo**.
-- O fan-out com dois `user_id` distintos na mesma execução existe — o mecanismo
-  está implementado e estruturalmente correto (confirmado pela D4 em 17/08 —
-  item 5 fechado, item 6 fechado).
-- **Porém:** a observação só é possível quando um alerta "de verdade" (preço
-  ≤ teto de um dos dois, em produção) dispara simultaneamente para ambos os
-  usuários — o que exigiria enviar notificação de teste ao Gustavo enquanto ele
-  ainda não está usando a plataforma.
-- **Decisão de escopo (24/08/2026):** aceitar o gap entre "implementado" (D4
-  verificada) e "observado em produção" (E7-5 aguarda) como **limite estrutural
-  intencional, não como pendência desbloqueadora**.
-- **Próximas etapas** (radar de calendário, E7-6, E7-7) **não dependem de E7-5
-  estar fechada** — elas dependem da D4, que está confirmada. E7-5 é confirmação
-  final da composição, não bloqueador de progresso.
-- **Quando fechar E7-5:** quando o Gustavo começar a usar a plataforma de
-  verdade (abrir o painel, configurar teto) e um alerta real disparar por um
-  preço bom. A observação virá naturalmente, sem teste artificial. Até lá,
-  **o item fica como "bloqueado por design"** — é capa de escopo, não defeito.
+**✅ CONCLUÍDA (confirmada por evidência real de banco em 24/08/2026 — correção
+de uma reclassificação incorreta feita mais cedo no mesmo dia).**
 
-**Base de observação até agora — três execuções desde a criação da conta do Gustavo (16/08)**
-(E7-2): 16/08 ~08h BRT (1 usuário, antes da
+**Nota de correção, registrada porque houve erro de fato:** nesta mesma data
+(24/08/2026), esta fatia foi reclassificada como "bloqueada por design,
+pendente de observação real", com o argumento de que provar o fan-out exigiria
+disparar um alerta de teste artificial para o Gustavo. **Esse argumento estava
+errado** — a observação necessária já tinha acontecido organicamente, dias
+antes, e só não tinha sido consultada. Uma leitura read-only de produção,
+pedida pelo usuário logo em seguida (para calibrar a margem do gatilho do
+radar de calendário), trouxe a prova que faltava. A reclassificação incorreta
+foi commitada (`26972eb`) e ainda não tinha sido enviada ao remoto — corrigida
+aqui antes do push.
+
+**Evidência real — `alert_log`, consulta direta em produção (24/08/2026):**
+duas ocorrências de linhas com **dois `user_id` distintos**, mesma perna,
+mesma execução (`sent_at` a <1s de diferença um do outro):
+
+| leg_id | user_id | price | ceiling | sent_at |
+|---|---|---|---|---|
+| `d7bf81ee…` | `c72bf50e…` (Elton) | 317 | 500 | 2026-08-21 11:17:11.147184 |
+| `d7bf81ee…` | `2446ec67…` (Gustavo) | 317 | 500 | 2026-08-21 11:17:10.619666 |
+| `b4f28800…` | `c72bf50e…` (Elton) | 316 | 500 | 2026-08-20 11:17:31.688946 |
+| `b4f28800…` | `2446ec67…` (Gustavo) | 316 | 400 | 2026-08-20 11:17:31.194447 |
+
+Os 3 números do critério de conclusão batem: fila normal (mesma execução
+agendada, sem alteração de volume), donos distintos confirmados (`c72bf50e…`
+e `2446ec67…` na mesma perna, mesmo ciclo), `had_error` não é indicado por
+nenhuma das linhas (inserção bem-sucedida nos dois casos). A segunda ocorrência
+(`b4f28800…`, 20/08) mostra também que o teto é avaliado **por usuário**, não
+compartilhado — Elton R$500, Gustavo R$400 na mesma perna, resultado consistente
+com a garantia central da Fatia D4. Confirmação de mensagem com "Elton" e
+"Gustavo" nominalmente no Telegram não foi checada nesta consulta (é de banco,
+não do canal) — mas o mecanismo de `user_label` já foi confirmado
+independentemente pelo item 6 da D4 (17/08, print de tela "👤 Elton").
+
+**E7-5 está de fato concluída.** Segue para E7-6/E7-7 sem pendência.
+
+---
+*Texto histórico abaixo preservado como registro do estado antes desta
+correção — mantido para rastreabilidade, não reflete mais o status real.*
+
+Base de observação original (E7-2): 16/08 ~08h BRT (1 usuário, antes da
 conta existir, 20/20 sem bloqueio — linha de base, não conta como evidência
 de fan-out), 16/08 ~23h16 BRT (2 usuários, execução extra fora de padrão, ver
 achado novo abaixo), 17/08 ~08h BRT (2 usuários, execução agendada normal,

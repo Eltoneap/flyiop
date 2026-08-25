@@ -1,7 +1,39 @@
 # STATE.md — FlyIop
 
 > Atualizado em: 24/08/2026
-> Última sessão: Claude Code (24/08/2026, documentação de fechamento) —
+> Última sessão: Claude Code (24/08/2026, Plan Mode + correção de
+> documentação) — **E7-5 CONFIRMADA por evidência real de banco, corrigindo
+> uma reclassificação incorreta feita mais cedo na mesma sessão.** O pedido
+> original era desenhar (Plan Mode, sem código) o radar de calendário
+> (`fli.search.dates.SearchDates`) com base na Etapa 0; entregue plano com 7
+> decisões em aberto para revisão (regime de convivência com o lote atual,
+> critério de gatilho da precisão, agendamento, transição de regime, RIA,
+> schema, riscos) — **nenhuma decisão tomada ainda, aguardando revisão**.
+> No meio da sessão, o usuário pediu para fechar a E7-5 como "bloqueado por
+> design" (decisão registrada e commitada, `26972eb`) — **decisão que se
+> mostrou baseada em premissa desatualizada.** Uma consulta read-only pedida
+> em seguida (para calibrar a margem do gatilho do radar com dado real de
+> teto) trouxe prova que já existia em produção: **duas ocorrências reais de
+> `alert_log` recebendo linhas com dois `user_id` distintos na mesma
+> execução** (perna `d7bf81ee…`, 21/08 11:17:11/11:17:10; perna `b4f28800…`,
+> 20/08 11:17:31/11:17:31 — <1s de diferença entre os dois `user_id` em cada
+> caso), com tetos avaliados corretamente por usuário (Elton R$500, Gustavo
+> R$400, mesma perna). **A E7-5 estava concluída desde 20-21/08 e ninguém
+> tinha consultado.** Corrigido em `PLANO-ATIVO.md` (texto "bloqueado por
+> design" revertido, seção antiga de 17/08 marcada como superada) — commit
+> ainda pendente desta correção.
+> **Achado maior e não solicitado, da mesma consulta:** o teto efetivo real
+> de Elton em produção é **R$500**, não R$300 — documentado desde 04-06/08
+> como recalibrado e verificado, mas divergente há pelo menos desde 17/08
+> (o `reason` histórico já citava R$500 nessa data). Gustavo tem tetos
+> **diferentes por perna** (R$400 numa, R$500 noutra) — diverge da FECHADA-1
+> ("R$300, igual ao do Elton, explícito no insert"). **Causa não investigada
+> — registrado como fato, sem decisão de corrigir.** Ver seção 2 (Decisões
+> vivas) e seção 4 (Bloqueios) para o detalhe. **Consequência prática para o
+> radar:** a margem do gatilho de precisão não pode ser calibrada contra o
+> teto documentado (R$300) porque não é o teto real — precisa ser recalculada
+> quando (e se) a causa da divergência for entendida.
+> Sessão anterior: Claude Code (24/08/2026, documentação de fechamento) —
 > **Etapa 0 (validação da grade de calendário via `fli`) CONCLUÍDA com
 > sucesso.** Rodada real em produção (`workflow_dispatch`, 24/08/2026 21:08
 > BRT) contra o mesmo commit pinado da `fli` já usado por `src/live_check.py`.
@@ -58,14 +90,13 @@
 > 17/08 08h16 BRT ("✅ Consulta ao vivo normalizada — voltou a funcionar
 > depois de 1 dia sem sucesso"), sem intervenção; não é problema persistente
 > da fonte e deixa de ser pendência (resta só a pergunta (a): o que disparou a
-> execução extra). **E7-5 BLOQUEADA POR DESIGN, PENDENTE DE OBSERVAÇÃO REAL
-> (24/08/2026):** o fan-out com dois `user_id` distintos existe e está
-> estruturalmente correto (D4 verificada), mas a observação só é possível
-> quando um alerta real dispara para ambos os usuários **em produção**, o que
-> exigiria enviar notificação de teste ao Gustavo enquanto ele ainda não usa a
-> plataforma. Aceitamos o gap entre "implementado" e "observado" como limite
-> estrutural intencional, não como bloqueador. E7-5 fecha quando o Gustavo
-> começar a usar e um alerta real disparar naturalmente. A Fatia D4 **não** foi
+> execução extra). **E7-5 SEGUE PARCIALMENTE ABERTA** (no momento desta sessão
+> de 17/08 — ver correção registrada na sessão de 24/08, no topo deste
+> arquivo: E7-5 foi confirmada por evidência real dias depois): as 3 linhas
+> eram todas do MESMO usuário, então `alert_log` com **dois `user_id`
+> distintos na mesma execução** — e mensagens com "Elton" **e** "Gustavo" —
+> seguia **sem observação** nesta data; é item diferente do item 5 e não tinha
+> fechado ainda. A Fatia D4 **não** foi
 > marcada como concluída (itens 4 e 7-10 seguem sem marca de fechamento no
 > plano; itens 7-10 não foram avaliados nesta rodada). **Fato colateral
 > registrado sem causa investigada:** o `reason` cita meta de R$ 500, enquanto
@@ -493,6 +524,14 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 - **Config de sistema (`suspicious_below_avg_pct`, `fast_flights_enabled`, `fast_flights_daily_batch_size`) vive em `system_config`, linha única sem dono — não em `settings`** (Etapa 3 multi-usuário, concluída e **confirmada em produção 30/07/2026** — a implementação foi commitada/pushada em 29/07/2026, mas só rodou de fato depois da correção do bug de agendamento acima, que afetava a mesma execução). Motivo: essas 3 colunas já eram tratadas como globais pelo backend mesmo `settings` sendo per-user — risco real de um segundo usuário sobrescrever o kill-switch ou o limiar de suspeita de todo mundo sem perceber. Edição é 100% manual via SQL Editor do Supabase agora (sem UI, sem policy de update liberada) — procedimento em `RUNBOOK.md`. As 3 colunas antigas continuam em `settings`, intocadas e sem uso (Etapa 3b de remoção fica para depois de alguns dias de produção estável).
 - **Teto padrão (`settings.weekend_default_ceiling`) recalibrado de R$250 para R$300 em 04/08/2026** — decisão do usuário via painel (botão "Salvar meu teto padrão"), confirmada no chat de planejamento na mesma data. Motivo: dado real recente mostrava pernas a R$242–248, ou seja, o R$250 antigo estava colado demais no preço real, sem margem. **A gravação de 04/08 não persistiu** (auditoria de `weekend_leg_ceiling_audit` mostra sequência de saves na mesma sessão, 250→300→310→250, terminando em 250 — não um bug de gravação/RLS, o próprio usuário regravou por cima). **Corrigido manualmente em 05/08/2026** (novo save de 300, auditoria com linha única 250→300). **Verificado em produção em 06/08/2026**: execução real do robô (20/20 pernas checadas) registrou todas as 22 ocorrências de teto no log em R$300, nenhuma em R$250 — fecha o ciclo aberto pelo incidente de gravação.
   - **A gravação de 04/08/2026 não persistiu como 300 na primeira tentativa.** `weekend_leg_ceiling_audit` mostra sequência de saves na mesma sessão (250→300→310→250), terminando em 250 — não um bug de gravação/RLS, e sim a última ação da sessão ter sido um valor diferente do pretendido. Só descoberto em 05/08/2026, durante a verificação de produção das pendências 6/7/8/9 (abaixo): o robô comparava corretamente com o teto efetivo, mas o teto efetivo em si era 250, não 300 — a fila de pernas na faixa R$250–300 continuou sem alertar por mais um dia. **Corrigido manualmente em 05/08/2026** (novo save de 300 no painel, confirmado via `weekend_leg_ceiling_audit` com linha única `250→300`).
+  - **⚠️ R$300 NÃO É MAIS O VALOR EFETIVO EM PRODUÇÃO (achado de 24/08/2026).**
+    Consulta read-only direta a `alert_log`/`weekend_leg_effective` mostrou o
+    teto de Elton em **R$500** de forma consistente entre 17/08 e 24/08, e o
+    de Gustavo variando por perna (R$400/R$500). Causa não investigada — ver
+    a "PERGUNTA ABERTA" correspondente na seção 4 (Bloqueios) para o detalhe
+    completo e as hipóteses. Este bloco (recalibração 04-06/08) fica como
+    registro histórico correto do que aconteceu naquelas datas — só deixou de
+    descrever o valor vigente hoje.
 - **DECIDIDO (chat de planejamento, 11/08/2026): o Telegram passa a respeitar a janela de compra (fins de semana ≥ 29/01/2027) nos dois caminhos onde hoje não respeita.**
   - **(a) Alerta de oportunidade** (`weekend_opportunity_pct`) — hoje dispara por queda percentual contra a média histórica, independentemente do teto e da janela de compra. Passa a disparar só para pernas de fins de semana ≥ 29/01/2027.
   - **(b) Resumo semanal** ("Resumo semanal — pernas RIO↔BSB") — as duas listas ("Mais baratas agora" e "Mais próximas") passam a considerar só pernas ≥ 29/01/2027, e o denominador do contador ("X de N pernas compradas") deixa de ser 132 fixo e passa a contar só as pernas dentro da janela de compra — mesma regra que o Dashboard já usa pra progresso/orçamento desde 28/07/2026 (não hardcodar um número novo; confirmar o valor real na implementação, não estimar agora).
@@ -864,21 +903,34 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
   agendado (suspeita não confirmada: `workflow_dispatch` acionado por push de
   sessão de trabalho) — leia junto com a pergunta aberta de 11/08/2026 sobre a
   "execução extra do dia", logo acima, que é do mesmo tema.
-- **PERGUNTA ABERTA, REGISTRADA 17/08/2026 — o `reason` do primeiro alerta
-  real cita meta de R$ 500, mas o teto padrão registrado é R$ 300.** As 3
-  linhas de `alert_log` de 17/08 08h–09h BRT trazem
-  `reason = 'abaixo da meta fixa (R$ 500.0)'`, e o alerta disparou a R$ 334 —
-  o que a R$300 não teria acontecido. Só que o teto padrão registrado neste
-  arquivo e no `PLANO-ATIVO.md` é **R$ 300** (recalibração de 04-05/08/2026,
-  verificada em produção em 06/08), e é R$300 que aparece nos logs das três
-  execuções da E7-5 ("2 usuários, menor teto R$ 300"). **Divergência
-  registrada como fato, sem causa investigada** — hipóteses não conferidas:
-  override por perna em `weekend_leg_user_state`, novo save do teto padrão via
-  painel (há precedente: o incidente de gravação de 04/08), ou outra coisa.
-  **Não afeta a confirmação do item 5 da D4**, que é sobre `user_id` e não
-  sobre qual teto foi usado. **Sem ação agora** — conferir em sessão futura
-  (`weekend_leg_effective` e `weekend_leg_ceiling_audit` respondem) antes de
-  tirar conclusão, e antes de qualquer recalibração de teto.
+- **PERGUNTA ABERTA DE 17/08/2026, AMPLIADA POR EVIDÊNCIA REAL EM
+  24/08/2026 — o teto R$300 documentado NÃO é o teto efetivo em produção.**
+  Origem: o `reason` do primeiro alerta real (17/08 08h–09h BRT) citava
+  `'abaixo da meta fixa (R$ 500.0)'`, divergindo do teto documentado (R$300,
+  recalibração de 04-05/08, verificada em produção em 06/08). Na época,
+  registrado como "sem causa investigada".
+  **Confirmado em 24/08/2026 por consulta read-only direta a `alert_log` +
+  `weekend_leg_effective`** (pedida para calibrar a margem do gatilho do
+  radar de calendário — ver bloco de sessão no topo deste arquivo): o teto
+  de Elton (`c72bf50e…`) é **R$500 de forma consistente em toda a amostra**,
+  de 17/08 a 24/08 (8 dias, várias pernas diferentes) — não é ruído nem
+  override pontual de uma perna, é o valor efetivo real, e já era R$500 desde
+  pelo menos 17/08 (o `reason` histórico da época já dizia R$500). O teto de
+  Gustavo (`2446ec67…`) **varia por perna** — R$500 numa, R$400 noutra —
+  divergindo da FECHADA-1 ("R$300, igual ao do Elton, explícito no insert da
+  E7-2"). **Causa ainda não investigada** — hipóteses seguem as mesmas:
+  `weekend_default_ceiling` recalibrado de novo via painel sem registro
+  (precedente: o incidente de gravação de 04/08), overrides por perna em
+  `weekend_leg_user_state`, ou combinação dos dois (mais provável para o
+  Gustavo, cujo valor não é uniforme). **Não afeta a confirmação do item 5 da
+  D4** (é sobre `user_id`, não sobre qual teto foi usado) **nem a conclusão
+  da E7-5** (fan-out confirmado independente do valor do teto). **Consequência
+  prática nova:** qualquer calibração de margem para o gatilho do radar de
+  calendário (Etapa 0 → próxima fatia, ver plano em revisão) precisa esperar
+  essa causa ser entendida — calibrar contra R$300 calibraria contra um valor
+  que não está em uso. **Sem ação de correção agora** — só leitura adicional
+  de `weekend_leg_ceiling_audit` (histórico de mudanças de teto, com origem)
+  resolve isso; não tentar deduzir a causa sem essa leitura.
 
 ## 5. Fora de escopo (lembrete de disciplina)
 
