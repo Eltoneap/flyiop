@@ -1,7 +1,42 @@
 # STATE.md — FlyIop
 
-> Atualizado em: 17/08/2026
-> Última sessão: Claude Code (17/08/2026, documentação apenas) — **item 5 da
+> Atualizado em: 24/08/2026
+> Última sessão: Claude Code (24/08/2026, documentação de fechamento) —
+> **Etapa 0 (validação da grade de calendário via `fli`) CONCLUÍDA com
+> sucesso.** Rodada real em produção (`workflow_dispatch`, 24/08/2026 21:08
+> BRT) contra o mesmo commit pinado da `fli` já usado por `src/live_check.py`.
+> **7 achados confirmados:** (1) `SearchDates` (endpoint de calendário do
+> Google Flights) devolve o MESMO preço que `SearchFlights` (fonte atual),
+> 0,0% de diferença em 6 comparações, inclusive a 292 dias de distância; (2)
+> custo medido — 1 bloco de 61 dias = 1 requisição real, ~20 requisições pra
+> cobrir a janela útil inteira nas 4 direções (GIG/SDU↔BSB), ~80/dia se
+> rodado 4x/dia, contra ~20/dia do lote atual, mas cobrindo o horizonte
+> inteiro disponível a cada passada; (3) **teto real de 305 dias** — a
+> própria lib não busca além disso, degrada pra vazio sem erro; NÃO é bug
+> corrigível, são datas que nenhuma companhia ainda abriu pra venda em
+> lugar nenhum; (4) paralelismo interno da lib é evitável fatiando
+> manualmente em blocos <=61 dias — compatível com a regra de "sequencial,
+> sem paralelismo"; (5) round-trip via `SearchDates` funciona, com
+> confirmação cruzada de consistência contra `SearchFlights`; (6) **bug real
+> na versão pinada da `fli`:** `Airport.RIA` é alias silencioso de
+> `Airport.AJU` (Aracaju, cidade errada) — RIA não é utilizável com esta
+> versão sem corrigir o alias; (7) `price_insights` não existe nessa versão.
+> **Decisão de arquitetura registrada (não implementada ainda):** dois
+> níveis — RADAR (`SearchDates`, alta frequência, barato, cobre ~305 dias)
+> + PRECISÃO (`SearchFlights`, roda só nas datas que o radar apontar perto
+> do teto). Amplia a cobertura real de ~6 para ~10 meses efetivos a partir
+> de qualquer "hoje", sem mudar o formato do que o usuário recebe.
+> Reavaliação (não cancelamento) da linha Apify Tipo B registrada — decisão
+> final na próxima conversa. **Só validação, nada em produção mudou:**
+> `scripts/etapa0_validacao/` fica no repo como registro histórico, fora do
+> pipeline; `src/live_check.py` intocado. **Próxima fatia: desenhar e
+> implementar o radar de calendário** (substituindo ou complementando o
+> lote rotativo — a decidir), ainda sem prompt escrito. Detalhe completo em
+> `HISTORICO.md`, item 24, e `PLANO-ATIVO.md`, "Etapa 0" (fechada, só
+> ponteiro). Commit `9f82096` (código + workflow) publicado em 24/08/2026;
+> esta sessão só editou documentação (`HISTORICO.md`, `STATE.md`,
+> `PLANO-ATIVO.md`), nenhum código tocado.
+> Sessão anterior: Claude Code (17/08/2026, documentação apenas) — **item 5 da
 > verificação pós-deploy da D4 CONFIRMADO por prova direta de banco: o gate
 > estrutural da Etapa 7 está CUMPRIDO.** Um alerta de perna disparou sozinho
 > em produção às ~08h16 BRT de 17/08 (fim de semana de 29/01/2027, volta,
@@ -420,6 +455,23 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 
 ## 2. Decisões vivas
 
+- **Grade de calendário (`fli.search.dates.SearchDates`) validada com sucesso
+  em produção — Etapa 0, 24/08/2026.** Devolve o mesmo preço que a consulta
+  pontual atual (`SearchFlights`), 0,0% de diferença. **Propriedade conhecida
+  do sistema, não bug:** a lib não busca além de hoje+305 dias — degrada pra
+  lista vazia, sem erro; datas além disso ainda não foram abertas pra venda
+  por nenhuma companhia, em nenhuma fonte. **Decisão de arquitetura
+  registrada, implementação ainda não iniciada:** dois níveis — RADAR
+  (`SearchDates`, varre ~305 dias várias vezes ao dia, fatiado manualmente em
+  blocos <=61 dias, sequencial) + PRECISÃO (`SearchFlights`, só nas datas que
+  o radar apontar perto do teto). Detalhe completo em `HISTORICO.md`, item 24.
+- **Limitação conhecida e não corrigida: `Airport.RIA` não é utilizável com a
+  versão pinada da `fli`.** `Airport.RIA` é alias silencioso de `Airport.AJU`
+  (Aracaju, cidade diferente) na tabela de aeroportos da lib — qualquer
+  consulta por "RIA" na prática busca Aracaju, sem erro. Achado na Etapa 0
+  (24/08/2026); não afeta produção hoje (RIA→BSB já não tinha cobertura desde
+  18/07/2026, por motivo então não diagnosticado — ver `HISTORICO.md`, item 1).
+  Corrigir exige patch local ou reportar upstream; sem decisão de fazer isso.
 - **Fonte de preço primária: `fli`, não `fast-flights`.**
   Motivo: `fast-flights` lia um payload SSR do Google que divergia do preço real (confirmado com bug de quase 2x); `fli` acessa o endpoint interno diretamente e bate com o navegador real.
 - **Modelo de dados: pernas desacopladas (ida e volta compradas/monitoradas independentemente), não pacote casado.**
@@ -706,6 +758,14 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
    fan-out. **Próximo passo real da etapa: aguardar/observar uma execução em
    que os dois usuários disparem**, depois E7-6 (painel do Gustavo) e E7-7
    (fechamento e higiene).
+
+8. **Etapa 0 (validação da grade de calendário) — ✅ CONCLUÍDA (24/08/2026).**
+   Ver seção 2, "Decisões vivas", e `HISTORICO.md`, item 24. **Próxima
+   fatia, ainda sem prompt escrito:** desenhar e implementar o radar de
+   calendário (`SearchDates`), substituindo ou complementando o lote
+   rotativo atual de `src/live_check.py` — decisão de qual dos dois modelos
+   (substituição vs. complemento) fica para a próxima conversa de
+   planejamento, não decidida nesta rodada de documentação.
 
 ## 4. Bloqueios / perguntas em aberto
 
