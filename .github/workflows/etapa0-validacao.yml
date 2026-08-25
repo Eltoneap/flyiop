@@ -1,0 +1,28 @@
+name: Etapa 0 — validação da grade de calendário (fli)
+
+# Disparo manual APENAS (Etapa 0 de VALIDAÇÃO, 23/08/2026): sem cron e sem
+# push, mesmo padrão de validate_fastflights.yml/validate_rio.yml. Roda
+# scripts/etapa0_validacao/*.py — não escrevem no Supabase, não disparam
+# alerta no Telegram, não importam nada de src/. Não usa nenhum secret do
+# Supabase (sem SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY) — o job não tem
+# acesso a escrita nem leitura no banco.
+on:
+  workflow_dispatch:
+
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Mesma dependência já pinada em produção (fli via requirements.txt) —
+      # nenhum secret novo, nenhuma lib nova.
+      - run: pip install -r requirements.txt
+
+      - run: python scripts/etapa0_validacao/grade_calendario.py
+
+      - run: python scripts/etapa0_validacao/custo_projetado.py

@@ -2557,3 +2557,57 @@ coluna e o default somem com o `DROP` do Passo 3.
   gravava no Supabase, disparava Telegram) a cada commit em `src/**`. O
   `README.md` ficou descrevendo funcionalidade inexistente. Não corrigido
   agora — decisão de escopo, não desta iniciativa.
+
+---
+
+## Etapa 0 — validação da grade de calendário (fli), 23/08/2026
+
+Sessão de validação isolada (Plan Mode), separada de qualquer iniciativa em
+andamento. **Objetivo:** responder com evidência real se
+`fli.search.dates.SearchDates` (endpoint de calendário do Google Flights,
+`GetCalendarGraph`) é viável como substituto/complemento do lote atual de
+consultas pontuais (`src/live_check.py`), antes de decidir qualquer
+implementação. **Não toca produção:** scripts vivem fora de `src/`
+(`scripts/etapa0_validacao/`), não escrevem no Supabase, não disparam
+Telegram, e rodam só via `.github/workflows/etapa0-validacao.yml`
+(`workflow_dispatch` manual, sem cron/push, sem secrets do Supabase).
+
+**O que valida (5 perguntas):**
+- (a) SearchDates devolve o mesmo preço que SearchFlights pra mesma
+  data/rota? Testado em 3 checkpoints por rota (dentro da janela ao vivo de
+  183 dias, além dela, e perto do teto da própria SearchDates).
+- (b) Quantas requisições HTTP reais o particionamento da lib dispara, e o
+  particionamento é compatível com a regra de "sequencial, sem paralelismo"
+  do projeto?
+- (c) Busca round-trip com duração fixa funciona via SearchDates?
+- (d) RIA (Santa Maria) tem cobertura?
+- (e) Existe algo equivalente a "price_insights" na versão pinada?
+
+**Achados já confirmados na validação de código (sem depender do resultado
+real da execução do workflow):**
+1. **Paralelismo é evitável, não uma limitação estrutural.**
+   `SearchDates.search` só aciona `ThreadPoolExecutor`/`parallel_map` quando
+   o INTERVALO PEDIDO passa de 61 dias numa única chamada — confirmado lendo
+   `fli/search/dates.py` diretamente. Fatiando manualmente em blocos <=61
+   dias e chamando em sequência (mesmo padrão de espaçamento ~2,5s de
+   `src/live_check.py`), o caminho é compatível com a regra do projeto.
+2. **Teto de 305 dias.** O próprio docstring da lib documenta que não busca
+   mais que 305 dias no futuro — a janela útil da grade de calendário NÃO é
+   o intervalo do projeto inteiro (~16 meses), é hoje até hoje+305 dias.
+   Isso muda o cálculo de blocos necessários (5, não 8) e limita
+   estruturalmente até onde a grade de calendário poderia cobrir a série de
+   66 fins de semana (que vai até 03/12/2027, além do teto).
+3. **Bug real na versão pinada da `fli` (não é bug do projeto):**
+   `Airport.RIA` é ALIAS silencioso de `Airport.AJU` (Aracaju — cidade
+   diferente) — os dois têm o mesmo valor descritivo ("Santa Maria Airport")
+   na tabela de aeroportos da lib, e o Python `Enum` colapsa valores
+   duplicados no primeiro nome definido. Qualquer `getattr(Airport, "RIA")`
+   consulta Aracaju de verdade, sem erro nem aviso. Confirmado que GIG, SDU,
+   BSB, POA, CGH, GRU, CNF, FLN e IGU não têm esse problema — é isolado a
+   RIA. O script de diagnóstico detecta e reporta isso em vez de rodar a
+   consulta com o alias errado.
+
+**Não faz parte desta etapa:** Apify/Skyscanner (script separado, só quando
+o token de API estiver em mãos) e qualquer decisão de adoção — a Etapa 0 só
+reúne evidência; decisão de implementar (ou não) fica pra depois, com o
+resultado real da execução em mãos.
