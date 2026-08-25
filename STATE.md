@@ -1,7 +1,29 @@
 # STATE.md — FlyIop
 
 > Atualizado em: 24/08/2026
-> Última sessão: Claude Code (24/08/2026, Plan Mode + correção de
+> Última sessão: Claude Code (24/08/2026, Plan Mode, leitura read-only) —
+> **Divergência de teto R$500/R$300 RESOLVIDA: não é bug, é override por
+> perna via painel, usado ativamente pelos dois usuários.** Leitura direta de
+> `weekend_leg_ceiling_audit` (histórico completo, pedida para calibrar a
+> margem do gatilho do radar de calendário) mostrou que os defaults nunca
+> divergiram (Elton R$300 desde 05/08, Gustavo R$300 desde 16/08 — ambos
+> batendo com o documentado); o que mudou foi por perna, pelo próprio painel:
+> Elton elevou 8 pernas para R$500 em 15-16/08 (todas próximas do início da
+> janela de compra, 29/01-14/02/2027 — priorização manual do que pretende
+> comprar em breve, já que o preço real ~R$316-350 estava perto demais do
+> teto de R$300); Gustavo fez o mesmo em 18/08 e 24/08 (3 pernas R$500, 1
+> R$400). Mecanismo de override por perna (Etapa 4.2) funcionando como
+> projetado — só não tinha sido observado em uso real. Detalhe completo
+> (todas as 26 linhas de auditoria, com data/origem/valor) em "Decisões
+> vivas" (seção 2) e "Bloqueios" (seção 4), ambas as pendências agora
+> fechadas. **Consequência para o radar de calendário:** confirma que o
+> gatilho da precisão deve ler o teto vivo por perna (o MAIOR entre usuários
+> que monitoram), não um valor assumido — a calibração da margem pode
+> prosseguir. Nenhuma escrita em produção — só leitura, via SQL Editor,
+> rodado manualmente pelo usuário. Nenhuma decisão do plano do radar
+> (7 pontos em aberto, `PLANO-ATIVO.md` ainda não tocado por esta fatia) foi
+> tomada nesta sessão.
+> Sessão anterior: Claude Code (24/08/2026, Plan Mode + correção de
 > documentação) — **E7-5 CONFIRMADA por evidência real de banco, corrigindo
 > uma reclassificação incorreta feita mais cedo na mesma sessão.** O pedido
 > original era desenhar (Plan Mode, sem código) o radar de calendário
@@ -524,14 +546,24 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 - **Config de sistema (`suspicious_below_avg_pct`, `fast_flights_enabled`, `fast_flights_daily_batch_size`) vive em `system_config`, linha única sem dono — não em `settings`** (Etapa 3 multi-usuário, concluída e **confirmada em produção 30/07/2026** — a implementação foi commitada/pushada em 29/07/2026, mas só rodou de fato depois da correção do bug de agendamento acima, que afetava a mesma execução). Motivo: essas 3 colunas já eram tratadas como globais pelo backend mesmo `settings` sendo per-user — risco real de um segundo usuário sobrescrever o kill-switch ou o limiar de suspeita de todo mundo sem perceber. Edição é 100% manual via SQL Editor do Supabase agora (sem UI, sem policy de update liberada) — procedimento em `RUNBOOK.md`. As 3 colunas antigas continuam em `settings`, intocadas e sem uso (Etapa 3b de remoção fica para depois de alguns dias de produção estável).
 - **Teto padrão (`settings.weekend_default_ceiling`) recalibrado de R$250 para R$300 em 04/08/2026** — decisão do usuário via painel (botão "Salvar meu teto padrão"), confirmada no chat de planejamento na mesma data. Motivo: dado real recente mostrava pernas a R$242–248, ou seja, o R$250 antigo estava colado demais no preço real, sem margem. **A gravação de 04/08 não persistiu** (auditoria de `weekend_leg_ceiling_audit` mostra sequência de saves na mesma sessão, 250→300→310→250, terminando em 250 — não um bug de gravação/RLS, o próprio usuário regravou por cima). **Corrigido manualmente em 05/08/2026** (novo save de 300, auditoria com linha única 250→300). **Verificado em produção em 06/08/2026**: execução real do robô (20/20 pernas checadas) registrou todas as 22 ocorrências de teto no log em R$300, nenhuma em R$250 — fecha o ciclo aberto pelo incidente de gravação.
   - **A gravação de 04/08/2026 não persistiu como 300 na primeira tentativa.** `weekend_leg_ceiling_audit` mostra sequência de saves na mesma sessão (250→300→310→250), terminando em 250 — não um bug de gravação/RLS, e sim a última ação da sessão ter sido um valor diferente do pretendido. Só descoberto em 05/08/2026, durante a verificação de produção das pendências 6/7/8/9 (abaixo): o robô comparava corretamente com o teto efetivo, mas o teto efetivo em si era 250, não 300 — a fila de pernas na faixa R$250–300 continuou sem alertar por mais um dia. **Corrigido manualmente em 05/08/2026** (novo save de 300 no painel, confirmado via `weekend_leg_ceiling_audit` com linha única `250→300`).
-  - **⚠️ R$300 NÃO É MAIS O VALOR EFETIVO EM PRODUÇÃO (achado de 24/08/2026).**
-    Consulta read-only direta a `alert_log`/`weekend_leg_effective` mostrou o
-    teto de Elton em **R$500** de forma consistente entre 17/08 e 24/08, e o
-    de Gustavo variando por perna (R$400/R$500). Causa não investigada — ver
-    a "PERGUNTA ABERTA" correspondente na seção 4 (Bloqueios) para o detalhe
-    completo e as hipóteses. Este bloco (recalibração 04-06/08) fica como
-    registro histórico correto do que aconteceu naquelas datas — só deixou de
-    descrever o valor vigente hoje.
+  - **✅ RESOLVIDO (24/08/2026) — o DEFAULT continua R$300; o que varia são
+    overrides por perna, uso legítimo do painel.** Leitura direta de
+    `weekend_leg_ceiling_audit` (histórico completo, `scope`/`origin`
+    presentes) confirmou: a última linha `scope='default'` do Elton segue
+    sendo `250→300` em 05/08/2026 (nunca mais tocada); a única linha
+    `scope='default'` do Gustavo é `null→300` em 16/08/2026 via `sql_editor`
+    (a própria E7-2, FECHADA-1) — **os dois defaults batem exatamente com o
+    documentado, sem mudança silenciosa.** O que mudou foi **por perna**, via
+    painel (`origin='app'`, `changed_by` = o próprio usuário): Elton elevou 8
+    pernas específicas para R$500 em 15-16/08 — todas próximas do início da
+    janela de compra (29/01-14/02/2027), consistente com priorização manual
+    do que pretende comprar em breve, já que o preço real (~R$316-350) estava
+    perto demais do teto de R$300; Gustavo fez o mesmo em 18/08 e 24/08 (3
+    pernas em R$500, 1 em R$400). **Não é bug, não é pendência** — é o
+    mecanismo de override por perna (Etapa 4.2) funcionando como projetado,
+    só não tinha sido observado em uso real até esta leitura. Detalhe
+    completo (todas as linhas, com data e valor) na "PERGUNTA" correspondente
+    na seção 4 (Bloqueios), agora fechada.
 - **DECIDIDO (chat de planejamento, 11/08/2026): o Telegram passa a respeitar a janela de compra (fins de semana ≥ 29/01/2027) nos dois caminhos onde hoje não respeita.**
   - **(a) Alerta de oportunidade** (`weekend_opportunity_pct`) — hoje dispara por queda percentual contra a média histórica, independentemente do teto e da janela de compra. Passa a disparar só para pernas de fins de semana ≥ 29/01/2027.
   - **(b) Resumo semanal** ("Resumo semanal — pernas RIO↔BSB") — as duas listas ("Mais baratas agora" e "Mais próximas") passam a considerar só pernas ≥ 29/01/2027, e o denominador do contador ("X de N pernas compradas") deixa de ser 132 fixo e passa a contar só as pernas dentro da janela de compra — mesma regra que o Dashboard já usa pra progresso/orçamento desde 28/07/2026 (não hardcodar um número novo; confirmar o valor real na implementação, não estimar agora).
@@ -903,34 +935,36 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
   agendado (suspeita não confirmada: `workflow_dispatch` acionado por push de
   sessão de trabalho) — leia junto com a pergunta aberta de 11/08/2026 sobre a
   "execução extra do dia", logo acima, que é do mesmo tema.
-- **PERGUNTA ABERTA DE 17/08/2026, AMPLIADA POR EVIDÊNCIA REAL EM
-  24/08/2026 — o teto R$300 documentado NÃO é o teto efetivo em produção.**
-  Origem: o `reason` do primeiro alerta real (17/08 08h–09h BRT) citava
-  `'abaixo da meta fixa (R$ 500.0)'`, divergindo do teto documentado (R$300,
-  recalibração de 04-05/08, verificada em produção em 06/08). Na época,
-  registrado como "sem causa investigada".
-  **Confirmado em 24/08/2026 por consulta read-only direta a `alert_log` +
-  `weekend_leg_effective`** (pedida para calibrar a margem do gatilho do
-  radar de calendário — ver bloco de sessão no topo deste arquivo): o teto
-  de Elton (`c72bf50e…`) é **R$500 de forma consistente em toda a amostra**,
-  de 17/08 a 24/08 (8 dias, várias pernas diferentes) — não é ruído nem
-  override pontual de uma perna, é o valor efetivo real, e já era R$500 desde
-  pelo menos 17/08 (o `reason` histórico da época já dizia R$500). O teto de
-  Gustavo (`2446ec67…`) **varia por perna** — R$500 numa, R$400 noutra —
-  divergindo da FECHADA-1 ("R$300, igual ao do Elton, explícito no insert da
-  E7-2"). **Causa ainda não investigada** — hipóteses seguem as mesmas:
-  `weekend_default_ceiling` recalibrado de novo via painel sem registro
-  (precedente: o incidente de gravação de 04/08), overrides por perna em
-  `weekend_leg_user_state`, ou combinação dos dois (mais provável para o
-  Gustavo, cujo valor não é uniforme). **Não afeta a confirmação do item 5 da
-  D4** (é sobre `user_id`, não sobre qual teto foi usado) **nem a conclusão
-  da E7-5** (fan-out confirmado independente do valor do teto). **Consequência
-  prática nova:** qualquer calibração de margem para o gatilho do radar de
-  calendário (Etapa 0 → próxima fatia, ver plano em revisão) precisa esperar
-  essa causa ser entendida — calibrar contra R$300 calibraria contra um valor
-  que não está em uso. **Sem ação de correção agora** — só leitura adicional
-  de `weekend_leg_ceiling_audit` (histórico de mudanças de teto, com origem)
-  resolve isso; não tentar deduzir a causa sem essa leitura.
+- **✅ RESOLVIDA (24/08/2026) — divergência R$500/R$300 explicada por
+  overrides legítimos por perna, não por bug ou recalibração perdida.**
+  Origem (17/08/2026): o `reason` do primeiro alerta real citava
+  `'abaixo da meta fixa (R$ 500.0)'`, divergindo do teto documentado (R$300).
+  Ampliado em 24/08/2026 por uma primeira consulta (`alert_log` +
+  `weekend_leg_effective`) que só confirmava a divergência sem explicar a
+  causa. **Fechada pela leitura direta de `weekend_leg_ceiling_audit`**
+  (histórico completo com `scope`, `origin`, `changed_by`):
+  - **Os defaults (`scope='default'`) NUNCA divergiram do documentado.** Elton:
+    última linha `250→300` em 05/08/2026, nunca mais tocada. Gustavo: única
+    linha `null→300` em 16/08/2026 via `sql_editor` (a própria E7-2,
+    FECHADA-1). Batem exatamente com `STATE.md`/`PLANO-ATIVO.md`.
+  - **O que mudou foi por perna (`scope='leg'`), via painel (`origin='app'`,
+    `changed_by` = o próprio dono).** Elton elevou 8 pernas para R$500 em
+    15-16/08/2026 (`fd14836b`, `57834f25`, `c3c514ac`, `b4f28800`, `d7bf81ee`,
+    `308f98e9`, `95b0bcab`, `16bff1f8`) — todas próximas do início da janela
+    de compra (29/01-14/02/2027), consistente com priorizar manualmente o que
+    pretende comprar em breve, já que o preço real (~R$316-350) estava perto
+    demais do teto de R$300. Gustavo fez o mesmo em 18/08 e 24/08 (3 pernas em
+    R$500, 1 — `b4f28800` — em R$400).
+  - **Conclusão: não é bug, não é pendência.** É o mecanismo de override por
+    perna (Etapa 4.2, em produção desde 04/08) sendo usado ativamente pelos
+    dois usuários, exatamente como projetado — só não tinha sido observado em
+    uso real antes desta leitura.
+  - **Consequência para o radar de calendário:** confirma que a decisão do
+    plano em revisão (gatilho da precisão deve usar o MAIOR teto entre
+    usuários, lido ao vivo por perna — não `queue_ceiling`, que é MIN, nem um
+    valor único assumido) está certa. Os tetos reais variam bastante por
+    perna (R$229 a R$555 no histórico do Elton) e mudam com frequência — a
+    calibração da margem pode prosseguir sem depender de mais nenhuma leitura.
 
 ## 5. Fora de escopo (lembrete de disciplina)
 
