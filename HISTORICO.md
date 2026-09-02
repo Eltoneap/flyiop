@@ -445,3 +445,32 @@ Não muda o formato do que o usuário recebe (mesmo alerta, mesmo bot, mesmo sit
 **Consequência sobre a linha Apify Tipo B (Skyscanner via token móvel):** discutida e pré-aprovada em conversa anterior como override consciente, ainda **não implementada**. Com a `fli` sozinha entregando frequência alta e cobertura real ampliada sem custo e sem risco de evasão, a necessidade do Tipo B enfraqueceu bastante. Registrado como **reavaliação, não cancelamento definitivo** — decisão final cabe à próxima conversa de planejamento.
 
 **Status: validação concluída, NÃO é implementação.** `scripts/etapa0_validacao/` continua no repositório como registro histórico da validação, mas não faz parte do pipeline de produção — `src/live_check.py` segue rodando exatamente como antes desta etapa. Desenhar e implementar o radar de calendário (substituindo ou complementando o lote rotativo atual — decisão que fica para a próxima conversa de planejamento) é a próxima fatia. Detalhe completo da revisão (4 rodadas de correção antes da execução real) e o fechamento formal da etapa em `PLANO-ATIVO.md`, seção "Etapa 0".
+
+---
+
+## 25. Falso bloqueio diário do lote `fli` — diagnóstico e correção de roteamento, 01/09/2026
+
+**Sintoma:** desde que `radar_enabled` foi ligado em produção, toda execução mandava no Telegram o alerta "🚫 Consulta ao vivo bloqueada". 6 execuções entre 29/08 e 01/09/2026, todas iguais.
+
+**Prova de que não era bloqueio real da fonte:** no MESMO run em que o lote reportava `BLOQUEADO` após 5 consultas sem preço, o `radar_check.py` completava 24/24 blocos sem nenhuma anomalia, e a camada de precisão — que usa `SearchFlights`, exatamente a mesma chamada do lote — trazia preço em 100% das candidatas testadas. Uma fonte bloqueada não responde a três caminhos e falha só no do meio.
+
+**Causa raiz — roteamento, não fonte.** Cadeia completa, confirmada por leitura de código:
+
+1. `batch_regime` (`src/live_check.py`) devolvia `'price'` — "o lote `fli` é a fonte de preço desta perna" — para toda perna com `travel_date > hoje + RADAR_COVERAGE_WINDOW_DAYS` (305 dias). Ou seja, mandava pro lote justamente as pernas **mais distantes**.
+2. Mas os 305 dias são o teto real **da fonte**, não só do radar: `SearchDates` e `SearchFlights` batem no mesmo endpoint do Google e têm o mesmo limite (item 24, resultado 3 desta lista). Além dele a resposta **degrada para vazia, sem erro**.
+3. Pernas em regime `'price'` ordenam **primeiro** no lote (`regime_rank = 0` em `sort_key`), então ocupavam todos os 20 slots do `batch_size` antes de qualquer perna consultável.
+4. `check_live_price` devolve `None` tanto para exceção quanto para resposta vazia, e `check_and_evaluate_leg` traduz `None` em `ok=False`. Cinco `ok=False` seguidos disparam `BLOCK_STREAK_THRESHOLD`.
+
+Aritmética sobre o seed real (`sql/alvo_fins_de_semana.sql`, 66 fins de semana / 132 pernas), medida em 01/09/2026: **87 pernas com data dentro dos 305 dias, 45 fora**. As 45 fora — mais que o dobro do `batch_size` — enchiam a fila inteira todo dia. O lote nunca alcançava uma perna que a fonte soubesse responder.
+
+O "87 dentro" é contagem **geométrica** (quantas pernas têm `travel_date` dentro do horizonte, olhando só as datas) — não é o número que efetivamente entra no lote como `'metadata'` num dia qualquer, porque isso também depende de `last_live_check_at` (pernas checadas há menos de `RADAR_METADATA_REFRESH_DAYS` viram `None`, não `'metadata'`) e varia dia a dia conforme a rotação avança. O log real de 01/09/2026 mostrou **69** elegíveis a refresh de metadado naquele dia específico, não 87 — os dois números não divergem, medem coisas diferentes. **O que é estável e serve de critério de verificação é `45 além do alcance` (constante até as datas mais próximas entrarem na janela, ~2/semana) e a ausência de `BLOQUEADO`** — não o número de elegíveis do dia.
+
+O nome da constante foi o vetor do erro de design: `RADAR_COVERAGE_WINDOW_DAYS` sugere "alcance do radar" (donde "fora do radar ⇒ o lote cobre"), quando o valor é o teto **da fonte** — fora dele nada cobre.
+
+**Decisão (Opção A):** perna além de `RADAR_COVERAGE_WINDOW_DAYS` não entra em consulta ao vivo nenhuma — nem lote `fli`, nem radar — até a data entrar no alcance. Fica sem preço até lá, que já era a realidade: o dado não existe em nenhuma fonte (item 24, resultado 3: são datas que as companhias ainda não abriram para venda). `batch_regime` passou a devolver `None` nesse ramo.
+
+**Não alterado, por decisão consciente:** a semântica do detector de bloqueio. Foi avaliado separar "vazio válido" de "erro/exceção" dentro de `check_live_price`, e **recusado**: um bloqueio real do Google chega como resposta **vazia**, não como exceção — parar de contar vazio como falha cegaria o detector exatamente para o caso que ele existe para pegar. A causa dos vazios era de roteamento, e foi eliminada na origem; depois disso todo vazio volta a ser sinal legítimo. O outro caminho que chama `check_and_evaluate_leg` (precisão do radar, `src/main.py`) já filtra candidatas para `[hoje, hoje+305]` em `select_precision_candidates`, então não há segunda porta produzindo vazio estrutural.
+
+**Efeito colateral esperado, registrado e não corrigido aqui:** com o radar ligado, o lote `fli` passa a ser quase inteiramente refresh de metadado (`'metadata'`), e o preço fresco em `weekend_legs` passa a depender da camada de precisão do radar (7–10 pernas por run). Isso não foi causado por esta correção — ela só tornou visível que a lacuna "radar não escreve em `weekend_legs`" é o gargalo principal. Assunto de sessão própria (ver `PLANO-ATIVO.md`).
+
+**Verificação:** suíte local `python -m unittest discover tests -v`, **319 testes, todos verdes** (315 antes desta sessão; +4 casos novos, e 2 casos existentes que codificavam o comportamento antigo foram invertidos com docstring explicando o porquê). Simulação com o universo real de 132 pernas confirma: antes, lote de 20 pernas todas em regime `'price'` e todas além do horizonte; depois, lote de 20 pernas todas em regime `'metadata'` e todas dentro do horizonte.

@@ -2779,11 +2779,20 @@ comentário inline no código:**
 
 ### Verificação local (antes de qualquer commit)
 
-`python -m unittest discover tests -v` — **312 testes, incluindo os 267 já
+`python -m unittest discover tests -v` — **315 testes, incluindo os 267 já
 existentes sem NENHUMA alteração de asserção** (só 2 ajustes de mock para
 destravar chamada de rede não mockada, sem mudar o que é testado) — prova de
 que com `radar_enabled=false`/coluna ausente, o comportamento é idêntico ao
 de antes desta fatia em toda chamada existente.
+
+> **Correção de 01/09/2026:** esta linha dizia "312 testes". O número estava
+> errado desde que foi escrita — a própria mensagem do commit que a
+> introduziu (`f08ed68`) já dizia 315, e 315 é o que a suíte roda de fato
+> naquele commit. O **comando** está certo: `python -m unittest discover
+> tests -v` funciona. (`discover -s tests -t .` é que NÃO funciona, porque
+> com top-level `.` o diretório `tests/` precisaria ser um pacote
+> importável, e não tem `__init__.py`.) Contagem atual, depois da correção
+> do falso bloqueio: **319**.
 
 ### Pendente (fora do escopo desta sessão de código)
 
@@ -2796,3 +2805,106 @@ de antes desta fatia em toda chamada existente.
    contagem de pernas por regime), log `[radar] precisão: ...` (candidatas
    selecionadas) e o formato de divergência radar×precisão por candidata —
    nenhum desses foi visto em execução real ainda, só em teste local com mock.
+
+---
+
+## Falso bloqueio diário do lote `fli` — corrigido (01/09/2026)
+
+Diagnóstico completo, prova e aritmética: `HISTORICO.md`, item 25. Resumo do
+que ficou decidido, para não se perder:
+
+**O que era.** `batch_regime` mandava pro lote `fli` (regime `'price'`)
+justamente as pernas com data **além** do teto real da fonte (~305 dias).
+Elas ordenavam primeiro (`regime_rank = 0`), enchiam o `batch_size` inteiro,
+voltavam **vazias** (não com erro), e 5 vazios seguidos disparavam
+`BLOCK_STREAK_THRESHOLD` — alerta "🚫 Consulta ao vivo bloqueada" todo dia,
+com a fonte sadia. Em 01/09/2026: 45 das 132 pernas nessa situação, contra um
+`batch_size` de 20.
+
+**Opção A, implementada.** Perna além de `RADAR_COVERAGE_WINDOW_DAYS` não
+entra em consulta ao vivo nenhuma — nem lote, nem radar — até a data entrar
+no alcance. `batch_regime` devolve `None` nesse ramo. Fica sem preço até lá,
+o que já era a realidade (o dado não existe em fonte nenhuma).
+
+### Decisões deixadas em aberto — as duas com motivo registrado
+
+**1. Semântica do detector de bloqueio: NÃO mexer. Decisão consciente, não
+pendência.** Foi avaliado separar "vazio válido" de "erro/exceção" dentro de
+`check_live_price` (hoje os dois viram `None`, e `None` vira `ok=False`).
+**Recusado**, e o motivo é o ponto todo: **um bloqueio real do Google chega
+como resposta vazia, não como exceção.** Parar de contar vazio como falha
+cegaria o detector exatamente para o caso que ele existe para pegar — trocaria
+um falso positivo diário por um falso negativo silencioso, que é
+estritamente pior num sistema cujo contrato é "se bloquear, para e avisa,
+nunca contorna". A causa dos vazios era de roteamento e foi eliminada na
+origem; depois disso todo vazio volta a ser sinal legítimo. Só reabrir se
+aparecer um vazio estrutural por um caminho que a Opção A não cobre.
+
+**2. Renomear `RADAR_COVERAGE_WINDOW_DAYS`: adiada, não descartada.** O nome
+**foi a causa raiz do erro de design**, e vale registrar isso explicitamente:
+"RADAR_COVERAGE" sugere "alcance do radar", e daí a inferência que parecia
+óbvia e estava errada — *"fora do alcance do radar ⇒ o lote `fli` cobre"*.
+O valor nunca foi o alcance do radar: é o teto **da fonte** (`SearchDates` e
+`SearchFlights` batem no mesmo endpoint, mesmo limite — `HISTORICO.md` item
+24, resultado 3). Fora dele **nada** cobre. Um nome tipo
+`SOURCE_MAX_HORIZON_DAYS` teria tornado o ramo `return 'price'` obviamente
+absurdo na leitura. Adiado por ser cosmético e por obrigar a mexer no par
+sincronizado `RADAR_WINDOW_DAYS` de `radar_check.py` — os dois DEVEM mudar
+juntos. Enquanto não mudar, o comentário no corpo de `batch_regime` carrega o
+aviso.
+
+### Pendência nomeada — reset do streak de bloqueio em dia de lote vazio
+
+**Verificado por leitura em 01/09/2026, NÃO corrigido.** `run_daily_batch`
+(`src/live_check.py`) tem dois `return [], False` antecipados — kill-switch
+desligado (linha ~328) e lote vazio (linha ~336) — e os dois acontecem
+**antes** do bloco `else` que zera `weekend_block_streak` e manda
+`build_block_recovered_message` (linhas ~391-395); esse `else` só é
+alcançado depois do laço `for` do lote rodar até o fim, o que exige um
+`batch` não-vazio. Conferido também `main.py`: não existe nenhum outro ponto
+que resete o streak fora desse `else`.
+
+**Consequência:** esta mesma correção (Opção A) tornou o lote vazio um
+estado **normal e frequente** com radar ligado (toda perna dentro do
+horizonte já checada há menos de `RADAR_METADATA_REFRESH_DAYS`, e as de fora
+nunca entram). Se um dia de lote vazio acontecer logo depois de um dia
+bloqueado, o `weekend_block_streak` fica inflado e a mensagem de recuperação
+não sai — só quando, mais adiante, um lote não-vazio rodar com sucesso.
+Antes desta correção o lote vazio era raro (só quando não havia NENHUMA
+perna dentro de 183 dias), então a lacuna existia mas quase nunca era
+alcançada; agora fica bem mais provável de aparecer.
+
+**Não corrigido nesta sessão** — fica registrado para decisão em sessão
+própria: opções possíveis incluem zerar o streak também no ramo de lote
+vazio (trata "nada pra checar" como equivalente a "tudo saudável"), ou não
+mexer e aceitar que o streak só reflete o último lote que de fato rodou.
+
+### Observação para sessão própria — NÃO corrigir agora
+
+Depois desta mudança, com o radar ligado, o lote `fli` passa a ser **quase
+inteiramente refresh de metadado** (regime `'metadata'`: companhia e horário),
+e o **preço fresco em `weekend_legs` passa a depender inteiramente da camada
+de precisão do radar** — 7 a 10 pernas por run (`radar_precision_max_per_run`,
+default 10). Nada disso foi causado pela correção: o lote já não era fonte
+de preço confiável para essas pernas, só estava fazendo barulho. O que a
+correção fez foi tornar visível que a lacuna **"o radar descobre preço em
+lote mas não escreve em `weekend_legs`"** virou o gargalo principal do
+sistema — hoje a grade rica do radar só serve para escolher candidatas, e
+todo preço que chega ao painel ainda passa pelo funil estreito da precisão.
+Dimensionar isso (e decidir se o radar deve escrever preço direto, com que
+salvaguardas de avaliação de teto) é assunto de uma sessão de planejamento
+própria, não desta correção.
+
+### Ponto cego novo, menor — regime `'price'` com radar ligado ficou invisível no log
+
+Registrado, não corrigido. Com radar ligado, o único jeito de `batch_regime`
+ainda devolver `'price'` é o fallback de `except ValueError` (linha ~136,
+`travel_date` malformada em `leg_travel_date`) — o ramo por distância que
+antes devolvia `'price'` agora devolve `None`. A nova linha de log
+`[radar] regime: ...` não imprime mais `regime_counts['price']`: uma perna
+com data inválida entraria no lote normalmente (não é filtrada em lugar
+nenhum) e seria consultada, mas ficaria invisível nessa linha específica —
+só apareceria indiretamente pelo total processado em
+`[live-check] N/M pernas checadas`. Probabilidade baixa (exigiria dado
+corrompido no banco), mas é uma perda de observabilidade real introduzida
+por esta mudança.

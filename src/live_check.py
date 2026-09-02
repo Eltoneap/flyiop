@@ -123,7 +123,9 @@ def leg_travel_date(leg: dict) -> str:
 def batch_regime(leg: dict, today: date, radar_on: bool) -> str | None:
     """'price' (o lote descobre o preço, como sempre) | 'metadata' (o radar já
     descobre o preço desta perna; o lote só atualiza companhia/horário) |
-    None (não entra no lote hoje). Pura — decisão 1 do radar de calendário.
+    None (não entra no lote hoje — ou porque o radar já cobriu a perna há
+    pouco, ou porque a data está além do alcance da fonte). Pura — decisão 1
+    do radar de calendário.
 
     Sem radar (`radar_on=False`), toda perna é 'price' — comportamento
     idêntico ao de antes desta fatia, sempre, mesmo com a coluna
@@ -135,7 +137,16 @@ def batch_regime(leg: dict, today: date, radar_on: bool) -> str | None:
     except ValueError:
         return "price"
     if travel_date > today + timedelta(days=RADAR_COVERAGE_WINDOW_DAYS):
-        return "price"  # fora do alcance do radar — lote continua sendo a fonte
+        # Fora do alcance REAL DA FONTE, não só do radar: SearchDates e
+        # SearchFlights batem no MESMO endpoint e têm o MESMO teto de ~305
+        # dias (Etapa 0, HISTORICO.md item 24) — além disso a resposta degrada
+        # pra VAZIA, sem erro. Até 01/09/2026 este ramo devolvia 'price' e
+        # mandava justamente essas pernas pro lote fli: elas ordenavam
+        # primeiro (regime_rank=0 em sort_key), enchiam o batch inteiro, e as
+        # 5 primeiras respostas vazias disparavam BLOCK_STREAK_THRESHOLD —
+        # falso bloqueio diário com a fonte sadia. Nenhuma consulta ao vivo
+        # até a data entrar no alcance (Opção A, 01/09/2026).
+        return None
 
     last_check = leg.get("last_live_check_at")
     if not last_check:
@@ -153,10 +164,11 @@ def select_batch(system_settings: dict) -> list[dict]:
     (`radar_enabled=false`): dentro da janela de 6 meses, como sempre — o
     resto fica dormente. Com radar ligado: SEM esse teto de 6 meses — o
     universo inteiro de pernas ativas passa por `batch_regime`, que decide
-    por perna se o lote é a fonte de preço ('price', pernas além do alcance
-    do radar) ou só refresh de metadado ('metadata') ou nem entra hoje
-    (`None`) — é assim que a cobertura real de descoberta de preço sobe de
-    ~6 para ~10 meses (a extensão que motivou esta fatia).
+    por perna se ela entra só como refresh de metadado ('metadata') ou nem
+    entra hoje (`None`: já checada há pouco, ou além do alcance da fonte) —
+    é assim que a cobertura real de descoberta de preço sobe de ~6 para ~10
+    meses (a extensão que motivou esta fatia), com o RADAR descobrindo o
+    preço dentro dos ~305 dias e o lote só completando companhia/horário.
 
     Ordenadas por regime (preço antes de metadado), depois
     last_live_check_at (nunca checada primeiro) — garante rotação; desempate
@@ -175,19 +187,23 @@ def select_batch(system_settings: dict) -> list[dict]:
     # Com radar: SEM cutoff antecipado aqui. `get_active_legs()` já é o
     # universo inteiro de pernas ativas (sem teto artificial na ponta
     # distante) — é essa a "fonte de MAX(data) real" reusada, sem precisar
-    # de query nova: `batch_regime` decide 'price'/'metadata'/None por
-    # perna, e é ELE quem sabe que além de RADAR_COVERAGE_WINDOW_DAYS o
-    # lote continua sendo a fonte (regime 'price'). Filtrar por cutoff de
-    # 183 dias antes disso impedia esse caminho de ser alcançado — bug
-    # corrigido nesta revisão: nenhuma perna além de 183 dias chegava a
-    # batch_regime, então o regime 'price' (>305 dias) nunca disparava.
+    # de query nova: `batch_regime` decide 'metadata'/None por perna, e é
+    # ELE quem sabe que além de RADAR_COVERAGE_WINDOW_DAYS a fonte não tem
+    # o dado e nenhuma consulta ao vivo deve sair (Opção A, 01/09/2026 —
+    # antes disso essas pernas viravam regime 'price' e causavam falso
+    # bloqueio diário; ver o comentário em batch_regime).
     cutoff = None if radar_on else (today + timedelta(days=LIVE_CHECK_WINDOW_DAYS)).isoformat()
+
+    source_horizon = today + timedelta(days=RADAR_COVERAGE_WINDOW_DAYS)
 
     legs = []
     regime_counts = {"price": 0, "metadata": 0, "none": 0}
+    beyond_horizon = 0
     for leg in get_active_legs():
         if cutoff is not None and leg_travel_date(leg) > cutoff:
             continue
+        if leg_travel_date(leg) > source_horizon.isoformat():
+            beyond_horizon += 1
         regime = batch_regime(leg, today, radar_on)
         regime_counts[regime or "none"] += 1
         if regime is None:
@@ -196,15 +212,17 @@ def select_batch(system_settings: dict) -> list[dict]:
 
     # Observabilidade do regime (decisão 4 do radar — sem coluna nova): só
     # imprime com o radar ligado, senão toda perna é 'price' e a linha não
-    # diria nada de novo. `regime_counts['price']` aqui só conta pernas além
-    # do alcance do radar (>hoje+305) — com radar_on=True, batch_regime só
-    # devolve 'price' por esse motivo.
+    # diria nada de novo. `beyond_horizon` é contado à parte porque
+    # batch_regime devolve o MESMO None pra dois motivos muito diferentes
+    # ("radar já cobriu há pouco" e "fonte não tem esse dado") — sem separar,
+    # a linha esconderia justamente o sintoma que causou o falso bloqueio.
     if radar_on:
-        in_radar_window = regime_counts["metadata"] + regime_counts["none"]
+        in_horizon = regime_counts["metadata"] + regime_counts["none"] - beyond_horizon
         print(
-            f"[radar] regime: {in_radar_window} perna(s) dentro do alcance do radar "
-            f"(hoje..hoje+{RADAR_COVERAGE_WINDOW_DAYS}d), {regime_counts['price']} fora do radar "
-            f"(lote fli cobre), {regime_counts['metadata']} elegível(is) a refresh de metadado hoje"
+            f"[radar] regime: {in_horizon} perna(s) dentro do alcance da fonte "
+            f"(hoje..hoje+{RADAR_COVERAGE_WINDOW_DAYS}d), das quais "
+            f"{regime_counts['metadata']} elegível(is) a refresh de metadado hoje; "
+            f"{beyond_horizon} além do alcance — sem consulta ao vivo até entrarem na janela"
         )
 
     def sort_key(leg: dict) -> tuple:
@@ -311,7 +329,10 @@ def run_daily_batch(system_settings: dict, settings_by_user: dict[str, dict]) ->
 
     batch = select_batch(system_settings)
     if not batch:
-        print("[live-check] nenhuma perna elegível hoje (janela de 6 meses vazia)")
+        # Com radar ligado, lote vazio é estado NORMAL e frequente (toda perna
+        # dentro do alcance já checada há menos de RADAR_METADATA_REFRESH_DAYS,
+        # e as de fora do alcance nunca entram) — não é sinal de problema.
+        print("[live-check] nenhuma perna elegível hoje (nenhuma perna em regime de consulta)")
         return [], False
 
     reports: list[dict] = []

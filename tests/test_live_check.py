@@ -203,20 +203,28 @@ class SelectBatchTest(unittest.TestCase):
             batch = live_check.select_batch(SYSTEM_SETTINGS)
         self.assertEqual(batch, [])
 
-    def test_radar_on_leg_beyond_183_days_enters_with_price_regime(self):
-        """O bug: `select_batch` aplicava o cutoff de 183 dias ANTES de
-        chamar `batch_regime`, então uma perna além disso nunca alcançava o
-        regime 'price' (>305 dias) mesmo com radar_on=True — a cobertura
-        estendida da fatia nunca acontecia de verdade. Corrigido: com radar
-        ligado, o universo inteiro de pernas ativas passa por
-        `batch_regime`, sem cutoff antecipado."""
+    def test_radar_on_leg_beyond_source_horizon_is_excluded_from_batch(self):
+        """Opção A (01/09/2026): perna além de RADAR_COVERAGE_WINDOW_DAYS não
+        entra em consulta ao vivo nenhuma. Até esta data ela entrava com
+        regime 'price', ordenava PRIMEIRO (regime_rank=0) e enchia o batch
+        com consultas que a fonte não sabe responder — as respostas vazias
+        disparavam o detector de bloqueio todo dia."""
         far = {**OUTBOUND_LEG, "id": "far", "outbound_date": days_from_today(400)}
         settings = {**SYSTEM_SETTINGS, "radar_enabled": True}
         with patch("live_check.get_active_legs", return_value=[far]):
             batch = live_check.select_batch(settings)
-        self.assertEqual(len(batch), 1)
-        self.assertEqual(batch[0]["id"], "far")
-        self.assertEqual(batch[0]["_batch_regime"], "price")
+        self.assertEqual(batch, [])
+
+    def test_radar_on_batch_keeps_only_legs_within_source_horizon(self):
+        """Mistura: só a de dentro do alcance entra, e nunca com regime
+        'price' (com radar ligado o lote é só refresh de metadado)."""
+        inside = {**OUTBOUND_LEG, "id": "dentro", "outbound_date": days_from_today(200)}
+        outside = {**OUTBOUND_LEG, "id": "fora", "outbound_date": days_from_today(400)}
+        settings = {**SYSTEM_SETTINGS, "radar_enabled": True}
+        with patch("live_check.get_active_legs", return_value=[inside, outside]):
+            batch = live_check.select_batch(settings)
+        self.assertEqual([leg["id"] for leg in batch], ["dentro"])
+        self.assertEqual(batch[0]["_batch_regime"], "metadata")
 
     def test_radar_on_leg_checked_recently_is_excluded_from_batch(self):
         recent = {**OUTBOUND_LEG, "id": "recent", "outbound_date": days_from_today(30),
@@ -241,12 +249,32 @@ class BatchRegimeTest(unittest.TestCase):
     TODAY = date.today()
 
     def test_radar_off_is_always_price(self):
+        """Trava de regressão do caminho SEM radar: a checagem de distância
+        nem é alcançada (o `return 'price'` vem antes), e quem corta perna
+        distante continua sendo o cutoff de 183 dias em select_batch."""
         leg = {**OUTBOUND_LEG, "outbound_date": days_from_today(400)}
         self.assertEqual(live_check.batch_regime(leg, self.TODAY, radar_on=False), "price")
 
-    def test_beyond_radar_window_is_price(self):
+    def test_beyond_source_horizon_is_none(self):
+        """Opção A (01/09/2026): além do teto real da fonte (~305 dias) a
+        resposta vem VAZIA, não com erro — e o detector de bloqueio conta
+        vazio como falha. Mandar essas pernas pro lote (o que este ramo fazia
+        até esta data, devolvendo 'price') gerava falso bloqueio diário."""
         leg = {**OUTBOUND_LEG, "outbound_date": days_from_today(320)}
-        self.assertEqual(live_check.batch_regime(leg, self.TODAY, radar_on=True), "price")
+        self.assertIsNone(live_check.batch_regime(leg, self.TODAY, radar_on=True))
+
+    def test_exactly_at_source_horizon_is_still_inside(self):
+        """O corte é estrito (`>`): hoje+305 está DENTRO do alcance."""
+        leg = {**OUTBOUND_LEG,
+               "outbound_date": days_from_today(live_check.RADAR_COVERAGE_WINDOW_DAYS),
+               "last_live_check_at": None}
+        self.assertEqual(live_check.batch_regime(leg, self.TODAY, radar_on=True), "metadata")
+
+    def test_one_day_beyond_source_horizon_is_none(self):
+        leg = {**OUTBOUND_LEG,
+               "outbound_date": days_from_today(live_check.RADAR_COVERAGE_WINDOW_DAYS + 1),
+               "last_live_check_at": None}
+        self.assertIsNone(live_check.batch_regime(leg, self.TODAY, radar_on=True))
 
     def test_within_window_never_checked_is_metadata(self):
         leg = {**OUTBOUND_LEG, "outbound_date": days_from_today(30), "last_live_check_at": None}
@@ -334,6 +362,26 @@ class RunDailyBatchTest(unittest.TestCase):
             reports, blocked = live_check.run_daily_batch(SYSTEM_SETTINGS, SETTINGS_BY_USER)
         self.assertEqual(reports, [])
         self.assertFalse(blocked)
+
+    @patch("live_check.time.sleep", return_value=None)
+    def test_radar_on_universe_beyond_horizon_never_queries_nor_blocks(self, _sleep):
+        """Reprodução do falso bloqueio diário (29/08–01/09/2026): com o radar
+        ligado e o universo de pernas todo além do alcance da fonte, o lote
+        enchia de consultas que voltavam vazias e disparava o detector de
+        bloqueio. Agora nenhuma consulta sai, nada bloqueia, nada é enviado ao
+        Telegram — passa pelo select_batch REAL de propósito (é ele o corte)."""
+        far = [{**OUTBOUND_LEG, "id": f"far-{i}", "outbound_date": days_from_today(400 + i)}
+               for i in range(10)]
+        settings = {**SYSTEM_SETTINGS, "radar_enabled": True}
+        with patch("live_check.get_active_legs", return_value=far), \
+             patch("live_check.check_live_price") as mock_price, \
+             patch("live_check.get_weekend_block_streak", return_value=(0, None)), \
+             patch("live_check.send_message") as mock_send:
+            reports, blocked = live_check.run_daily_batch(settings, SETTINGS_BY_USER)
+        self.assertEqual(reports, [])
+        self.assertFalse(blocked)
+        mock_price.assert_not_called()
+        mock_send.assert_not_called()
 
     @patch("live_check.time.sleep", return_value=None)
     def test_all_success_processes_whole_batch_no_alert(self, _sleep):
