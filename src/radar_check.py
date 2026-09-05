@@ -242,6 +242,87 @@ def _radar_airports(direction: str) -> tuple[tuple[str, str], tuple[str, str]]:
     return (BSB, GIG), (BSB, SDU)
 
 
+def _grid_index(grid: list[dict]) -> dict[tuple[str, str, str], float]:
+    """{(origin, destination, flight_date): menor preço} — extraído para uso
+    comum de select_precision_candidates e resolve_radar_leg_prices (Fatia 2,
+    04/09/2026): as duas casam perna×grade pela MESMA regra (GIG e SDU
+    competem, o menor vence), e só divergem no que fazem depois do preço
+    achado (selecionar candidata de precisão vs. gravar preço de tela)."""
+    grid_by_key: dict[tuple[str, str, str], float] = {}
+    for row in grid:
+        key = (row["origin"], row["destination"], row["flight_date"])
+        price = float(row["price"])
+        if key not in grid_by_key or price < grid_by_key[key]:
+            grid_by_key[key] = price
+    return grid_by_key
+
+
+def _priced_leg(leg: dict, grid_by_key: dict[tuple[str, str, str], float],
+                travel_date_str: str) -> tuple[str, str, float] | None:
+    """(radar_origin, radar_destination, radar_price) pra 1 perna numa data —
+    o menor preço entre os dois aeroportos do Rio na direção certa, se a
+    grade tiver pelo menos um dos dois. None se a grade não tem preço pra
+    nenhum dos dois nessa data exata."""
+    airport_pairs = _radar_airports(leg["direction"])
+    priced_pairs = [
+        (origin, destination, grid_by_key[(origin, destination, travel_date_str)])
+        for origin, destination in airport_pairs
+        if (origin, destination, travel_date_str) in grid_by_key
+    ]
+    if not priced_pairs:
+        return None
+    return min(priced_pairs, key=lambda p: p[2])
+
+
+def _grid_index_with_swept_at(grid: list[dict]) -> dict[tuple[str, str, str], tuple[float, str | None]]:
+    """Como _grid_index, mas carrega junto o `swept_at` da linha vencedora —
+    resolve_radar_leg_prices precisa da idade REAL de cada preço na grade
+    (`weekend_radar_grid.swept_at`, gravado por linha em
+    `radar_check.run_sweep`/`_grid_rows`), não do horário do run que a lê.
+    Correção pedida na revisão de 04/09/2026: gravar `datetime.now()` no
+    lugar carimbava um preço com até `RADAR_GRID_MAX_AGE_HOURS` de idade
+    como "agora" — e como o frontend escolhe o número principal pelo MAIS
+    RECENTE entre radar e confirmado, um radar_price velho passava a
+    ganhar de um confirmado genuinamente mais novo.
+
+    Função SEPARADA de `_grid_index` (não parametrizada por um flag), de
+    propósito: `select_precision_candidates` nunca precisou de swept_at, e
+    suas fixtures de teste não carregam essa chave — fundir as duas faria
+    `_grid_index` exigir uma chave que metade dos chamadores não tem."""
+    grid_by_key: dict[tuple[str, str, str], tuple[float, str | None]] = {}
+    for row in grid:
+        key = (row["origin"], row["destination"], row["flight_date"])
+        price = float(row["price"])
+        if key not in grid_by_key or price < grid_by_key[key][0]:
+            grid_by_key[key] = (price, row.get("swept_at"))
+    return grid_by_key
+
+
+def _priced_leg_with_swept_at(leg: dict, grid_by_key: dict[tuple[str, str, str], tuple[float, str | None]],
+                              travel_date_str: str) -> tuple[str, str, float, str | None] | None:
+    """Como _priced_leg, mas devolve também o swept_at da linha vencedora —
+    ver _grid_index_with_swept_at."""
+    airport_pairs = _radar_airports(leg["direction"])
+    priced_pairs = [
+        (origin, destination, *grid_by_key[(origin, destination, travel_date_str)])
+        for origin, destination in airport_pairs
+        if (origin, destination, travel_date_str) in grid_by_key
+    ]
+    if not priced_pairs:
+        return None
+    return min(priced_pairs, key=lambda p: p[2])
+
+
+def _leg_airport(leg: dict, radar_origin: str, radar_destination: str) -> str:
+    """Qual dos dois aeroportos do Rio (GIG/SDU) deu o menor preço — origem
+    pra ida (aeroporto→BSB), destino pra volta (BSB→aeroporto). Mesma
+    convenção usada nos campos radar_origin/radar_destination de
+    select_precision_candidates, só nomeada pro caso de uso de
+    resolve_radar_leg_prices/build_precision_comparison_row, que gravam um
+    único aeroporto, não o par (origem, destino)."""
+    return radar_origin if leg["direction"] == "outbound" else radar_destination
+
+
 def select_precision_candidates(legs: list[dict], grid: list[dict], today: date, max_per_run: int) -> list[dict]:
     """Pura, sem I/O. Regras (decisão 2 do prompt, fechadas na revisão desta
     sessão):
@@ -267,13 +348,7 @@ def select_precision_candidates(legs: list[dict], grid: list[dict], today: date,
     fatia, embora a grade já tenha os dois preços gravados (achado da Etapa
     0), disponíveis pra uso futuro sem trabalho extra de coleta."""
     window_end = today + timedelta(days=RADAR_WINDOW_DAYS)
-
-    grid_by_key: dict[tuple[str, str, str], float] = {}
-    for row in grid:
-        key = (row["origin"], row["destination"], row["flight_date"])
-        price = float(row["price"])
-        if key not in grid_by_key or price < grid_by_key[key]:
-            grid_by_key[key] = price
+    grid_by_key = _grid_index(grid)
 
     candidates = []
     for leg in legs:
@@ -285,15 +360,10 @@ def select_precision_candidates(legs: list[dict], grid: list[dict], today: date,
         if not (today <= travel_date <= window_end):
             continue
 
-        airport_pairs = _radar_airports(leg["direction"])
-        priced_pairs = [
-            (origin, destination, grid_by_key[(origin, destination, travel_date_str)])
-            for origin, destination in airport_pairs
-            if (origin, destination, travel_date_str) in grid_by_key
-        ]
-        if not priced_pairs:
+        priced = _priced_leg(leg, grid_by_key, travel_date_str)
+        if priced is None:
             continue
-        radar_origin, radar_destination, radar_price = min(priced_pairs, key=lambda p: p[2])
+        radar_origin, radar_destination, radar_price = priced
 
         ceilings = [c for c in (leg.get("ceilings_by_user") or {}).values() if c is not None]
         max_ceiling = max(float(c) for c in ceilings) if ceilings else None
@@ -321,18 +391,82 @@ def select_precision_candidates(legs: list[dict], grid: list[dict], today: date,
     return candidates[:max_per_run]
 
 
-def load_radar_candidates(system_config: dict, legs: list[dict]) -> list[dict]:
+def load_radar_grid_for_legs(legs: list[dict]) -> tuple[date, list[dict]]:
     """Lê weekend_radar_grid (só linhas dentro de RADAR_GRID_MAX_AGE_HOURS —
-    grade mais velha é tratada como morta, o gatilho de precisão não
-    dispara sobre preço que já pode ter mudado) e delega à seleção pura."""
-    max_per_run = int(
-        system_config.get("radar_precision_max_per_run") or DEFAULT_SYSTEM_CONFIG["radar_precision_max_per_run"]
-    )
+    grade mais velha é tratada como morta) pras datas das pernas dadas.
+    Devolve (today, grid) — extraído de load_radar_candidates (Fatia 2,
+    04/09/2026) pra main.py reusar a MESMA leitura tanto pra gravar
+    radar_price em TODA perna dentro do alcance quanto pra selecionar
+    candidatas de precisão, sem consulta duplicada à grade."""
     today = date.fromisoformat(current_brt_date())
     dates = [leg_travel_date(leg) for leg in legs]
     since_iso = (datetime.now(timezone.utc) - timedelta(hours=RADAR_GRID_MAX_AGE_HOURS)).isoformat()
     grid = get_weekend_radar_grid_for_dates(dates, since_iso)
+    return today, grid
+
+
+def load_radar_candidates(system_config: dict, legs: list[dict],
+                          today: date | None = None, grid: list[dict] | None = None) -> list[dict]:
+    """Delega à seleção pura (select_precision_candidates). Aceita
+    `today`/`grid` já carregados — main.py passa os dela pra reusar a MESMA
+    leitura de load_radar_grid_for_legs feita pra gravar radar_price em
+    todas as pernas (Fatia 2); sem eles, carrega do zero (comportamento
+    idêntico ao de antes desta fatia)."""
+    max_per_run = int(
+        system_config.get("radar_precision_max_per_run") or DEFAULT_SYSTEM_CONFIG["radar_precision_max_per_run"]
+    )
+    if today is None or grid is None:
+        today, grid = load_radar_grid_for_legs(legs)
     return select_precision_candidates(legs, grid, today, max_per_run)
+
+
+def resolve_radar_leg_prices(legs: list[dict], grid: list[dict], today: date) -> list[dict]:
+    """Preço do radar por perna — TODA perna dentro do alcance da fonte, não
+    só as 7-10 candidatas de precisão (Fatia 2, 04/09/2026, fecha o gargalo
+    registrado em PLANO-ATIVO.md/HISTORICO.md item 25: "o radar descobre
+    preço em lote mas não escreve em weekend_legs"). Pura, sem I/O — mesma
+    regra de casamento perna×grade de select_precision_candidates (menor
+    preço entre GIG/SDU, mesma janela RADAR_WINDOW_DAYS), mas SEM filtro de
+    teto/lowest_seen: aqui é descoberta pra tela, não seleção pra precisão.
+
+    Devolve [{leg_id, radar_price, radar_airport, radar_price_at}] — só as
+    pernas pra que a grade já tem preço na data exata. `radar_price_at` é o
+    `swept_at` DA LINHA da grade que deu o preço (revisão de 04/09/2026:
+    veio de `datetime.now()` — o horário do run que lê a grade, não o da
+    varredura que descobriu o preço — na primeira versão desta função; a
+    grade pode ter até `RADAR_GRID_MAX_AGE_HOURS` de idade, então isso
+    carimbava preço velho como "agora" e o fazia ganhar de um confirmado
+    genuinamente mais novo no MAIS RECENTE que o frontend usa pra escolher
+    o número principal). Quem escreve é main.py (update_weekend_leg em
+    radar_price/radar_price_at/radar_airport) — NUNCA em
+    current_price/current_price_at/lowest_seen/weekend_leg_price_history,
+    que continuam exclusivos do caminho confirmado (SearchFlights via
+    live_check.py, Travelpayouts via weekends.py) — é essa separação que
+    mantém o disparo de alerta (decisão 2) intocado."""
+    window_end = today + timedelta(days=RADAR_WINDOW_DAYS)
+    grid_by_key = _grid_index_with_swept_at(grid)
+
+    rows = []
+    for leg in legs:
+        travel_date_str = leg_travel_date(leg)
+        try:
+            travel_date = date.fromisoformat(travel_date_str)
+        except ValueError:
+            continue
+        if not (today <= travel_date <= window_end):
+            continue
+
+        priced = _priced_leg_with_swept_at(leg, grid_by_key, travel_date_str)
+        if priced is None:
+            continue
+        radar_origin, radar_destination, radar_price, radar_swept_at = priced
+        rows.append({
+            "leg_id": leg["id"],
+            "radar_price": radar_price,
+            "radar_airport": _leg_airport(leg, radar_origin, radar_destination),
+            "radar_price_at": radar_swept_at,
+        })
+    return rows
 
 
 def log_precision_divergence(candidate: dict, report: dict) -> None:
@@ -359,6 +493,48 @@ def log_precision_divergence(candidate: dict, report: dict) -> None:
             f"[radar] DIVERGÊNCIA        {label}  radar R$ {radar_price:.2f} → "
             f"precisão R$ {precision_price:.2f} ({diff_pct:+.1f}%, tolerância {PRECISION_DIVERGENCE_PCT:.1f}%{via_sdu})"
         )
+
+
+def build_precision_comparison_row(candidate: dict, report: dict, checked_at: str) -> dict:
+    """Linha pra weekend_radar_precision_log (Fatia 2, item 7 da sessão de
+    04/09/2026) — persiste a MESMA comparação que log_precision_divergence
+    já calcula e só imprime no log do Actions, que expira. Sem ela, o
+    checkpoint de reavaliação de 01/12/2026 (PLANO-ATIVO.md, "Checkpoint —
+    radar como gatilho de alerta") chegaria sem evidência acumulada.
+
+    `precision_transfers` (revisão de 04/09/2026): número de escalas que a
+    PRECISÃO encontrou (`report["transfers"]`, de `SearchFlights` via
+    live_check.check_live_price — 0 = direto, >=1 = com conexão). Sem ela,
+    o checkpoint de 01/12/2026 não tem como responder "há comparação em
+    perna com escala" — `precision_airport` sozinho só diz GIG/SDU, nunca
+    número de conexões, e a amostra de hoje é toda voo direto justamente
+    por isso ser invisível antes desta coluna.
+
+    Pura — quem grava é main.py, via
+    supabase_client.insert_radar_precision_comparison, protegido por
+    try/except (falha de persistência não pode derrubar um alerta que já
+    saiu, mesmo padrão de insert_alert_log)."""
+    leg = candidate["leg"]
+    status = report.get("status")
+    precision_price = float(report["price"]) if status == "ok" else None
+    precision_airport = report.get("airport") if status == "ok" else None
+    precision_transfers = report.get("transfers") if status == "ok" else None
+    diff_pct = (
+        (precision_price - candidate["radar_price"]) / candidate["radar_price"] * 100
+        if precision_price is not None else None
+    )
+    return {
+        "leg_id": leg["id"],
+        "travel_date": candidate["travel_date"],
+        "radar_price": candidate["radar_price"],
+        "radar_airport": _leg_airport(leg, candidate["radar_origin"], candidate["radar_destination"]),
+        "precision_status": status,
+        "precision_price": precision_price,
+        "precision_airport": precision_airport,
+        "precision_transfers": precision_transfers,
+        "diff_pct": diff_pct,
+        "checked_at": checked_at,
+    }
 
 
 def main() -> int:

@@ -861,6 +861,28 @@ class ProcessAllWeekendLegsTest(unittest.TestCase):
         mock_fetch.assert_not_called()
 
 
+class CurrentPriceAtTest(EvaluateLegMixin, unittest.TestCase):
+    """Fatia 2 do radar de calendário (04/09/2026): current_price_at grava a
+    idade do PREÇO, corrigindo o rótulo "atualizado há Xh" da aba Compras —
+    até aqui ele lia last_live_check_at, que avança em toda TENTATIVA
+    (sucesso ou falha, live_check.py) e nunca era escrito pelo caminho
+    cache. current_price_at só existe no caminho confirmado — nunca é
+    tocado pelo radar (radar_check.resolve_radar_leg_prices/main.py
+    escrevem só radar_price/radar_price_at/radar_airport)."""
+
+    def test_normal_path_records_current_price_at(self):
+        report, mocks = self.evaluate(ceilings={USER_A: 300.0})
+        update_fields = mocks["update"].call_args.kwargs
+        self.assertIn("current_price_at", update_fields)
+        self.assertIsNotNone(update_fields["current_price_at"])
+
+    def test_current_price_at_is_a_fresh_timestamp(self):
+        before = datetime.now(timezone.utc)
+        _, mocks = self.evaluate(ceilings={USER_A: 300.0})
+        recorded = datetime.fromisoformat(mocks["update"].call_args.kwargs["current_price_at"])
+        self.assertGreaterEqual(recorded, before)
+
+
 class SuppressAlertTest(unittest.TestCase):
     """Radar de calendário, decisão 1 — refresh de metadado (live_check.py,
     regime 'metadata') não pode virar alerta. `suppress_alert=True` grava
@@ -893,6 +915,7 @@ class SuppressAlertTest(unittest.TestCase):
         update_fields = mock_update.call_args.kwargs
         self.assertEqual(update_fields["current_price"], 150.0)
         self.assertEqual(update_fields["current_airline"], "GOL")
+        self.assertIsNotNone(update_fields["current_price_at"])
         mock_run_log.assert_called_once_with("leg-out-1", "ok", price=150.0, source="live")
 
     def test_never_evaluates_ceiling(self):

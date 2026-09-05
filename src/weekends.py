@@ -314,6 +314,7 @@ def evaluate_and_record_leg_price(leg: dict, system_settings: dict, settings_by_
         is_new_low = lowest_seen is None or price < float(lowest_seen)
         update_fields = {
             "current_price": price,
+            "current_price_at": datetime.now(timezone.utc).isoformat(),
             "current_airport": airport,
             "current_variant": variant,
             "current_source": source,
@@ -475,6 +476,7 @@ def evaluate_and_record_leg_price(leg: dict, system_settings: dict, settings_by_
     is_new_low = lowest_seen is None or price < float(lowest_seen)
     update_fields = {
         "current_price": price,
+        "current_price_at": datetime.now(timezone.utc).isoformat(),
         "current_airport": airport,
         "current_variant": variant,
         "current_source": source,

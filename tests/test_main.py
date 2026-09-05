@@ -21,6 +21,7 @@ Uso: python -m unittest tests/test_main.py -v  (a partir da raiz do repo)
 import os
 import sys
 import unittest
+from datetime import date
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -530,6 +531,191 @@ class BuyingCutoffFallbackTest(unittest.TestCase):
         sent = self.run_main(SYSTEM_CONFIG)
         matches = [m for m in sent if "janela de compra" in m and "indisponível" in m]
         self.assertEqual(matches, [])
+
+
+RADAR_SYSTEM_CONFIG = {**SYSTEM_CONFIG, "radar_enabled": True, "radar_precision_max_per_run": 10}
+
+
+class RadarPriceWriteTest(unittest.TestCase):
+    """Fatia 2 do radar de calendário (04/09/2026): ANTES do laço de
+    precisão, main.py grava radar_price/radar_price_at/radar_airport em
+    TODA perna que resolve_radar_leg_prices devolver — não só as
+    candidatas de precisão (HISTORICO.md item 25: "o radar descobre preço
+    em lote mas não escreve em weekend_legs" era o gargalo).
+
+    Todas essas dependências de I/O do bloco radar são mockadas; o resto
+    da execução (cache/lote fli/envio) é neutralizado pra isolar só o
+    comportamento novo."""
+
+    def run_main(self, **overrides):
+        defaults = dict(
+            get_active_legs_return=[{"id": "leg-1"}, {"id": "leg-2"}],
+            resolve_radar_leg_prices_return=[
+                {"leg_id": "leg-1", "radar_price": 300.0, "radar_airport": "GIG",
+                 "radar_price_at": "2026-09-04T08:00:00+00:00"},
+                {"leg_id": "leg-2", "radar_price": 250.0, "radar_airport": "SDU",
+                 "radar_price_at": "2026-09-04T09:00:00+00:00"},
+            ],
+            update_weekend_leg_side_effect=None,
+            load_radar_candidates_return=[],
+            check_and_evaluate_leg_side_effect=None,
+            insert_radar_precision_comparison_side_effect=None,
+        )
+        defaults.update(overrides)
+
+        with patch("main.get_routes", return_value=[]), \
+             patch("main.get_all_settings", return_value=[]), \
+             patch("main.get_system_config", return_value=RADAR_SYSTEM_CONFIG), \
+             patch("main.process_all_weekend_legs", return_value=[]), \
+             patch("main.run_daily_batch", return_value=([], False)), \
+             patch("main.LEG_LOAD_DIAGNOSTICS", {"degraded_no_settings": False}), \
+             patch("main.current_brt_date", return_value=TODAY), \
+             patch("main.get_weekend_scrape_state", return_value=dict(SCRAPE_STATE_FRESH)), \
+             patch("main.set_weekend_scrape_state"), \
+             patch("main.date") as mock_date, \
+             patch("main.send_message"), \
+             patch("main.get_active_legs", return_value=defaults["get_active_legs_return"]), \
+             patch("main.load_radar_grid_for_legs", return_value=(date.today(), [])), \
+             patch("main.resolve_radar_leg_prices", return_value=defaults["resolve_radar_leg_prices_return"]), \
+             patch("main.update_weekend_leg", side_effect=defaults["update_weekend_leg_side_effect"]) as mock_update, \
+             patch("main.load_radar_candidates", return_value=defaults["load_radar_candidates_return"]), \
+             patch("main.check_and_evaluate_leg",
+                   side_effect=defaults["check_and_evaluate_leg_side_effect"]) as mock_check, \
+             patch("main.log_precision_divergence"), \
+             patch("main.build_precision_comparison_row", return_value={"leg_id": "leg-1"}), \
+             patch("main.insert_radar_precision_comparison",
+                   side_effect=defaults["insert_radar_precision_comparison_side_effect"]) as mock_insert_cmp:
+            mock_date.today.return_value.weekday.return_value = 2
+            main.main()
+        return mock_update, mock_check, mock_insert_cmp
+
+    def test_writes_radar_price_for_every_resolved_leg(self):
+        mock_update, _, _ = self.run_main()
+        self.assertEqual(mock_update.call_count, 2)
+        calls_by_leg = {c.args[0]: c.kwargs for c in mock_update.call_args_list}
+        self.assertEqual(calls_by_leg["leg-1"]["radar_price"], 300.0)
+        self.assertEqual(calls_by_leg["leg-1"]["radar_airport"], "GIG")
+        self.assertEqual(calls_by_leg["leg-2"]["radar_price"], 250.0)
+
+    def test_radar_price_at_comes_from_the_resolved_row_not_from_now(self):
+        """Correção de 04/09/2026: main.py não gera mais um timestamp único
+        (datetime.now()) pro run inteiro — usa o radar_price_at que
+        resolve_radar_leg_prices já calculou por perna, a partir do
+        swept_at real da linha da grade que deu o preço."""
+        mock_update, _, _ = self.run_main()
+        calls_by_leg = {c.args[0]: c.kwargs for c in mock_update.call_args_list}
+        self.assertEqual(calls_by_leg["leg-1"]["radar_price_at"], "2026-09-04T08:00:00+00:00")
+        self.assertEqual(calls_by_leg["leg-2"]["radar_price_at"], "2026-09-04T09:00:00+00:00")
+
+    def test_never_writes_current_price_or_lowest_seen(self):
+        """Garantia central da decisão 2 (main.py, comentário do bloco
+        radar): o radar nunca toca current_price/current_price_at/
+        lowest_seen — só quem sempre escreveu essas colunas
+        (evaluate_and_record_leg_price) continua escrevendo."""
+        mock_update, _, _ = self.run_main()
+        for c in mock_update.call_args_list:
+            self.assertNotIn("current_price", c.kwargs)
+            self.assertNotIn("current_price_at", c.kwargs)
+            self.assertNotIn("lowest_seen", c.kwargs)
+
+    def test_one_write_failure_does_not_stop_the_others(self):
+        mock_update, _, _ = self.run_main(update_weekend_leg_side_effect=[RuntimeError("500"), None])
+        self.assertEqual(mock_update.call_count, 2)
+
+    def test_no_resolved_legs_writes_nothing(self):
+        mock_update, _, _ = self.run_main(resolve_radar_leg_prices_return=[])
+        mock_update.assert_not_called()
+
+    def test_precision_candidate_report_is_persisted(self):
+        candidate = {
+            "leg": {"id": "leg-1", "direction": "outbound"}, "travel_date": "2026-10-02",
+            "radar_price": 300.0, "radar_origin": "GIG", "radar_destination": "BSB",
+        }
+        report = {"leg": candidate["leg"], "status": "ok", "price": 310.0, "should_alert": False, "per_user": []}
+        _, mock_check, mock_insert_cmp = self.run_main(
+            load_radar_candidates_return=[candidate],
+            check_and_evaluate_leg_side_effect=[(report, True)],
+        )
+        mock_check.assert_called_once()
+        mock_insert_cmp.assert_called_once_with({"leg_id": "leg-1"})
+
+    def test_persistence_failure_does_not_stop_the_precision_loop(self):
+        """insert_radar_precision_comparison é protegido por try/except
+        próprio — o mesmo padrão de insert_alert_log: uma falha de
+        persistência secundária não pode cancelar um report já processado
+        nem derrubar a execução."""
+        candidate = {
+            "leg": {"id": "leg-1", "direction": "outbound"}, "travel_date": "2026-10-02",
+            "radar_price": 300.0, "radar_origin": "GIG", "radar_destination": "BSB",
+        }
+        report = {"leg": candidate["leg"], "status": "ok", "price": 310.0, "should_alert": False, "per_user": []}
+        # Não deve lançar SystemExit nem propagar a exceção.
+        self.run_main(
+            load_radar_candidates_return=[candidate],
+            check_and_evaluate_leg_side_effect=[(report, True)],
+            insert_radar_precision_comparison_side_effect=RuntimeError("500 do PostgREST"),
+        )
+
+    def test_radar_writes_happen_before_the_precision_loop(self):
+        order = []
+        candidate = {
+            "leg": {"id": "leg-1", "direction": "outbound"}, "travel_date": "2026-10-02",
+            "radar_price": 300.0, "radar_origin": "GIG", "radar_destination": "BSB",
+        }
+        report = {"leg": candidate["leg"], "status": "ok", "price": 310.0, "should_alert": False, "per_user": []}
+
+        def fake_update(leg_id, **_kwargs):
+            order.append(("write", leg_id))
+
+        def fake_check(*_args, **_kwargs):
+            order.append(("precision", candidate["leg"]["id"]))
+            return report, True
+
+        with patch("main.get_routes", return_value=[]), \
+             patch("main.get_all_settings", return_value=[]), \
+             patch("main.get_system_config", return_value=RADAR_SYSTEM_CONFIG), \
+             patch("main.process_all_weekend_legs", return_value=[]), \
+             patch("main.run_daily_batch", return_value=([], False)), \
+             patch("main.LEG_LOAD_DIAGNOSTICS", {"degraded_no_settings": False}), \
+             patch("main.current_brt_date", return_value=TODAY), \
+             patch("main.get_weekend_scrape_state", return_value=dict(SCRAPE_STATE_FRESH)), \
+             patch("main.set_weekend_scrape_state"), \
+             patch("main.date") as mock_date, \
+             patch("main.send_message"), \
+             patch("main.get_active_legs", return_value=[{"id": "leg-1"}]), \
+             patch("main.load_radar_grid_for_legs", return_value=(date.today(), [])), \
+             patch("main.resolve_radar_leg_prices",
+                   return_value=[{"leg_id": "leg-1", "radar_price": 300.0, "radar_airport": "GIG",
+                                 "radar_price_at": "2026-09-04T08:00:00+00:00"}]), \
+             patch("main.update_weekend_leg", side_effect=fake_update), \
+             patch("main.load_radar_candidates", return_value=[candidate]), \
+             patch("main.check_and_evaluate_leg", side_effect=fake_check), \
+             patch("main.log_precision_divergence"), \
+             patch("main.build_precision_comparison_row", return_value={"leg_id": "leg-1"}), \
+             patch("main.insert_radar_precision_comparison"):
+            mock_date.today.return_value.weekday.return_value = 2
+            main.main()
+
+        self.assertEqual(order, [("write", "leg-1"), ("precision", "leg-1")])
+
+    def test_radar_disabled_never_calls_get_active_legs(self):
+        with patch("main.get_routes", return_value=[]), \
+             patch("main.get_all_settings", return_value=[]), \
+             patch("main.get_system_config", return_value=SYSTEM_CONFIG), \
+             patch("main.process_all_weekend_legs", return_value=[]), \
+             patch("main.run_daily_batch", return_value=([], False)), \
+             patch("main.LEG_LOAD_DIAGNOSTICS", {"degraded_no_settings": False}), \
+             patch("main.current_brt_date", return_value=TODAY), \
+             patch("main.get_weekend_scrape_state", return_value=dict(SCRAPE_STATE_FRESH)), \
+             patch("main.set_weekend_scrape_state"), \
+             patch("main.date") as mock_date, \
+             patch("main.send_message"), \
+             patch("main.get_active_legs") as mock_active_legs, \
+             patch("main.update_weekend_leg") as mock_update:
+            mock_date.today.return_value.weekday.return_value = 2
+            main.main()
+        mock_active_legs.assert_not_called()
+        mock_update.assert_not_called()
 
 
 if __name__ == "__main__":

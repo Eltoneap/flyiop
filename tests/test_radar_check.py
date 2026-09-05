@@ -301,5 +301,212 @@ class RunSweepTest(unittest.TestCase):
         mock_send.assert_not_called()
 
 
+class ResolveRadarLegPricesTest(unittest.TestCase):
+    """Fatia 2 (04/09/2026) — preço do radar pra TODA perna dentro do
+    alcance, não só as candidatas de precisão (select_precision_candidates
+    continua existindo, com seu próprio filtro de teto/lowest_seen).
+    resolve_radar_leg_prices não filtra por teto nenhum: é descoberta pra
+    tela, não seleção."""
+
+    TODAY = date.today()
+    DEFAULT_SWEPT_AT = "2026-09-04T08:00:00+00:00"
+
+    def grid_row(self, origin, destination, flight_date, price, swept_at=DEFAULT_SWEPT_AT):
+        return {
+            "origin": origin, "destination": destination, "flight_date": flight_date,
+            "price": price, "swept_at": swept_at,
+        }
+
+    def test_returns_price_for_leg_far_from_any_ceiling(self):
+        """A perna NUNCA seria candidata de precisão (preço muito acima do
+        teto, sem lowest_seen pra disparar new_low) — e ainda assim
+        resolve_radar_leg_prices devolve o preço, porque aqui não há
+        filtro de teto."""
+        leg = {**OUTBOUND_LEG, "ceilings_by_user": {"user-a": 100.0}, "lowest_seen": None}
+        grid = [self.grid_row("GIG", "BSB", leg["outbound_date"], 900.0)]
+        rows = radar_check.resolve_radar_leg_prices([leg], grid, self.TODAY)
+        self.assertEqual(rows, [{
+            "leg_id": "leg-out-1", "radar_price": 900.0, "radar_airport": "GIG",
+            "radar_price_at": self.DEFAULT_SWEPT_AT,
+        }])
+
+    def test_picks_cheapest_between_gig_and_sdu(self):
+        leg = OUTBOUND_LEG
+        grid = [
+            self.grid_row("GIG", "BSB", leg["outbound_date"], 280.0),
+            self.grid_row("SDU", "BSB", leg["outbound_date"], 250.0),
+        ]
+        rows = radar_check.resolve_radar_leg_prices([leg], grid, self.TODAY)
+        self.assertEqual(rows, [{
+            "leg_id": "leg-out-1", "radar_price": 250.0, "radar_airport": "SDU",
+            "radar_price_at": self.DEFAULT_SWEPT_AT,
+        }])
+
+    def test_radar_price_at_is_the_grid_rows_swept_at_not_now(self):
+        """O bug corrigido na revisão de 04/09/2026: a primeira versão desta
+        função ignorava o swept_at por linha da grade e main.py carimbava
+        datetime.now() (a hora do RUN) em radar_price_at pra toda perna —
+        um preço com até RADAR_GRID_MAX_AGE_HOURS de idade virava "agora".
+        Aqui a linha da grade tem um swept_at claramente no passado, e o
+        resultado tem que carregar ESSE valor, não o momento do teste."""
+        leg = OUTBOUND_LEG
+        old_swept_at = "2020-01-01T00:00:00+00:00"
+        grid = [self.grid_row("GIG", "BSB", leg["outbound_date"], 300.0, swept_at=old_swept_at)]
+        rows = radar_check.resolve_radar_leg_prices([leg], grid, self.TODAY)
+        self.assertEqual(rows[0]["radar_price_at"], old_swept_at)
+
+    def test_swept_at_follows_the_winning_cheapest_row(self):
+        """GIG e SDU podem ter sido varridos em blocos diferentes, com
+        swept_at diferentes — o swept_at devolvido tem que ser o da linha
+        que de fato venceu (o menor preço), não o de qualquer uma das duas."""
+        leg = OUTBOUND_LEG
+        grid = [
+            self.grid_row("GIG", "BSB", leg["outbound_date"], 280.0, swept_at="2026-09-04T06:00:00+00:00"),
+            self.grid_row("SDU", "BSB", leg["outbound_date"], 250.0, swept_at="2026-09-04T09:00:00+00:00"),
+        ]
+        rows = radar_check.resolve_radar_leg_prices([leg], grid, self.TODAY)
+        self.assertEqual(rows[0]["radar_price"], 250.0)
+        self.assertEqual(rows[0]["radar_price_at"], "2026-09-04T09:00:00+00:00")
+
+    def test_outbound_leg_airport_is_the_origin(self):
+        leg = OUTBOUND_LEG
+        grid = [self.grid_row("GIG", "BSB", leg["outbound_date"], 300.0)]
+        rows = radar_check.resolve_radar_leg_prices([leg], grid, self.TODAY)
+        self.assertEqual(rows[0]["radar_airport"], "GIG")
+
+    def test_return_leg_airport_is_the_destination(self):
+        leg = {**OUTBOUND_LEG, "id": "ret-1", "direction": "return"}
+        grid = [self.grid_row("BSB", "SDU", leg["return_sunday"], 300.0)]
+        rows = radar_check.resolve_radar_leg_prices([leg], grid, self.TODAY)
+        self.assertEqual(rows, [{
+            "leg_id": "ret-1", "radar_price": 300.0, "radar_airport": "SDU",
+            "radar_price_at": self.DEFAULT_SWEPT_AT,
+        }])
+
+    def test_leg_outside_radar_window_is_skipped(self):
+        far = {**OUTBOUND_LEG, "outbound_date": days_from_today(320)}
+        grid = [self.grid_row("GIG", "BSB", far["outbound_date"], 200.0)]
+        rows = radar_check.resolve_radar_leg_prices([far], grid, self.TODAY)
+        self.assertEqual(rows, [])
+
+    def test_leg_without_grid_data_is_skipped(self):
+        rows = radar_check.resolve_radar_leg_prices([OUTBOUND_LEG], [], self.TODAY)
+        self.assertEqual(rows, [])
+
+    def test_multiple_legs_each_get_their_own_row(self):
+        leg_a = {**OUTBOUND_LEG, "id": "leg-a", "outbound_date": days_from_today(10)}
+        leg_b = {**OUTBOUND_LEG, "id": "leg-b", "outbound_date": days_from_today(20)}
+        grid = [
+            self.grid_row("GIG", "BSB", leg_a["outbound_date"], 200.0),
+            self.grid_row("GIG", "BSB", leg_b["outbound_date"], 300.0),
+        ]
+        rows = radar_check.resolve_radar_leg_prices([leg_a, leg_b], grid, self.TODAY)
+        self.assertEqual({r["leg_id"]: r["radar_price"] for r in rows}, {"leg-a": 200.0, "leg-b": 300.0})
+
+
+class LoadRadarGridForLegsTest(unittest.TestCase):
+    """Extraído de load_radar_candidates (Fatia 2) — main.py reusa a MESMA
+    leitura pra gravar radar_price em toda perna E selecionar candidatas de
+    precisão, uma única consulta à grade por execução."""
+
+    def test_queries_grid_with_leg_dates_and_freshness_window(self):
+        leg = OUTBOUND_LEG
+        with patch("radar_check.current_brt_date", return_value=date.today().isoformat()), \
+             patch("radar_check.get_weekend_radar_grid_for_dates", return_value=[]) as mock_get:
+            today, grid = radar_check.load_radar_grid_for_legs([leg])
+        self.assertEqual(today, date.today())
+        self.assertEqual(grid, [])
+        called_dates, since_iso = mock_get.call_args.args
+        self.assertEqual(called_dates, [leg["outbound_date"]])
+        since_dt = datetime.fromisoformat(since_iso)
+        age = datetime.now(timezone.utc) - since_dt
+        self.assertAlmostEqual(age.total_seconds(), radar_check.RADAR_GRID_MAX_AGE_HOURS * 3600, delta=5)
+
+
+class LoadRadarCandidatesReusesGridTest(unittest.TestCase):
+    """load_radar_candidates aceita today/grid já carregados (main.py) pra
+    não duplicar a consulta feita por load_radar_grid_for_legs pra gravar
+    radar_price em todas as pernas; sem eles, carrega do zero (chamador
+    antigo, se algum dia existir, continua funcionando sem mudança)."""
+
+    def test_reuses_provided_grid_without_querying_again(self):
+        leg = {**OUTBOUND_LEG, "ceilings_by_user": {"user-a": 300.0}}
+        grid = [{"origin": "GIG", "destination": "BSB", "flight_date": leg["outbound_date"], "price": 250.0}]
+        with patch("radar_check.get_weekend_radar_grid_for_dates") as mock_get:
+            candidates = radar_check.load_radar_candidates(
+                {"radar_precision_max_per_run": 10}, [leg], today=date.today(), grid=grid,
+            )
+        mock_get.assert_not_called()
+        self.assertEqual(len(candidates), 1)
+
+    def test_falls_back_to_loading_grid_when_not_provided(self):
+        leg = {**OUTBOUND_LEG, "ceilings_by_user": {"user-a": 300.0}}
+        with patch("radar_check.current_brt_date", return_value=date.today().isoformat()), \
+             patch("radar_check.get_weekend_radar_grid_for_dates", return_value=[]) as mock_get:
+            candidates = radar_check.load_radar_candidates({"radar_precision_max_per_run": 10}, [leg])
+        mock_get.assert_called_once()
+        self.assertEqual(candidates, [])
+
+
+class BuildPrecisionComparisonRowTest(unittest.TestCase):
+    """Fatia 2, item 7 — persistência da comparação radar×precisão que
+    log_precision_divergence já calcula e só imprime (log do Actions
+    expira). Mesma aritmética de diff_pct, em formato de linha de banco."""
+
+    def candidate(self, direction="outbound", radar_price=300.0):
+        leg = {**OUTBOUND_LEG, "id": "leg-1", "direction": direction}
+        # Par (origem, destino) na direção REAL — ida é aeroporto→BSB, volta
+        # é BSB→aeroporto (nit da revisão de 04/09/2026: a fixture antiga
+        # usava GIG/BSB fixos pras duas direções, invertendo a volta; o
+        # teste passava mesmo assim porque só depende de qual EXTREMO
+        # _leg_airport escolhe, não de qual aeroporto é qual — mas confundia
+        # quem lesse).
+        radar_origin, radar_destination = ("GIG", "BSB") if direction == "outbound" else ("BSB", "GIG")
+        return {
+            "leg": leg, "travel_date": leg["outbound_date"], "radar_price": radar_price,
+            "radar_origin": radar_origin, "radar_destination": radar_destination,
+            "max_ceiling": 350.0, "gap": 50.0,
+        }
+
+    def test_ok_report_computes_diff_pct_and_carries_precision_fields(self):
+        report = {"status": "ok", "price": 330.0, "airport": "GIG", "transfers": 0}
+        row = radar_check.build_precision_comparison_row(self.candidate(), report, "2026-09-04T12:00:00+00:00")
+        self.assertEqual(row["leg_id"], "leg-1")
+        self.assertEqual(row["radar_price"], 300.0)
+        self.assertEqual(row["precision_price"], 330.0)
+        self.assertEqual(row["precision_status"], "ok")
+        self.assertEqual(row["precision_airport"], "GIG")
+        self.assertEqual(row["precision_transfers"], 0)
+        self.assertAlmostEqual(row["diff_pct"], 10.0)
+        self.assertEqual(row["checked_at"], "2026-09-04T12:00:00+00:00")
+
+    def test_ok_report_with_a_connection_carries_the_transfer_count(self):
+        """Item 3 da revisão de 04/09/2026: sem esta coluna, o checkpoint de
+        01/12/2026 não tinha como distinguir voo direto de voo com escala —
+        precision_airport sozinho só diz GIG/SDU."""
+        report = {"status": "ok", "price": 330.0, "airport": "GIG", "transfers": 1}
+        row = radar_check.build_precision_comparison_row(self.candidate(), report, "x")
+        self.assertEqual(row["precision_transfers"], 1)
+
+    def test_no_data_report_has_null_precision_fields(self):
+        report = {"status": "no_data"}
+        row = radar_check.build_precision_comparison_row(self.candidate(), report, "2026-09-04T12:00:00+00:00")
+        self.assertIsNone(row["precision_price"])
+        self.assertIsNone(row["precision_airport"])
+        self.assertIsNone(row["precision_transfers"])
+        self.assertIsNone(row["diff_pct"])
+        self.assertEqual(row["precision_status"], "no_data")
+
+    def test_radar_airport_is_origin_for_outbound(self):
+        report = {"status": "no_data"}
+        row = radar_check.build_precision_comparison_row(self.candidate(direction="outbound"), report, "x")
+        self.assertEqual(row["radar_airport"], "GIG")
+
+    def test_radar_airport_is_destination_for_return(self):
+        report = {"status": "no_data"}
+        row = radar_check.build_precision_comparison_row(self.candidate(direction="return"), report, "x")
+        self.assertEqual(row["radar_airport"], "GIG")
+
+
 if __name__ == "__main__":
     unittest.main()

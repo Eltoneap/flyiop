@@ -159,17 +159,86 @@ function legStatusBadge(leg, priceState) {
   return { cls: 'neutral', text: 'Monitorando · ainda sem preço' };
 }
 
+// Fallback de frescor (revisão do usuário, 04/09/2026): current_price_at
+// nasce NULL em toda perna já existente antes desta fatia, e nunca é
+// preenchido nas ~44 pernas além do alcance da fonte (305 dias — a
+// correção de 01/09 as tirou do lote, e o radar nunca as alcança) — sem
+// fallback, o rótulo "atualizado" ficaria vazio nelas pra sempre, mesmo já
+// tendo sido verificadas antes. Quando o timestamp do preço que está
+// sendo exibido não existe, cai pra last_live_check_at (idade da última
+// TENTATIVA, sucesso ou falha — não a do preço) — e sinaliza isso via
+// `verificationOnly`, pra renderLegRow trocar o rótulo de "atualizado"
+// pra "verificado" em vez de fingir que é a idade do preço.
+function priceAge(priceAt, leg) {
+  if (priceAt != null) return { at: priceAt, verificationOnly: false };
+  if (leg.last_live_check_at != null) return { at: leg.last_live_check_at, verificationOnly: true };
+  return { at: null, verificationOnly: false };
+}
+
+// Radar de calendário, Fatia 2 (04/09/2026) — número principal da perna é o
+// preço MAIS RECENTE entre radar_price (não confirmado, weekend_legs.
+// radar_price/radar_price_at, gravado pra TODA perna dentro do alcance) e
+// current_price (confirmado por SearchFlights/Travelpayouts, current_price_at).
+// legPriceState/legStatusBadge (acima) e o filtro isBelowCeiling (abaixo)
+// continuam lendo SÓ current_price de propósito — o selo de ação e o filtro
+// "abaixo do teto" nunca consideram preço do radar (decisão do usuário,
+// 04/09/2026: preço do radar aparece como número + rótulo, nunca como sinal
+// de ação). Sem confirmado nem radar: null (renderLegRow mostra "sem preço").
+function displayedLegPrice(leg) {
+  const hasConfirmed = leg.current_price != null;
+  const hasRadar = leg.radar_price != null;
+  if (!hasConfirmed && !hasRadar) return null;
+  if (hasConfirmed && !hasRadar) {
+    return {
+      price: leg.current_price, airport: leg.current_airport, source: leg.current_source,
+      confirmed: true, ...priceAge(leg.current_price_at, leg),
+    };
+  }
+  if (hasRadar && !hasConfirmed) {
+    return {
+      price: leg.radar_price, airport: leg.radar_airport, source: 'radar',
+      confirmed: false, ...priceAge(leg.radar_price_at, leg),
+    };
+  }
+  // Os dois existem — o mais recente vence. Sem timestamp de um dos dois
+  // (não deveria acontecer em dado gravado por esta fatia em diante, mas
+  // pode em pernas já confirmadas antes dela): quem TEM timestamp vence —
+  // uma comparação com Invalid Date nunca decide sozinha.
+  const radarAt = leg.radar_price_at;
+  const confirmedAt = leg.current_price_at;
+  const radarIsNewer = radarAt != null
+    && (confirmedAt == null || new Date(radarAt).getTime() > new Date(confirmedAt).getTime());
+  return radarIsNewer
+    ? { price: leg.radar_price, airport: leg.radar_airport, source: 'radar', confirmed: false, ...priceAge(radarAt, leg) }
+    : { price: leg.current_price, airport: leg.current_airport, source: leg.current_source, confirmed: true, ...priceAge(confirmedAt, leg) };
+}
+
 function renderLegRow(leg, weekend) {
   const { title, date } = legLabel(leg, weekend);
   const isPurchased = leg.status === 'purchased';
   const row = document.createElement('div');
   row.className = `leg-row${isPurchased ? ' is-bought' : ''}`;
 
-  const livePriceText = leg.current_price != null
-    ? `R$ ${Number(leg.current_price).toFixed(2)}`
+  const displayed = displayedLegPrice(leg);
+  const livePriceText = displayed
+    ? `R$ ${Number(displayed.price).toFixed(2)}`
     : '— sem preço ainda';
-  const sourceBits = [leg.current_airport, leg.current_source].filter(Boolean);
-  const sourceText = leg.current_price != null && sourceBits.length ? ` (${sourceBits.join(' · ')})` : '';
+  const sourceBits = displayed ? [displayed.airport, displayed.source].filter(Boolean) : [];
+  const sourceText = displayed && sourceBits.length ? ` (${sourceBits.join(' · ')})` : '';
+  // Preço não confirmado precisa ser identificável a olho nu, sem depender
+  // de memória (pedido do usuário) — badge visível junto do número.
+  const unconfirmedBadge = displayed && !displayed.confirmed
+    ? ' <span class="leg-unconfirmed">não confirmado</span>' : '';
+  // O confirmado NUNCA some da tela quando o radar assume a frente — some
+  // aqui embaixo, discreto, com a própria idade (não a do preço principal;
+  // mesmo fallback de priceAge, pro rótulo não ficar "nunca verificado"
+  // quando current_price_at é nulo mas last_live_check_at não é).
+  let secondaryConfirmedHtml = '';
+  if (displayed && !displayed.confirmed && leg.current_price != null) {
+    const confirmedAge = priceAge(leg.current_price_at, leg);
+    const confirmedLabel = confirmedAge.verificationOnly ? 'verificado' : 'confirmado';
+    secondaryConfirmedHtml = `<small class="leg-price-secondary">${confirmedLabel} ${formatLastCheck(confirmedAge.at)}: R$ ${Number(leg.current_price).toFixed(2)}</small>`;
+  }
 
   const priceState = legPriceState(leg);
   const badge = legStatusBadge(leg, priceState);
@@ -194,8 +263,12 @@ function renderLegRow(leg, weekend) {
     priceClass += priceState === 'below' ? ' leg-price--below'
       : priceState === 'above' ? ' leg-price--above'
       : ' leg-price--none';
-    priceHtml = `${livePriceText}${sourceText}`;
+    priceHtml = `${livePriceText}${sourceText}${unconfirmedBadge}${secondaryConfirmedHtml}`;
   }
+
+  // "verificado" (não "atualizado") quando caiu no fallback de
+  // last_live_check_at — não é a idade do preço, é a da última tentativa.
+  const updatedLabel = displayed && displayed.verificationOnly ? 'verificado' : 'atualizado';
 
   const notesFilled = !!(leg.notes ?? '').toString().trim();
   const paidFilled = leg.paid_price != null && leg.paid_price !== '';
@@ -213,7 +286,7 @@ function renderLegRow(leg, weekend) {
       <span class="${priceClass}">${priceHtml}</span>
     </div>
     <div class="leg-row-meta">
-      <span class="leg-updated">atualizado ${formatLastCheck(leg.last_live_check_at)}</span>
+      <span class="leg-updated">${updatedLabel} ${formatLastCheck(displayed && displayed.at)}</span>
       <a class="small leg-buy-link" href="${purchaseLink}" target="_blank" rel="noopener">Ver/comprar</a>
     </div>
     ${sharedHtml}
@@ -708,7 +781,9 @@ async function loadWeekends() {
   const [wRes, lRes, legsRes, sharedRes, snapshotRes] = await Promise.all([
     supabase.from('weekends').select('*').order('outbound_date', { ascending: true }),
     supabase.from('weekend_leg_effective').select('*'),
-    supabase.from('weekend_legs').select('id, current_airline, current_departure_time'),
+    supabase.from('weekend_legs').select(
+      'id, current_airline, current_departure_time, current_price_at, radar_price, radar_price_at, radar_airport'
+    ),
     supabase.from('weekend_leg_purchase_shared')
       .select('leg_id, user_id, purchased_airline, purchased_airport, purchased_departure_time')
       .neq('user_id', currentUserId), // policy devolve a própria linha também — filtro no front é obrigatório
@@ -746,6 +821,14 @@ async function loadWeekends() {
     const flight = flightById[leg.id];
     leg.current_airline = flight?.current_airline ?? null;
     leg.current_departure_time = flight?.current_departure_time ?? null;
+    // Radar de calendário, Fatia 2 (04/09/2026) — weekend_leg_effective
+    // (view) não foi recriada nesta fatia por decisão explícita (Dashboard
+    // continua lendo só preço confirmado); Compras ganha as colunas novas
+    // por este segundo select direto em weekend_legs, igual current_airline.
+    leg.current_price_at = flight?.current_price_at ?? null;
+    leg.radar_price = flight?.radar_price ?? null;
+    leg.radar_price_at = flight?.radar_price_at ?? null;
+    leg.radar_airport = flight?.radar_airport ?? null;
     leg.shared_purchases = sharedByLeg[leg.id] || [];
     leg.purchased_snapshot = snapshotByLeg[leg.id] || null;
     (legsByWeekend[leg.weekend_id] ??= []).push(leg);

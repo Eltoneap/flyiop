@@ -668,3 +668,16 @@ def get_weekend_radar_grid_for_dates(dates: list[str], since_iso: str) -> list[d
     resp = requests.get(_url("weekend_radar_grid"), headers=_headers(), params=params, timeout=30)
     resp.raise_for_status()
     return resp.json()
+
+
+def insert_radar_precision_comparison(row: dict) -> None:
+    """Grava 1 comparação radar×precisão em weekend_radar_precision_log
+    (sql/radar_fatia2_preco_de_tela.sql) — histórico consultável pro
+    checkpoint de reavaliação de 01/12/2026 (PLANO-ATIVO.md, "Checkpoint —
+    radar como gatilho de alerta"), que sem isso chegaria sem evidência (o
+    log do Actions expira). Insert simples, sem upsert — cada candidata de
+    precisão processada vira 1 linha nova, é histórico, não estado
+    corrente. Chamador (main.py) protege com try/except, mesmo padrão de
+    insert_alert_log: falha aqui não pode derrubar um alerta que já saiu."""
+    resp = requests.post(_url("weekend_radar_precision_log"), headers=_headers(), json=row, timeout=30)
+    resp.raise_for_status()

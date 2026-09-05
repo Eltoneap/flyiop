@@ -2908,3 +2908,31 @@ só apareceria indiretamente pelo total processado em
 `[live-check] N/M pernas checadas`. Probabilidade baixa (exigiria dado
 corrompido no banco), mas é uma perda de observabilidade real introduzida
 por esta mudança.
+
+---
+
+## Radar de calendário — Fatia 2: preço na tela + persistência (implementada, 04/09/2026)
+
+Fecha a lacuna registrada na seção "Observação para sessão própria" acima (correção de 01/09/2026): `radar_price`/`radar_price_at`/`radar_airport` gravados em `weekend_legs` pra toda perna dentro do alcance (~88), `current_price_at` corrige o rótulo de idade do preço confirmado, e `weekend_radar_precision_log` persiste a comparação radar×precisão. Detalhe completo, decisões e verificação: `HISTORICO.md`, item 26. SQL (`sql/radar_fatia2_preco_de_tela.sql`) pendente de execução manual pelo usuário — código não deve subir antes.
+
+### Checkpoint — radar como gatilho de alerta (reabrir em 01/12/2026)
+
+**O que é:** hoje o disparo de alerta de compra exige confirmação por `SearchFlights`/Travelpayouts — o radar (`SearchDates`) nunca decide alertar sozinho, só descobre preço e alimenta a seleção de candidatas de precisão. Decisão explícita da sessão de 04/09/2026: **não reabrir isso agora.** A amostra de comparação radar×precisão acumulada até aqui (Etapa 0, 24/08/2026, e a produção real desde então) é pequena e concentrada — só rota GIG/BSB, sempre voo direto, baixa temporada, sempre pernas perto do teto (é assim que `select_precision_candidates` escolhe quem vira candidata). 0,0% de divergência nessa amostra não é prova de que o radar nunca diverge em condição diferente.
+
+**Quando reabrir:** **01/12/2026**, no chat de planejamento — nunca decisão automática, nunca implementação direta a partir desta data. Motivo da data: até lá as pernas de fim de ano (29/12/2026, 06/01/2027) terão atravessado a janela de 30-60 dias antes do voo, a primeira condição real de alta temporada/volatilidade de preço que o sistema vai enfrentar — a amostra atual nunca cobriu isso.
+
+**Critérios objetivos que a reavaliação deve checar** (consulta em `weekend_radar_precision_log`, que esta fatia criou pra sustentar exatamente esta reavaliação):
+- número total de comparações acumuladas desde 04/09/2026;
+- número de pernas DISTINTAS (`leg_id`) cobertas pelas comparações — não só volume, cobertura;
+- presença de pelo menos 1 comparação em perna com escala (`precision_transfers >= 1` em `weekend_radar_precision_log` — coluna adicionada na revisão de 04/09/2026 porque `precision_airport` sozinho só diz GIG/SDU, nunca conexões; hoje a amostra inteira tem `precision_transfers = 0`);
+- presença de pelo menos 1 comparação em janela de alta temporada (dez/2026-jan/2027, carnaval, ver `docs/js/holidays.js` pros períodos já classificados);
+- maior `diff_pct` observado (positivo ou negativo) em toda a série, não só a média.
+
+**Gatilho de antecipação — não esperar a data:** se qualquer divergência relevante aparecer em `weekend_radar_precision_log` ANTES de 01/12/2026 (ordem de grandeza acima da tolerância de log de `PRECISION_DIVERGENCE_PCT` = 5%, `radar_check.py`), reabrir a discussão na hora, no chat de planejamento — não esperar o checkpoint fixo.
+
+### O que ficou fora desta fatia (fora de escopo, não esquecido)
+
+- **`weekend_leg_effective` (a view) não foi recriada** — Dashboard continua lendo só preço confirmado, sem visibilidade de `radar_price`. Decisão explícita (item 3 da investigação prévia), não pendência técnica.
+- **Selo "abaixo do teto" e filtro `isBelowCeiling` (aba Compras) continuam só sobre `current_price`** — preço do radar nunca aparece como sinal de ação, só como número + rótulo "não confirmado". Decisão explícita (item 4).
+- **`weekend_radar_precision_log` não é exposta no painel** — consulta é manual, via SQL Editor, só pro checkpoint acima. Se o checkpoint decidir dar mais peso ao radar, uma tela de acompanhamento da divergência pode fazer sentido — não implementado aqui.
+- **Sem batching do PATCH de `radar_price`** — 88 requisições sequenciais ao Supabase por run, não 1 requisição em lote. Medido como desprezível (~10-25s a mais de execução); revisitar só se o tempo de execução no Actions incomodar de verdade.

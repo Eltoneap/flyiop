@@ -519,24 +519,46 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
   lista vazia, sem erro; datas além disso ainda não foram abertas pra venda
   por nenhuma companhia, em nenhuma fonte. Detalhe completo em `HISTORICO.md`,
   item 24.
-- **Radar de calendário — IMPLEMENTADO, NÃO ATIVADO EM PRODUÇÃO
-  (`radar_enabled=false`).** A arquitetura de dois níveis decidida a partir
-  do achado da Etapa 0 (RADAR — `SearchDates`, varre ~305 dias, fatiado
+- **Radar de calendário (Fatia 1) — EM PRODUÇÃO, `radar_enabled=true`.**
+  Correção anterior desta seção: dizia "NÃO ATIVADO EM PRODUÇÃO" e SQL "NÃO
+  RODADO" — desatualizado, contradizia a seção 1 (acima) e `HISTORICO.md`
+  item 25, que já registrava o radar ligado e 6 execuções reais em produção
+  desde ~29/08/2026. A arquitetura de dois níveis decidida a partir do
+  achado da Etapa 0 (RADAR — `SearchDates`, varre ~305 dias, fatiado
   manualmente em blocos <=61 dias, sequencial e espaçado; PRECISÃO —
   `SearchFlights`, só nas datas que o radar apontar perto do MAIOR teto entre
-  usuários, e sempre ela quem vira alerta) saiu do papel: `src/radar_check.py`
-  (novo), filtro de regime em `src/live_check.py:select_batch`
-  (`batch_regime`), `suppress_alert` em
-  `src/weekends.py:evaluate_and_record_leg_price` (refresh de metadado nunca
-  avalia teto), step novo em `daily.yml` antes de `main.py`. Schema em
-  `sql/radar_calendario.sql`, **NÃO RODADO** (3 colunas em `system_config` +
-  tabela nova `weekend_radar_grid`) — kill-switch próprio
-  (`radar_enabled`), separado de `fast_flights_enabled`. 312 testes locais
-  passando, incluindo os 267 pré-existentes sem alteração de asserção
-  (prova de que o comportamento atual não muda enquanto o radar estiver
-  desligado). Falta: rodar o SQL, push, ligar manualmente e ler a primeira
-  varredura real no Actions. Detalhe completo em `PLANO-ATIVO.md`, seção
-  "Radar de calendário — implementação (fatia 1)".
+  usuários, e sempre ela quem vira alerta) está rodando: `src/radar_check.py`,
+  filtro de regime em `src/live_check.py:select_batch` (`batch_regime`),
+  `suppress_alert` em `src/weekends.py:evaluate_and_record_leg_price`
+  (refresh de metadado nunca avalia teto), step em `daily.yml` antes de
+  `main.py`. Schema (`sql/radar_calendario.sql`, 3 colunas em
+  `system_config` + tabela `weekend_radar_grid`) rodado em produção. Detalhe
+  completo em `HISTORICO.md`, itens 24 e 25.
+- **Radar de calendário (Fatia 2) — preço na tela + persistência da
+  comparação — IMPLEMENTADO LOCALMENTE, PENDENTE DE COMMIT/PUSH E DE SQL
+  (04/09/2026).** Fecha o gargalo que a Fatia 1 deixou registrado
+  (`HISTORICO.md` item 25): o radar descobria preço em ~88 pernas por
+  varredura, mas só as 7-10 candidatas de precisão chegavam a
+  `weekend_legs.current_price` — a maioria das pernas na aba Compras mostrava
+  preço de 2-3+ dias. Agora `weekend_legs.radar_price`/`radar_price_at`/
+  `radar_airport` são gravados pra TODA perna dentro do alcance, em
+  `main.py`, ANTES do laço de precisão, reusando a mesma leitura de grade —
+  zero consulta nova ao Google. `current_price_at` (coluna nova) corrige o
+  rótulo "atualizado há Xh" da aba Compras, que até aqui lia
+  `last_live_check_at` (idade da última TENTATIVA, não do preço).
+  `weekend_radar_precision_log` (tabela nova) persiste a comparação
+  radar×precisão pro checkpoint de reavaliação de 01/12/2026 (ver
+  `PLANO-ATIVO.md`). **Disparo de alerta não muda**: `current_price`/
+  `current_price_at`/`lowest_seen`/`weekend_leg_price_history` continuam
+  exclusivos do caminho confirmado — verificado por teste dedicado. Aba
+  Compras (só ela, não o Dashboard) mostra o preço mais recente entre radar
+  e confirmado, sempre com rótulo "não confirmado" quando for do radar, e o
+  confirmado mais antigo nunca some da tela. 348 testes locais passando (319
+  antes desta fatia). **Falta:** usuário rodar
+  `sql/radar_fatia2_preco_de_tela.sql` no SQL Editor, revisar o `git diff`,
+  aprovar, então commit/push (nesta ordem — SQL antes do código, mesma regra
+  de sempre). Detalhe completo em `HISTORICO.md`, item 26, e
+  `PLANO-ATIVO.md`, seção "Radar de calendário — Fatia 2".
 - **Limitação conhecida e não corrigida: `Airport.RIA` não é utilizável com a
   versão pinada da `fli`.** `Airport.RIA` é alias silencioso de `Airport.AJU`
   (Aracaju, cidade diferente) na tabela de aeroportos da lib — qualquer

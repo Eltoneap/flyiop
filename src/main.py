@@ -1,7 +1,7 @@
 import sys
 import time
 import traceback
-from datetime import date
+from datetime import date, datetime, timezone
 
 from rules import (
     cooldown_blocks_alert,
@@ -25,9 +25,11 @@ from supabase_client import (
     get_weekend_scrape_state,
     insert_alert_log,
     insert_price,
+    insert_radar_precision_comparison,
     insert_run_log,
     insert_weekend_alert_log,
     set_weekend_scrape_state,
+    update_weekend_leg,
 )
 from telegram_notifier import (
     build_alert_message,
@@ -42,7 +44,13 @@ from telegram_notifier import (
     user_label,
 )
 from live_check import LIVE_CHECK_DELAY_SECONDS, build_package_comparison, check_and_evaluate_leg, run_daily_batch
-from radar_check import load_radar_candidates, log_precision_divergence
+from radar_check import (
+    build_precision_comparison_row,
+    load_radar_candidates,
+    load_radar_grid_for_legs,
+    log_precision_divergence,
+    resolve_radar_leg_prices,
+)
 from scrape_schedule import (
     apply_block_reversion,
     current_brt_date,
@@ -423,16 +431,62 @@ def main() -> None:
     # continuam com fonte única (main.py, no laço de envio abaixo).
     # Protegido por try/except: falha do radar não pode derrubar rotas
     # flexíveis, cache nem o lote fli, que já rodaram acima.
+    #
+    # Fatia 2 (04/09/2026, fecha HISTORICO.md item 25): ANTES do laço de
+    # precisão, grava radar_price/radar_price_at/radar_airport em TODA perna
+    # dentro do alcance (não só as 7-10 candidatas) — mesma leitura de grade
+    # (load_radar_grid_for_legs), zero consulta nova ao Google. NUNCA grava
+    # em current_price/current_price_at/lowest_seen/
+    # weekend_leg_price_history — essas colunas continuam exclusivas do
+    # caminho confirmado (SearchFlights/Travelpayouts via
+    # evaluate_and_record_leg_price), o que mantém o disparo de alerta
+    # dependente só de preço confirmado (decisão 2 da sessão de
+    # planejamento). Cada escrita é protegida individualmente: falha ao
+    # gravar 1 perna não pode derrubar as outras nem a seleção de precisão
+    # que roda em seguida.
     radar_reports: list[dict] = []
     if system_config.get("radar_enabled", False):
         try:
-            radar_candidates = load_radar_candidates(system_config, get_active_legs())
+            active_legs = get_active_legs()
+            radar_today, radar_grid = load_radar_grid_for_legs(active_legs)
+            radar_prices = resolve_radar_leg_prices(active_legs, radar_grid, radar_today)
+            for row in radar_prices:
+                try:
+                    # radar_price_at é o swept_at DA LINHA da grade que deu o
+                    # preço (resolve_radar_leg_prices), não datetime.now() —
+                    # correção de 04/09/2026: a grade pode ter até
+                    # RADAR_GRID_MAX_AGE_HOURS de idade, e usar "agora" fazia
+                    # um radar_price velho ganhar de um confirmado
+                    # genuinamente mais novo no MAIS RECENTE que o frontend
+                    # usa pra escolher o número principal.
+                    update_weekend_leg(
+                        row["leg_id"], radar_price=row["radar_price"],
+                        radar_price_at=row["radar_price_at"], radar_airport=row["radar_airport"],
+                    )
+                except Exception:
+                    print(
+                        f"[radar] FALHA ao gravar radar_price da perna {row['leg_id']}:\n"
+                        f"{traceback.format_exc()}"
+                    )
+            print(f"[radar] preço de tela: {len(radar_prices)} perna(s) atualizada(s) com radar_price")
+
+            radar_candidates = load_radar_candidates(system_config, active_legs, today=radar_today, grid=radar_grid)
             print(f"[radar] precisão: {len(radar_candidates)} candidata(s) selecionada(s) pela grade")
             for i, candidate in enumerate(radar_candidates):
                 if i > 0:
                     time.sleep(LIVE_CHECK_DELAY_SECONDS)
                 candidate_report, _ok = check_and_evaluate_leg(candidate["leg"], system_config, settings_cache)
                 log_precision_divergence(candidate, candidate_report)
+                try:
+                    comparison_row = build_precision_comparison_row(
+                        candidate, candidate_report, datetime.now(timezone.utc).isoformat()
+                    )
+                    insert_radar_precision_comparison(comparison_row)
+                except Exception:
+                    print(
+                        f"[radar] FALHA ao gravar comparação radar×precisão "
+                        f"(perna {candidate['leg']['id']}):\n{traceback.format_exc()}"
+                    )
                 radar_reports.append(candidate_report)
         except Exception:
             print(f"[radar] ERRO na seleção/checagem de precisão:\n{traceback.format_exc()}")

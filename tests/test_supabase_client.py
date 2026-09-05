@@ -213,6 +213,19 @@ class AlertLogUserIdPayloadTest(unittest.TestCase):
                 is_ceiling_alert=True, is_opportunity_alert=False,
             )
 
+    def test_precision_comparison_insert_sends_row_as_is(self):
+        """Fatia 2 do radar (04/09/2026) — insert simples, sem transformação:
+        quem monta a linha é radar_check.build_precision_comparison_row, esta
+        função só grava."""
+        row = {
+            "leg_id": "leg-1", "travel_date": "2026-10-02", "radar_price": 300.0,
+            "radar_airport": "GIG", "precision_status": "ok", "precision_price": 310.0,
+            "precision_airport": "GIG", "precision_transfers": 0, "diff_pct": 3.33,
+            "checked_at": "2026-09-04T12:00:00+00:00",
+        }
+        payload = self.post_payload(supabase_client.insert_radar_precision_comparison, row)
+        self.assertEqual(payload, row)
+
 
 if __name__ == "__main__":
     unittest.main()
