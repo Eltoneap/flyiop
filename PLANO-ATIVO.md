@@ -195,9 +195,13 @@ entre usuários" abaixo.**
    **✅ GATE CUMPRIDO em 17/08/2026** — item 5 confirmado por prova direta de
    banco (3 linhas de perna em `alert_log`, todas com `user_id` preenchido,
    zero NULL) e item 6 confirmado por print da mensagem do Telegram
-   ("👤 Elton"). Fatias E7-0 a E7-4 concluídas; **E7-5 segue aberta** — o
-   fan-out com dois `user_id` distintos na mesma execução continua sem
-   observação.
+   ("👤 Elton"). Fatias E7-0 a E7-4 concluídas. **✅ E7-5 CONCLUÍDA (24/08/2026,
+   evidência ampliada em 05/09/2026)** — fan-out com dois `user_id` distintos
+   na mesma execução confirmado por consulta sistemática em `alert_log`: 12
+   pares confirmados, 6 pernas distintas, janela 20/08–05/09/2026, sempre o
+   mesmo par de usuários, sempre <1s de diferença entre os `sent_at`. Restam
+   **E7-6** (painel do Gustavo) e **E7-7** (fechamento/higiene) para a Etapa 7
+   fechar por completo.
 
 **Correção de sequenciamento (31/07/2026):** as Etapas 4 e 5 são modelo de
 dados e interface — valem independente de o alerta de perna funcionar (é o
@@ -1067,7 +1071,7 @@ solta** e não deve reaparecer como "pendente" em fatia intermediária.
 
 ---
 
-## Etapa 7 — criação da conta do segundo usuário (PLANEJADA E TOTALMENTE DECIDIDA em 15/08/2026; **gate do item 5 da D4 CUMPRIDO em 17/08/2026** — execução em andamento, E7-0 a E7-4 concluídas, E7-5 parcialmente aberta)
+## Etapa 7 — criação da conta do segundo usuário (PLANEJADA E TOTALMENTE DECIDIDA em 15/08/2026; **gate do item 5 da D4 CUMPRIDO em 17/08/2026; E7-5 CONCLUÍDA em 24/08/2026, evidência ampliada em 05/09/2026** — execução em andamento, E7-0 a E7-5 concluídas, restam E7-6 e E7-7)
 
 > **GATE CUMPRIDO (17/08/2026).** O item 5 da verificação pós-deploy da D4 —
 > único bloqueio estrutural desta etapa — foi **CONFIRMADO por prova direta de
@@ -1696,6 +1700,19 @@ não do canal) — mas o mecanismo de `user_label` já foi confirmado
 independentemente pelo item 6 da D4 (17/08, print de tela "👤 Elton").
 
 **E7-5 está de fato concluída.** Segue para E7-6/E7-7 sem pendência.
+
+**Evidência ampliada (05/09/2026) — confirmação sistemática, não mais ad
+hoc.** A evidência de 24/08 acima (2 pares, achados manualmente enquanto se
+investigava outra coisa) foi reforçada por uma consulta dedicada de
+self-join em `alert_log` (mesmo `leg_id`, `user_id` distintos, `sent_at` a
+poucos segundos de diferença), rodada manualmente pelo usuário no SQL
+Editor, cobrindo todo o histórico disponível até hoje. Resultado: **12
+pares confirmados, 6 pernas distintas, janela 20/08/2026–05/09/2026**,
+sempre o mesmo par de usuários (`c72bf50e…` Elton / `2446ec67…` Gustavo),
+sempre com diferença de `sent_at` **< 1 segundo**, sempre mesmo `price` nas
+duas linhas de cada par. Não muda a conclusão de 24/08 — fecha de vez
+qualquer dúvida remanescente sobre se os 2 casos originais eram exceção ou
+padrão consistente do desenho.
 
 ---
 *Texto histórico abaixo preservado como registro do estado antes desta
@@ -2936,3 +2953,16 @@ Fecha a lacuna registrada na seção "Observação para sessão própria" acima 
 - **Selo "abaixo do teto" e filtro `isBelowCeiling` (aba Compras) continuam só sobre `current_price`** — preço do radar nunca aparece como sinal de ação, só como número + rótulo "não confirmado". Decisão explícita (item 4).
 - **`weekend_radar_precision_log` não é exposta no painel** — consulta é manual, via SQL Editor, só pro checkpoint acima. Se o checkpoint decidir dar mais peso ao radar, uma tela de acompanhamento da divergência pode fazer sentido — não implementado aqui.
 - **Sem batching do PATCH de `radar_price`** — 88 requisições sequenciais ao Supabase por run, não 1 requisição em lote. Medido como desprezível (~10-25s a mais de execução); revisitar só se o tempo de execução no Actions incomodar de verdade.
+
+---
+
+## Próximo item de roadmap declarado — inserção manual de rotas/datas-alvo (05/09/2026)
+
+**Próximo passo declarado pelo usuário (sessão de planejamento, 05/09/2026):**
+permitir inserção manual de rotas/datas-alvo na aba Compras, respeitando a
+ordenação por data dos cards já existente. **Ainda não iniciado** — sem
+investigação de schema ou UI feita.
+
+**Ordem:** isto vem **depois** de E7-6 e E7-7 fecharem a Etapa 7 — a Etapa 7
+continua sendo o item de execução ativa mais próximo (ver seção "Etapa 7"
+acima).

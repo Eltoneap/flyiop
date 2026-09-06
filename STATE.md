@@ -1,7 +1,22 @@
 # STATE.md — FlyIop
 
-> Atualizado em: 24/08/2026
-> Última sessão: Claude Code (24/08/2026, Plan Mode, leitura read-only) —
+> Atualizado em: 05/09/2026
+> Última sessão: Claude Code (05/09/2026, documentação apenas) — **E7-5:
+> evidência ampliada, confirmação sistemática do fan-out.** A conclusão de
+> 24/08/2026 (2 pares encontrados manualmente, ver sessão abaixo) foi
+> reforçada por uma consulta dedicada em `alert_log` (self-join por
+> `leg_id`, `user_id` distintos, `sent_at` a poucos segundos de diferença),
+> rodada manualmente pelo usuário no SQL Editor: **12 pares confirmados, 6
+> pernas distintas, janela 20/08/2026–05/09/2026**, sempre o mesmo par
+> (Elton `c72bf50e…`/Gustavo `2446ec67…`), sempre `sent_at` com **<1s** de
+> diferença, sempre mesmo preço nas duas linhas do par. Não é descoberta
+> nova — é a mesma conclusão de 24/08/2026, agora com N=12 em vez de N=2 e
+> sem depender de achado casual. **Etapa 7 segue NÃO concluída**: E7-6
+> (painel do Gustavo) e E7-7 (fechamento/higiene) continuam sem marca de
+> conclusão no `PLANO-ATIVO.md`. Sessão só de documentação (`PLANO-ATIVO.md`,
+> `STATE.md`); nenhum arquivo em `src/`, `docs/` ou `sql/` tocado, nenhum SQL
+> executado por Claude Code.
+> Sessão anterior: Claude Code (24/08/2026, Plan Mode, leitura read-only) —
 > **Divergência de teto R$500/R$300 RESOLVIDA: não é bug, é override por
 > perna via painel, usado ativamente pelos dois usuários.** Leitura direta de
 > `weekend_leg_ceiling_audit` (histórico completo, pedida para calibrar a
@@ -863,13 +878,14 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
    5 da D4 foi confirmado por prova direta de banco (ver seção 2), então o
    único bloqueio estrutural desta etapa caiu. As fatias **E7-0 a E7-4 estão
    concluídas** — foram executadas antes disso, sob três overrides conscientes
-   datados, e a sequência de overrides está encerrada. **E7-5 segue
-   PARCIALMENTE ABERTA:** falta observar `alert_log` com **dois `user_id`
-   distintos na mesma execução** e mensagens com "Elton" **e** "Gustavo" — o
-   alerta de 17/08 saiu para um único dono, então não serve de prova de
-   fan-out. **Próximo passo real da etapa: aguardar/observar uma execução em
-   que os dois usuários disparem**, depois E7-6 (painel do Gustavo) e E7-7
-   (fechamento e higiene).
+   datados, e a sequência de overrides está encerrada. **✅ E7-5 CONCLUÍDA
+   (24/08/2026, evidência ampliada em 05/09/2026):** `alert_log` com dois
+   `user_id` distintos na mesma execução, confirmado por consulta sistemática
+   — 12 pares, 6 pernas distintas, janela 20/08–05/09/2026, sempre <1s de
+   diferença entre os `sent_at` (detalhe em "Decisões vivas", seção 2, e
+   `PLANO-ATIVO.md`, "Etapa 7" → "E7-5"). **Próximo passo real da etapa:
+   E7-6 (painel do Gustavo) e E7-7 (fechamento e higiene)** — nenhuma das duas
+   tem marca de conclusão ainda.
 
 8. **Etapa 0 (validação da grade de calendário) — ✅ CONCLUÍDA (24/08/2026).**
    Ver seção 2, "Decisões vivas", e `HISTORICO.md`, item 24.
@@ -902,9 +918,10 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
   confirmado por prova direta de banco (3 linhas de perna em `alert_log` na
   janela 08h–09h BRT de 17/08, todas com `user_id` preenchido, zero NULL) e o
   item 6 por print da mensagem ("👤 Elton"). A exceção **foi medida e não se
-  materializou**. Este item deixa de ser bloqueio; o que resta da Etapa 7 é a
-  E7-5 parcialmente aberta (fan-out com dois `user_id` distintos na mesma
-  execução, ainda sem observação) mais E7-6 e E7-7 — ver item 7 da seção 3.
+  materializou**. Este item deixa de ser bloqueio; **E7-5 foi CONCLUÍDA em
+  24/08/2026** (evidência ampliada em 05/09/2026 — 12 pares confirmados, 6
+  pernas distintas, sempre <1s de diferença entre `sent_at`); o que resta da
+  Etapa 7 é E7-6 e E7-7 — ver item 7 da seção 3.
   Detalhe
   completo na abertura da seção "Etapa 7" do `PLANO-ATIVO.md` — não
   reproduzido aqui. Não há mais pergunta de produto em aberto sobre a Etapa 7:
