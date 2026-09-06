@@ -1793,17 +1793,60 @@ achado novo abaixo), 17/08 ~08h BRT (2 usuários, execução agendada normal,
    BRT, o alerta real que fechou os itens 5 e 6 da D4 (item 2 acima) e a
    mensagem de normalização que fechou o subitem 3(b).**
 
-**E7-6 — Painel do Gustavo + a linha da Fatia C. REVERSÍVEL: só leitura, exceto
-a compra de teste (desfeita no fim).**
-Login do Gustavo: Compras carrega 132 pernas com o teto dele, Dashboard idem,
-`weekend_leg_user_state` nasce por `default auth.uid()` ao salvar um teto
-próprio. Depois, **o item que nunca teve verificação positiva possível**: uma
-perna marcada como comprada de um lado aparece do outro como **"Outro usuário já
-comprou"** — e, na direção inversa, **não** como "Você" (a E7-1 é o que garante
-isso).
-*Concluída quando:* as duas direções conferidas e a compra de teste desfeita (a
-trigger limpa a projeção sozinha,
-[fatia_c:176-179](sql/fatia_c_visibilidade_compra.sql:176)).
+**E7-6 — 🟢 CONCLUÍDA (05/09/2026). Painel do Gustavo + a linha da Fatia C.
+REVERSÍVEL: só leitura, exceto a compra de teste (desfeita no fim — feito).**
+
+Verificação manual em produção, com as DUAS contas reais logadas no site
+publicado (Elton e Gustavo), conduzida pelo usuário. Resultado: **passou nas
+duas direções.**
+
+1. **Visibilidade cruzada de compra (item 6 da lista dos 11) — CONFIRMADA nas
+   duas direções.** Uma perna marcada como comprada de um lado aparece do
+   outro como **"Outro usuário já comprou"**, e a recíproca também foi
+   conferida (marcando do outro lado e olhando de volta). **É a primeira
+   verificação POSITIVA deste item desde 11/08/2026** — até aqui ele estava
+   registrado como "sem verificação positiva possível" (`HISTORICO.md`, item
+   23), limite estrutural, não pendência. O limite caiu: a projeção
+   `weekend_leg_purchase_shared`, mantida pela trigger `security definer` da
+   Fatia C, está de fato entregando ao OUTRO usuário — não só ao dono.
+2. **O rótulo "Você" (item 7 da lista dos 11) — CONFIRMADO.** Do lado de quem
+   comprou aparece "Você"; do lado do outro, não. É a prova da E7-1, que
+   corrigiu o rótulo relativo ao usuário logado ANTES de existir alguém para
+   ver o defeito — a asserção lá era fraca de propósito ("só código, sem a
+   segunda conta"), e é aqui que ela fecha positivamente.
+3. **Compra de teste DESFEITA — e é preciso separar duas evidências
+   diferentes, porque elas têm datas, técnicas e forças distintas:**
+   - **Evidência NOVA, desta sessão (visual, duas contas reais):** a marcação
+     usada no teste foi revertida pelo painel e a tela do outro usuário
+     deixou de mostrar a linha "Outro usuário já comprou". Isto é o que foi
+     observado hoje: o comportamento visível, com as duas contas logadas.
+   - **Evidência REAPROVEITADA, de 10/08/2026 (SQL, prova do mecanismo):** que
+     desfazer de fato REMOVE a linha da projeção `weekend_leg_purchase_shared`
+     já estava provado por SQL no bloco **V3** da verificação da Fatia C
+     ([fatia_c:324](sql/fatia_c_visibilidade_compra.sql:324)), que exercita os
+     três ramos da trigger numa transação com rollback — compra grava (1),
+     desfazer remove (0), recomprar grava de novo (1), delete do estado
+     remove (0).
+   **O que esta sessão NÃO fez: nenhuma consulta SQL foi rodada em 05/09/2026**
+   — não houve `select` em `weekend_leg_purchase_shared` para confirmar que a
+   linha sumiu da tabela. A afirmação sustentada aqui é a soma das duas
+   evidências acima (mecanismo provado por SQL em 10/08; comportamento
+   observado em tela hoje, com duas contas), não uma verificação de banco
+   feita nesta sessão. Se um dia for preciso a prova direta de banco no estado
+   de produção atual, ela ainda não existe.
+
+**O que esta fatia NÃO cobriu, e continua em aberto:** os itens 1, 2, 3, 5 e 9
+da lista dos 11 (contagem da view por navegador, isolamento positivo de
+`weekend_leg_user_state` e de `weekend_leg_ceiling_audit`, a RLS apertada da
+D-7 barrando o outro usuário de fato, e o `default auth.uid()` nascendo para
+uma conta que não é a do usuário 1) foram cobertos pela E7-4, por SQL, não
+por login — permanecem como estão. O item 10 (`notification_mode` por dono no
+caminho de rota) segue sem observação: depende de o Gustavo cadastrar rota
+flexível, e ele não cadastrou. Não bloqueia o fechamento da etapa; fica
+registrado aqui como o único dos 11 sem observação em produção.
+
+*Critério de conclusão do plano original ("as duas direções conferidas e a
+compra de teste desfeita") — cumprido integralmente.*
 
 **E7-7 — Fechamento e higiene. REVERSÍVEL: documentação.**
 Marcar `sql/etapa4_1_verificacao.sql` como vencido (expectativas de 132),
