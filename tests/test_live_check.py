@@ -30,6 +30,12 @@ def fake_result(price, stops: int = 0, airline: str = "LATAM", legs=None):
 
 
 def days_from_today(n: int) -> str:
+    """Data relativa a hoje. Obrigatória em TODA data de viagem passada a
+    `live_check.check_live_price`: a `fli` valida `travel_date` com pydantic e
+    rejeita data no passado ANTES de chegar ao código sob teste (05/09/2026 —
+    os testes usavam a data fixa "2026-09-04", que venceu de um dia para o
+    outro; três testes quebraram e outros quatro passaram pelo motivo errado,
+    recebendo o None da validação em vez do None do caminho testado)."""
     return (date.today() + timedelta(days=n)).isoformat()
 
 
@@ -66,7 +72,7 @@ class CheckLivePriceTest(unittest.TestCase):
     @patch("live_check.SearchFlights")
     def test_success_returns_cheapest(self, mock_cls):
         mock_cls.return_value.search.return_value = [fake_result(500.0, stops=2), fake_result(350.0, stops=0)]
-        result = live_check.check_live_price("GIG", "BSB", "2026-09-04")
+        result = live_check.check_live_price("GIG", "BSB", days_from_today(10))
         self.assertEqual(result["price"], 350.0)
         self.assertEqual(result["transfers"], 0)
         self.assertEqual(result["airline"], "LATAM")
@@ -77,7 +83,7 @@ class CheckLivePriceTest(unittest.TestCase):
         # defensivo: se a fli algum dia devolver um resultado sem legs,
         # não deve quebrar a extração — só fica sem horário.
         mock_cls.return_value.search.return_value = [fake_result(350.0, legs=[])]
-        result = live_check.check_live_price("GIG", "BSB", "2026-09-04")
+        result = live_check.check_live_price("GIG", "BSB", days_from_today(10))
         self.assertIsNone(result["departure_time"])
 
     @patch("live_check.SearchFlights")
@@ -86,31 +92,31 @@ class CheckLivePriceTest(unittest.TestCase):
         # pra aquela linha (comum em cabines premium) — não deve quebrar
         # a escolha do mínimo nem ser tratado como "mais barato".
         mock_cls.return_value.search.return_value = [fake_result(None), fake_result(350.0, stops=1)]
-        result = live_check.check_live_price("GIG", "BSB", "2026-09-04")
+        result = live_check.check_live_price("GIG", "BSB", days_from_today(10))
         self.assertEqual(result["price"], 350.0)
         self.assertEqual(result["transfers"], 1)
 
     @patch("live_check.SearchFlights")
     def test_all_prices_none_is_none(self, mock_cls):
         mock_cls.return_value.search.return_value = [fake_result(None)]
-        result = live_check.check_live_price("GIG", "BSB", "2026-09-04")
+        result = live_check.check_live_price("GIG", "BSB", days_from_today(10))
         self.assertIsNone(result)
 
     @patch("live_check.SearchFlights")
     def test_empty_results_is_none(self, mock_cls):
         mock_cls.return_value.search.return_value = []
-        result = live_check.check_live_price("GIG", "BSB", "2026-09-04")
+        result = live_check.check_live_price("GIG", "BSB", days_from_today(10))
         self.assertIsNone(result)
 
     @patch("live_check.SearchFlights")
     def test_none_results_is_none(self, mock_cls):
         mock_cls.return_value.search.return_value = None
-        result = live_check.check_live_price("GIG", "BSB", "2026-09-04")
+        result = live_check.check_live_price("GIG", "BSB", days_from_today(10))
         self.assertIsNone(result)
 
     @patch("live_check.SearchFlights", side_effect=RuntimeError("bloqueado"))
     def test_exception_is_caught_as_none(self, mock_cls):
-        result = live_check.check_live_price("GIG", "BSB", "2026-09-04")
+        result = live_check.check_live_price("GIG", "BSB", days_from_today(10))
         self.assertIsNone(result)
 
 
