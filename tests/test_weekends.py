@@ -20,6 +20,17 @@ def iso_days_ago(days: float) -> str:
 
 
 def days_from_today(n: int) -> str:
+    """Data relativa a hoje. Obrigatória em TODO fim de semana que passa por
+    `weekends.get_active_legs`: a fila descarta perna cuja própria data já
+    passou de D+1 (`cutoff = hoje - 1`), então fim de semana em data absoluta
+    vence sozinho com a virada do calendário. Aconteceu em 06/09/2026 — as
+    fixtures fixas em "2026-09-04" viraram passado e 11 casos quebraram, sem
+    nenhuma mudança de comportamento no código.
+
+    Não confundir com as datas absolutas que sobrevivem de propósito no resto
+    do arquivo (chaves de `month_cache` como "2026-09", entradas de
+    `match_leg_entries`, `relevant_months`): aquelas não atravessam o filtro
+    de expiração e são comparadas literalmente entre si."""
     return (date.today() + timedelta(days=n)).isoformat()
 
 
@@ -146,15 +157,20 @@ def state_rows(*leg_ids, user_id="user-a", ceiling=250, status="monitoring") -> 
 
 class GetActiveLegsTest(unittest.TestCase):
     def test_merges_weekend_dates_onto_legs(self):
-        weekend_row = {"id": "wknd-1", "outbound_date": "2026-09-04", "return_sunday": "2026-09-06", "return_monday": "2026-09-07"}
+        weekend_row = {
+            "id": "wknd-1",
+            "outbound_date": days_from_today(10),
+            "return_sunday": days_from_today(12),
+            "return_monday": days_from_today(13),
+        }
         leg_row = {"id": "leg-out-1", "weekend_id": "wknd-1", "direction": "outbound"}
         with patch("weekends.get_monitoring_weekends", return_value=[weekend_row]), \
              patch("weekends.get_all_weekend_legs", return_value=[leg_row]), \
              patch("weekends.get_effective_leg_state", return_value=state_rows("leg-out-1")):
             legs = weekends.get_active_legs()
         self.assertEqual(len(legs), 1)
-        self.assertEqual(legs[0]["outbound_date"], "2026-09-04")
-        self.assertEqual(legs[0]["return_sunday"], "2026-09-06")
+        self.assertEqual(legs[0]["outbound_date"], days_from_today(10))
+        self.assertEqual(legs[0]["return_sunday"], days_from_today(12))
 
     def test_leg_of_expired_weekend_is_excluded(self):
         leg_row = {"id": "leg-out-1", "weekend_id": "wknd-passado", "direction": "outbound"}
@@ -217,9 +233,11 @@ class EffectiveLegStateTest(unittest.TestCase):
     (Fatia D4, 15/08/2026 — aposenta o MIN provisório da 4.2), a partir de
     weekend_leg_effective."""
 
+    # Datas relativas: esta classe passa por get_active_legs, que descarta
+    # fim de semana já vencido (ver days_from_today, no topo do arquivo).
     WEEKEND_ROW = {
-        "id": "wknd-1", "outbound_date": "2026-09-04",
-        "return_sunday": "2026-09-06", "return_monday": "2026-09-07",
+        "id": "wknd-1", "outbound_date": days_from_today(10),
+        "return_sunday": days_from_today(12), "return_monday": days_from_today(13),
     }
     # Sem `status`: a coluna antiga de weekend_legs sai na Etapa 4.3 e o robô
     # não a lê mais em ramo nenhum. Só o teste do status antigo monta a chave.
