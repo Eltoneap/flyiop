@@ -15,6 +15,35 @@
 -- Contexto completo: HISTORICO.md, item 18.
 -- ======================================================================
 
+-- ======================================================================
+-- NOTA DE ESTADO - 05/09/2026 (Etapa 7, fatia E7-7)
+-- STATUS: PARCIALMENTE VENCIDO. O arquivo NAO foi aposentado.
+-- Desde 16/08/2026 existem DOIS usuarios em settings (Etapa 7, fatia
+-- E7-2). Os numeros esperados do BLOCO D foram escritos em 01/08/2026,
+-- com um usuario so, e NAO batem mais:
+--   * "linhas_view: Esperado 132" -> hoje 264 (2 usuarios x 132 pernas).
+--     O Bloco D roda como postgres, que IGNORA RLS: ve a view inteira.
+--   * "Esperado: 132 | 0 | 5 | 5" -> as quatro colunas venceram, e por
+--     tres motivos independentes: (1) o teto padrao foi recalibrado de
+--     R$250 para R$300 em 04/08/2026, entao "price_ceiling = 250" nao
+--     conta mais nada; (2) desde 15/08/2026 existem overrides de teto
+--     POR PERNA feitos pelos dois usuarios no painel (auditoria lida em
+--     24/08/2026: 26 linhas), entao ceiling_is_explicit ja nao e 0; (3)
+--     linhas de estado e de preco pago cresceram com o uso normal.
+--   * "estado_copiado: Esperado 5" e "auditoria: 1 linha - migracao 250"
+--     -> idem, os dois cresceram.
+-- ATENCAO - o que NAO venceu: o "view_esp_132" do BLOCO F continua
+-- CORRETO. Aquele bloco roda como usuario autenticado e a view e
+-- security_invoker: sob RLS, cada usuario ve so as proprias 132 linhas.
+-- 132 la e 264 no Bloco D e o comportamento esperado, nao contradicao.
+-- (O "estado_esp_5" do mesmo bloco venceu, esse sim.)
+-- Blocos B, C, E, F2, G e H: sem alteracao de expectativa.
+-- COMO USAR HOJE: rodar e comparar contra o estado atual do banco, nao
+-- contra os numeros de 01/08/2026. Refotografar a linha de base com dois
+-- usuarios nao foi feito e nao esta planejado.
+-- Contexto completo: HISTORICO.md, item 27 (Etapa 7).
+-- ======================================================================
+
 -- ============================================================================
 -- Etapa 4.1 — verificação.
 --

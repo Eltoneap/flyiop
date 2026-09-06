@@ -255,13 +255,26 @@ def build_weekend_alert_message(report: dict, decision: dict, who: str | None,
     return "\n".join(lines)
 
 
-def build_weekly_weekend_summary(weekend_reports: list[dict], total: int, purchased: int, cutoff: str) -> str:
+def build_weekly_weekend_summary(weekend_reports: list[dict], per_user: list[dict], cutoff: str) -> str:
     """Resumo semanal curado (segundas-feiras): 10 pernas mais baratas + 10
     mais próximas, sem listar as ~132 inteiras (a mensagem cresceria demais).
 
+    `per_user` (E7-7, 05/09/2026): [{'label', 'total', 'purchased'}], já
+    ordenado por `user_id` pelo chamador (main.py) — uma linha de progresso por
+    usuário, porque cada um compra a própria passagem, não a mesma (motivo
+    completo em `supabase_client.get_weekend_leg_counts`). Substituiu o par
+    `total`/`purchased`, que era um número só, calculado pela interseção entre
+    usuários. Lista VAZIA é o modo degradado (nenhum usuário em `settings`):
+    sai uma linha dizendo isso, nunca um "0 de 0 pernas compradas", que
+    pareceria progresso zerado — mesmo princípio do `ceiling_label`
+    "indisponível" no alerta de perna.
+
+    As listas de preço abaixo continuam ÚNICAS, não por usuário: preço de
+    mercado é o mesmo para todo mundo; só o progresso de compra é pessoal.
+
     `cutoff` (Fatia D1, 12/08/2026): as duas listas passam a considerar só
-    pernas de fim de semana >= cutoff — mesma regra que já corta `total`/
-    `purchased` (get_weekend_leg_counts, chamado por main.py) e que o
+    pernas de fim de semana >= cutoff — mesma regra que já corta os números de
+    `per_user` (get_weekend_leg_counts, chamado por main.py) e que o
     Dashboard já aplica desde 28/07/2026 (docs/js/dashboard.js). Recortado
     pela `outbound_date` do FIM DE SEMANA (âncora), tanto para a perna de ida
     quanto para a de volta.
@@ -275,10 +288,18 @@ def build_weekly_weekend_summary(weekend_reports: list[dict], total: int, purcha
     de falha."""
     ok_reports = [r for r in weekend_reports if r["status"] == "ok" and r["outbound_date"] >= cutoff]
 
-    lines = [
-        "📅 <b>Resumo semanal — pernas RIO↔BSB</b>",
-        f"{purchased} de {total} pernas compradas · janela de compra a partir de {format_date_br(cutoff)}",
-    ]
+    lines = ["📅 <b>Resumo semanal — pernas RIO↔BSB</b>"]
+    if per_user:
+        for entry in per_user:
+            lines.append(
+                f"👤 {entry['label']}: {entry['purchased']} de {entry['total']} pernas compradas"
+            )
+    else:
+        lines.append(
+            "👤 Nenhum usuário registrado em <code>settings</code> — "
+            "contagem por usuário indisponível"
+        )
+    lines.append(f"Janela de compra a partir de {format_date_br(cutoff)}")
 
     if ok_reports:
         def leg_label(r: dict) -> str:

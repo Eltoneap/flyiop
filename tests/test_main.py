@@ -718,5 +718,82 @@ class RadarPriceWriteTest(unittest.TestCase):
         mock_update.assert_not_called()
 
 
+class WeeklySummaryPerUserTest(unittest.TestCase):
+    """E7-7 (05/09/2026): o ramo de segunda-feira do `main()` nunca tinha sido
+    exercitado — todos os outros testes deste arquivo forçam `weekday = 2`
+    justamente para evitá-lo. Aqui ele é o alvo.
+
+    Duas coisas são verificadas: o resumo semanal sai com uma linha de
+    progresso POR USUÁRIO (com o rótulo resolvido a partir do
+    `settings_cache`), e a contagem NÃO virou uma consulta por usuário — é a
+    garantia central da Fatia D4 aplicada a este caminho."""
+
+    ALL_SETTINGS = [
+        {"user_id": "user-a", "display_name": "Elton", "notification_mode": "alert_only"},
+        {"user_id": "user-b", "display_name": "Gustavo", "notification_mode": "alert_only"},
+    ]
+    # Report inerte: não dispara alerta, mas impede o `return` antecipado de
+    # "nenhuma rota nem perna cadastrada", que fica ANTES do resumo semanal.
+    REPORT = {"leg": {"id": "leg-1"}, "status": "ok", "price": 400.0,
+              "should_alert": False, "per_user": []}
+
+    def run_monday(self, counts, all_settings=None):
+        with patch("main.get_routes", return_value=[]), \
+             patch("main.get_all_settings",
+                   return_value=self.ALL_SETTINGS if all_settings is None else all_settings), \
+             patch("main.get_system_config", return_value=SYSTEM_CONFIG), \
+             patch("main.process_all_weekend_legs", return_value=[self.REPORT]), \
+             patch("main.run_daily_batch", return_value=([], False)), \
+             patch("main.LEG_LOAD_DIAGNOSTICS", {"degraded_no_settings": False}), \
+             patch("main.current_brt_date", return_value=TODAY), \
+             patch("main.get_weekend_scrape_state", return_value=dict(SCRAPE_STATE_FRESH)), \
+             patch("main.set_weekend_scrape_state"), \
+             patch("main.date") as mock_date, \
+             patch("main.send_message") as mock_send, \
+             patch("main.get_weekend_leg_counts", return_value=counts) as mock_counts, \
+             patch("main.build_weekly_weekend_summary",
+                   side_effect=lambda _reports, per_user, _cutoff:
+                       "resumo:" + ",".join(f"{u['label']}={u['purchased']}/{u['total']}"
+                                            for u in per_user)):
+            mock_date.today.return_value.weekday.return_value = 0  # segunda-feira
+            main.main()
+        return mock_counts, mock_send
+
+    def test_summary_has_one_line_per_user_with_resolved_labels(self):
+        _, mock_send = self.run_monday({"user-a": (90, 3), "user-b": (90, 1)})
+        self.assertIn("resumo:Elton=3/90,Gustavo=1/90",
+                      [c.args[0] for c in mock_send.call_args_list])
+
+    def test_counts_are_read_once_not_once_per_user(self):
+        # Se alguém trocar o agrupamento em memória por um GET com
+        # `user_id=eq.…` por pessoa, este teste cai — é o desenho da D4
+        # (nenhum caminho cresce com número de usuário) escrito como teste.
+        mock_counts, _ = self.run_monday({"user-a": (90, 3), "user-b": (90, 1)})
+        mock_counts.assert_called_once_with("2026-01-01")
+
+    def test_degraded_no_users_still_sends_the_summary(self):
+        # `settings` vazia -> contagem vazia. O resumo continua saindo (com a
+        # linha de "indisponível", coberta em test_telegram.py), nunca some.
+        _, mock_send = self.run_monday({}, all_settings=[])
+        self.assertIn("resumo:", [c.args[0] for c in mock_send.call_args_list])
+
+    def test_no_summary_on_other_weekdays(self):
+        with patch("main.get_routes", return_value=[]), \
+             patch("main.get_all_settings", return_value=self.ALL_SETTINGS), \
+             patch("main.get_system_config", return_value=SYSTEM_CONFIG), \
+             patch("main.process_all_weekend_legs", return_value=[self.REPORT]), \
+             patch("main.run_daily_batch", return_value=([], False)), \
+             patch("main.LEG_LOAD_DIAGNOSTICS", {"degraded_no_settings": False}), \
+             patch("main.current_brt_date", return_value=TODAY), \
+             patch("main.get_weekend_scrape_state", return_value=dict(SCRAPE_STATE_FRESH)), \
+             patch("main.set_weekend_scrape_state"), \
+             patch("main.date") as mock_date, \
+             patch("main.send_message"), \
+             patch("main.get_weekend_leg_counts") as mock_counts:
+            mock_date.today.return_value.weekday.return_value = 2  # quarta
+            main.main()
+        mock_counts.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

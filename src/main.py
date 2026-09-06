@@ -643,8 +643,19 @@ def main() -> None:
                 )
 
     if primary_run and date.today().weekday() == 0:  # segunda-feira
-        total, purchased = get_weekend_leg_counts(buying_cutoff)
-        send_message(build_weekly_weekend_summary(weekend_reports, total, purchased, buying_cutoff))
+        # E7-7 (05/09/2026): contagem POR USUÁRIO — uma linha de progresso por
+        # pessoa no resumo, porque cada um compra a própria passagem (motivo
+        # completo em get_weekend_leg_counts). O leque NÃO abre em consulta:
+        # get_weekend_leg_counts continua fazendo UMA leitura de
+        # weekend_leg_effective e agrupando em memória, e o laço abaixo só
+        # resolve rótulo a partir do settings_cache já carregado no início da
+        # execução — nenhuma consulta nova por usuário, nada do caminho de
+        # scraping tocado (garantia central da Fatia D4).
+        per_user_counts = [
+            {"label": user_label(user_id, settings_cache), "total": total, "purchased": purchased}
+            for user_id, (total, purchased) in get_weekend_leg_counts(buying_cutoff).items()
+        ]
+        send_message(build_weekly_weekend_summary(weekend_reports, per_user_counts, buying_cutoff))
 
     if had_error:
         sys.exit(1)

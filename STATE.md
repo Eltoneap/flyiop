@@ -1,7 +1,36 @@
 # STATE.md — FlyIop
 
 > Atualizado em: 05/09/2026
-> Última sessão: Claude Code (05/09/2026, documentação apenas) — **E7-5:
+> Última sessão: Claude Code (05/09/2026) — **ETAPA 7 CONCLUÍDA (E7-6 e E7-7),
+> e com ela a iniciativa multi-usuário (Etapas 1 a 7).** **E7-6:** verificação
+> manual em produção com as DUAS contas reais logadas — visibilidade cruzada de
+> compra confirmada **nas duas direções** ("Outro usuário já comprou") e o
+> rótulo **"Você"** aparecendo só do lado de quem comprou. É a primeira
+> verificação positiva do item registrado como "sem verificação positiva
+> possível" desde 11/08/2026 (Fatia C, `HISTORICO.md` item 23) e do defeito de
+> rótulo que a E7-1 corrigiu antes de existir alguém para vê-lo. Compra de
+> teste desfeita — comportamento observado em tela; a prova de que desfazer
+> REMOVE a linha da projeção é a do bloco V3 da Fatia C (SQL, 10/08/2026),
+> reaproveitada, **nenhuma consulta SQL foi rodada nesta sessão**. **E7-7:**
+> `sql/etapa4_1_verificacao.sql` marcado como parcialmente vencido (números do
+> Bloco D são de quando havia um usuário só — `linhas_view` 132 → 264; o
+> `view_esp_132` do Bloco F continua correto, porque ali a view roda sob RLS);
+> resumo semanal do Telegram passou a contar pernas compradas **por usuário**
+> (uma linha por pessoa) em vez do critério de interseção, que sub-contaria
+> para sempre com dois compradores independentes — sem schema novo, sem
+> consulta nova, garantia da Fatia D4 intacta; seção "Etapa 7" movida para o
+> `HISTORICO.md` (item 27), com ponteiro de uma linha no `PLANO-ATIVO.md`.
+> Suíte local: **361 testes, todos verdes**. Corrigida também uma falha
+> pré-existente e independente (commit separado): `tests/test_live_check.py`
+> usava a data fixa "2026-09-04" como data de viagem, que venceu ontem — 3
+> testes quebrados e outros 4 passando pelo motivo errado. **Código
+> implementado e COMMITADO LOCALMENTE, ainda NÃO enviado** (push pendente de
+> autorização, dentro da janela 08h–20h BRT e fora dos horários de execução do
+> robô) — só o fechamento da E7-6, que é documentação pura, foi enviado
+> (`37128b4`). Único dos 11 itens sem observação em produção: o 10
+> (`notification_mode` por dono no caminho de rota), que depende de o Gustavo
+> cadastrar rota flexível — registrado, não bloqueante.
+> Sessão anterior: Claude Code (05/09/2026, documentação apenas) — **E7-5:
 > evidência ampliada, confirmação sistemática do fan-out.** A conclusão de
 > 24/08/2026 (2 pares encontrados manualmente, ver sessão abaixo) foi
 > reforçada por uma consulta dedicada em `alert_log` (self-join por
@@ -856,36 +885,20 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
    verificação de produção da Fatia D1. Detalhe completo, incluindo os
    outros 3 itens de verificação que não dependem de segunda-feira, em
    `PLANO-ATIVO.md`, "Etapa 6" → "Fatia D1".
-7. **Etapa 7 (conta do segundo usuário) — PLANEJADA E TOTALMENTE DECIDIDA
-   (15/08/2026); execução BLOQUEADA só pela verificação da Fatia D4.**
-   Levantamento de terreno feito em Plan Mode (só leitura de código, schema e
-   documentação) e registrado na seção "Etapa 7" do `PLANO-ATIVO.md`: plano
-   fatiado em 8 fatias (E7-0 a E7-7), cada uma com bloco de verificação,
-   critério de conclusão e o que é ou não reversível; lista nomeada dos 11
-   itens que **só** são verificáveis com duas contas reais; e o mapa de riscos
-   e pontos sem volta. **As quatro decisões de produto que travavam a fatia da
-   criação da conta foram FECHADAS em 15/08/2026** — teto padrão do segundo
-   usuário R$300 (não o default 250 do banco), `display_name` `Gustavo`,
-   D-7 (apertar a RLS de `alert_log`) rodando **depois** da criação da conta
-   com a janela de risco aceita explicitamente, e o `/status` do bot aceito
-   como está (não filtra por usuário; gatilho de reabertura nomeado).
-   **Nenhuma decisão de produto resta em aberto para quando o gate abrir** — o
-   que falta é execução. Detalhe completo, incluindo o que foi confirmado por
-   leitura de código e o que segue sem confirmação, na seção "Etapa 7" do
-   `PLANO-ATIVO.md`. ~~**Não iniciar nenhuma fatia antes de os itens 5-10 da
-   Fatia D4 fecharem.**~~
-   **✅ ATUALIZAÇÃO (17/08/2026) — GATE CUMPRIDO, ETAPA 7 EM EXECUÇÃO.** O item
-   5 da D4 foi confirmado por prova direta de banco (ver seção 2), então o
-   único bloqueio estrutural desta etapa caiu. As fatias **E7-0 a E7-4 estão
-   concluídas** — foram executadas antes disso, sob três overrides conscientes
-   datados, e a sequência de overrides está encerrada. **✅ E7-5 CONCLUÍDA
-   (24/08/2026, evidência ampliada em 05/09/2026):** `alert_log` com dois
-   `user_id` distintos na mesma execução, confirmado por consulta sistemática
-   — 12 pares, 6 pernas distintas, janela 20/08–05/09/2026, sempre <1s de
-   diferença entre os `sent_at` (detalhe em "Decisões vivas", seção 2, e
-   `PLANO-ATIVO.md`, "Etapa 7" → "E7-5"). **Próximo passo real da etapa:
-   E7-6 (painel do Gustavo) e E7-7 (fechamento e higiene)** — nenhuma das duas
-   tem marca de conclusão ainda.
+7. **Etapa 7 (conta do segundo usuário) — ✅ CONCLUÍDA (05/09/2026), E7-0 a
+   E7-7.** Com ela encerra-se a iniciativa multi-usuário (Etapas 1 a 7). As
+   duas últimas fatias fecharam nesta data: **E7-6** (painel do Gustavo —
+   visibilidade cruzada de compra confirmada nas duas direções e o rótulo
+   "Você" só do lado de quem comprou; primeira verificação positiva do item
+   que estava registrado como "sem verificação positiva possível" desde
+   11/08/2026) e **E7-7** (fechamento e higiene — `sql/etapa4_1_verificacao.sql`
+   marcado como parcialmente vencido, resumo semanal do Telegram passando a
+   contar pernas compradas por usuário, e a seção "Etapa 7" movida do
+   `PLANO-ATIVO.md` para o `HISTORICO.md`). Detalhe completo em
+   `HISTORICO.md`, item 27. **Cauda longa que sobrevive, sem bloquear nada:**
+   item 10 da lista dos 11 (`notification_mode` por dono no caminho de rota)
+   segue sem observação em produção — depende de o Gustavo cadastrar uma rota
+   flexível.
 
 8. **Etapa 0 (validação da grade de calendário) — ✅ CONCLUÍDA (24/08/2026).**
    Ver seção 2, "Decisões vivas", e `HISTORICO.md`, item 24.
@@ -903,42 +916,24 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 
 ## 4. Bloqueios / perguntas em aberto
 
-- **Multi-usuário (amigo que também vai comprar RIO↔BSB em 2027):** iniciativa ativa, em execução por etapas — ver `PLANO-ATIVO.md`. Escopo completo (alertas + painel + aba Compras próprios); Telegram em grupo único compartilhado, mensagem identifica nome+teto de quem disparou. Etapas 1-3 concluídas e confirmadas em produção (Etapa 3 só foi confirmada rodando de fato em 30/07/2026, depois da correção do bug de agendamento — ver item 15 do `HISTORICO.md`). **Etapa 4 quebrada em 4.1 / 4.2 / 4.3: a 4.1 está concluída e verificada (01/08/2026)** — estrutura de decisão pessoal por perna criada no banco de produção pelo SQL Editor e verificada com os blocos A–G (ver item 17 do `HISTORICO.md`); os arquivos `sql/` correspondentes estão no repositório desde o push de 02/08/2026 (`be81384`). **A capacidade de prova dos blocos E e F foi revisada em 02/08/2026** — o comportamento da estrutura está confirmado (isolamento OK), mas os blocos como escritos hoje têm prova mais fraca do que se pensava; detalhe e pendência de correção em `AUDITORIA-MULTIUSUARIO.md` e `PLANO-ATIVO.md` (item 11 da 4.2). **A 4.2 (virada de leitura) está em execução, com 13 pendências nomeadas no `PLANO-ATIVO.md`** (12 concluídas — 1–11 e 13; resta só a 12, backlog de UI — ver item 2 abaixo, seção 3); a 4.3 (remover colunas antigas) vem depois dela. **Etapa 5 (frontend por usuário) — concluída por composição (08/08/2026):** "`weekend_legs` somente-leitura no navegador" = Etapa 4.4 (07/08/2026); "redesenho de RLS de update" = Etapa 4.1, RLS de `weekend_leg_user_state`, provada nos blocos F/F2; "Compras/Dashboard por usuário logado" = funcionalmente pela Etapa 4.2 (pendências 3/5, leitura via `weekend_leg_effective`), visualmente pela Fatia A/B (UI, `HISTORICO.md` itens 21/22). **Atualização (01/08/2026):** o teste do caminho de alerta de perna (ver item 16 do `HISTORICO.md`) foi concluído e o caminho confirmado em produção — o gate que ele impunha sobre a Etapa 6 (Telegram por usuário) caiu. Etapa 6 segue exigindo, como todas as etapas, revisão explícita no chat de planejamento antes de rodar — não há mais nenhuma dependência de teste pendente.
-
-- **ETAPA 7 (conta do segundo usuário) — PLANEJADA E TOTALMENTE DECIDIDA
-  (15/08/2026). Gate estreitado (decisão de 15/08/2026, chat de acompanhamento
-  da D4): bloqueio restante é só o item 5 da verificação pós-deploy da Fatia D4**
-  ("próxima linha de perna em `alert_log` nasce com `user_id` preenchido") —
-  **não os 6 itens inteiros (5-10)**. Itens 9 e 10 (re-alerta de transição,
-  regressão estrutural) passam a rodar em paralelo à execução da Etapa 7, não
-  antes dela; item 6 (nome no Telegram) é conferido no mesmo log mas não
-  bloqueia. **Exceção que reintroduz o bloqueio:** item 5 com defeito real
-  (`user_id` NULL numa linha nova, erro de gravação) pausa a Etapa 7.
-  **✅ GATE CUMPRIDO E BLOQUEIO ENCERRADO (17/08/2026):** o item 5 foi
-  confirmado por prova direta de banco (3 linhas de perna em `alert_log` na
-  janela 08h–09h BRT de 17/08, todas com `user_id` preenchido, zero NULL) e o
-  item 6 por print da mensagem ("👤 Elton"). A exceção **foi medida e não se
-  materializou**. Este item deixa de ser bloqueio; **E7-5 foi CONCLUÍDA em
-  24/08/2026** (evidência ampliada em 05/09/2026 — 12 pares confirmados, 6
-  pernas distintas, sempre <1s de diferença entre `sent_at`); o que resta da
-  Etapa 7 é E7-6 e E7-7 — ver item 7 da seção 3.
-  Detalhe
-  completo na abertura da seção "Etapa 7" do `PLANO-ATIVO.md` — não
-  reproduzido aqui. Não há mais pergunta de produto em aberto sobre a Etapa 7:
-  as quatro que existiam foram fechadas em 15/08/2026 (teto R$300,
-  `display_name` `Gustavo`, ordem RLS × criação da conta com a janela de risco
-  aceita explicitamente, e `/status` do bot aceito como está). O plano fatiado
-  E7-0→E7-7, a lista nomeada dos 11 itens que só são verificáveis com duas
-  contas reais e os riscos/pontos sem volta estão na seção "Etapa 7" do
-  `PLANO-ATIVO.md` — **não reproduzir aqui.**
-  - **O que ainda não foi confirmado, e vira gate de leitura da fatia E7-0
-    (não é decisão, é medição):** o DDL real de `settings` (PK, `unique(user_id)`,
-    colunas NOT NULL, defaults vivos) não está versionado no repositório; o
-    default vivo de `weekend_default_ceiling`; o default de `routes.user_id`;
-    a configuração do Supabase Auth; e as contagens atuais de `alert_log`.
-  - **Regra dura preservada:** a criação da conta continua sendo a última
-    etapa, e a credencial só é entregue ao segundo usuário depois da prova de
-    isolamento (fatia E7-4), nunca antes.
+- **Multi-usuário (amigo que também vai comprar RIO↔BSB em 2027) — ✅ ENCERRADO COMO BLOQUEIO (05/09/2026).**
+  As 7 etapas estão concluídas, e a Etapa 7 (conta do segundo usuário) foi
+  executada inteira (E7-0 a E7-7) e verificada em produção **com as duas
+  contas reais**: isolamento provado por SQL (E7-4), fan-out de alerta com dois
+  `user_id` distintos na mesma execução confirmado por consulta sistemática
+  (E7-5 — 12 pares, 6 pernas, janela 20/08–05/09/2026), e visibilidade cruzada
+  de compra + rótulo "Você" conferidos por login nas duas direções (E7-6).
+  Não é mais bloqueio nem pergunta em aberto. **Histórico completo por etapa no
+  `HISTORICO.md`** (itens 17-23 para as etapas 4.x e as Fatias A/B/C; item 27
+  para a Etapa 7 inteira, movida do `PLANO-ATIVO.md` em 05/09/2026); diagnóstico
+  de RLS e escopo em `AUDITORIA-MULTIUSUARIO.md`.
+  - **Em observação, não em bloqueio:** item 10 da lista nomeada dos 11
+    (`notification_mode` por dono no caminho de rota, D-4b) é o único que segue
+    sem observação em produção — depende de o Gustavo cadastrar uma rota
+    flexível, e ele não cadastrou.
+  - **Regra dura, cumprida e agora histórica:** a criação da conta foi de fato
+    a última etapa, e a credencial só foi entregue depois da prova de
+    isolamento (E7-4).
 - **✅ ENCERRADO (04/08/2026) — regra de janela aberta (4.1 → 4.2): não editar teto no painel.** Entre a 4.1 e a 4.2 o estado vivia em dois lugares. O painel e o robô continuavam lendo e escrevendo o mundo antigo (`weekend_legs`); o mundo novo (`weekend_leg_user_state`) existia mas ficava parado na fotografia do dia da cópia. Teto editado no painel nesse intervalo iria para a coluna velha, fora do alcance da auditoria nova, e o re-sync da 4.2 teria que transformá-lo em **override explícito**. **Fechado por execução real do re-sync** (pendências 1 e 2 da Etapa 4.2, `sql/etapa4_2_resync.sql`, 04/08/2026): zero teto preso na coluna velha, zero divergência de estado. Já estava tecnicamente encerrado desde 03/08/2026 (pendências 3/4 — painel parou de escrever em `weekend_legs.price_ceiling`); a execução do re-sync fecha o registro formal do intervalo. Texto histórico mantido para contexto. Detalhe no `PLANO-ATIVO.md`, seção "Etapa 4.2".
 - **Pedido de antecipar a criação da conta do segundo usuário: avaliado e recusado (31/07/2026).** Motivo: `price_ceiling`/`status`/`notes`/`paid_price` ainda são globais e a RLS de `weekend_legs` é genérica hoje — qualquer autenticado podia sobrescrever o dado do outro, sem auditoria de teto pra reconstruir depois, corrigido pela Etapa 4.4 (07/08/2026) (ver `AUDITORIA-MULTIUSUARIO.md` e pendência (d) do diagnóstico de alerta em `PLANO-ATIVO.md` — **a parte da auditoria foi resolvida pela Etapa 4.1 em 01/08/2026**; as colunas globais e a RLS genérica de `weekend_legs` continuam como estavam, então a recusa segue de pé). A regra dura (conta nova só na Etapa 7) permanece. Alternativa considerada e descartada: travar `weekend_legs` como somente-leitura via RLS temporária — descartada por mexer em política de segurança em produção, risco de falha silenciosa ao salvar no frontend, e por ser trabalho descartável. Enquanto isso, a necessidade real do segundo usuário ("ver preço e saber quando comprar") é atendida manualmente pelo usuário principal. **Lado de leitura fechado (08/08/2026):** decisão de produto tomada no chat de planejamento — dado objetivo de voo (preço atual, companhia, horário, menor preço visto, calendário dos fins de semana) é compartilhado entre usuários, decisão consciente. Confirmado por diagnóstico só-leitura em duas partes (catálogo de RLS + personificação de usuário fictício via `set local role authenticated` em transação com rollback, mesma técnica do bloco F da 4.1): zero divergência do esperado em todas as 16 tabelas/views verificadas — nenhuma tabela de decisão pessoal (`weekend_leg_user_state`, `weekend_leg_ceiling_audit`, `weekend_legs_legacy_columns_backup`) é legível por outro usuário; `weekend_legs`/`weekends`/histórico de preço/run log de perna são, como esperado, visíveis a qualquer autenticado. Achado de higiene sem ação necessária: `grant_select_anon = true` aparece em todas as tabelas (padrão de fábrica do Supabase, role grant — não RLS); a policy de linha continua sendo a barreira real, confirmada pela própria personificação. **Isso fecha só o lado de leitura.** O lado de escrita já tinha sido fechado pela Etapa 4.4 (07/08/2026). A pendência da RLS "genérica" está encerrada nos dois lados. Não bloqueia mais a Etapa 7 por este motivo — a Etapa 5 foi concluída por composição (ver acima). **Atualização de 15/08/2026:** a Etapa 6 foi fatiada em D1-D4 e todas as quatro estão implementadas; a Etapa 7 está planejada e totalmente decidida, e **o único bloqueio que resta é a verificação pós-deploy da Fatia D4** — ver o item próprio abaixo.
 

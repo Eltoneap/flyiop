@@ -7,6 +7,11 @@ só conta pernas de fim de semana >= cutoff, mesma regra do Dashboard
 (docs/js/dashboard.js) desde 28/07/2026. Todas as fixtures abaixo passaram a
 carregar `outbound_date`.
 
+E7-7 (05/09/2026): get_weekend_leg_counts passou a devolver
+{user_id: (total, purchased)} — contagem por usuário no resumo semanal, em
+vez do critério de interseção entre usuários, que sub-contava para sempre com
+dois compradores independentes.
+
 Uso: python -m unittest tests/test_supabase_client.py -v (a partir da raiz do repo)
 """
 import os
@@ -29,39 +34,88 @@ def state_row(leg_id: str, status: str, user_id: str = "user-a", outbound_date: 
 
 
 class GetWeekendLegCountsTest(unittest.TestCase):
+    """E7-7 (05/09/2026): o retorno passou de `(total, purchased)` para
+    `{user_id: (total, purchased)}` — contagem POR USUÁRIO.
+
+    A regra antiga ("uma perna só conta como comprada quando TODOS os usuários
+    a marcaram 'purchased'") foi REVOGADA por decisão de produto, não é
+    regressão: Elton e Gustavo compram passagens independentes na mesma perna,
+    não a mesma passagem, então a interseção sub-contava para sempre. O caso
+    `test_two_users_counted_independently` abaixo é exatamente o que o antigo
+    `test_leg_counts_purchased_only_when_all_users_agree` afirmava ao
+    contrário."""
+
     def test_single_user_none_purchased(self):
         rows = [state_row("leg-1", "monitoring"), state_row("leg-2", "monitoring")]
         with patch("supabase_client.get_effective_leg_state", return_value=rows):
-            total, purchased = supabase_client.get_weekend_leg_counts(CUTOFF)
-        self.assertEqual((total, purchased), (2, 0))
+            counts = supabase_client.get_weekend_leg_counts(CUTOFF)
+        self.assertEqual(counts, {"user-a": (2, 0)})
 
     def test_single_user_one_purchased(self):
         rows = [state_row("leg-1", "purchased"), state_row("leg-2", "monitoring")]
         with patch("supabase_client.get_effective_leg_state", return_value=rows):
-            total, purchased = supabase_client.get_weekend_leg_counts(CUTOFF)
-        self.assertEqual((total, purchased), (2, 1))
+            counts = supabase_client.get_weekend_leg_counts(CUTOFF)
+        self.assertEqual(counts, {"user-a": (2, 1)})
 
-    def test_leg_counts_purchased_only_when_all_users_agree(self):
+    def test_two_users_counted_independently(self):
+        # Substitui test_leg_counts_purchased_only_when_all_users_agree, que
+        # asseverava (1, 0) neste mesmo cenário. Hoje: quem comprou conta 1,
+        # quem não comprou conta 0 — e um não zera o outro.
         rows = [
             state_row("leg-1", "purchased", user_id="user-a"),
             state_row("leg-1", "monitoring", user_id="user-b"),
         ]
         with patch("supabase_client.get_effective_leg_state", return_value=rows):
-            total, purchased = supabase_client.get_weekend_leg_counts(CUTOFF)
-        self.assertEqual((total, purchased), (1, 0))
+            counts = supabase_client.get_weekend_leg_counts(CUTOFF)
+        self.assertEqual(counts, {"user-a": (1, 1), "user-b": (1, 0)})
 
-    def test_leg_counts_purchased_when_every_user_purchased(self):
+    def test_both_users_purchased_counts_for_each(self):
         rows = [
             state_row("leg-1", "purchased", user_id="user-a"),
             state_row("leg-1", "purchased", user_id="user-b"),
         ]
         with patch("supabase_client.get_effective_leg_state", return_value=rows):
-            total, purchased = supabase_client.get_weekend_leg_counts(CUTOFF)
-        self.assertEqual((total, purchased), (1, 1))
+            counts = supabase_client.get_weekend_leg_counts(CUTOFF)
+        self.assertEqual(counts, {"user-a": (1, 1), "user-b": (1, 1)})
 
-    def test_no_rows_is_zero_zero(self):
+    def test_denominator_is_per_user_not_shared(self):
+        # A view é cross join com `settings`, então na prática os dois têm o
+        # mesmo denominador — mas ele é CONTADO por usuário, não assumido
+        # igual: quem tem menos linhas aparece com o próprio denominador.
+        rows = [
+            state_row("leg-1", "monitoring", user_id="user-a"),
+            state_row("leg-2", "monitoring", user_id="user-a"),
+            state_row("leg-1", "purchased", user_id="user-b"),
+        ]
+        with patch("supabase_client.get_effective_leg_state", return_value=rows):
+            counts = supabase_client.get_weekend_leg_counts(CUTOFF)
+        self.assertEqual(counts, {"user-a": (2, 0), "user-b": (1, 1)})
+
+    def test_order_is_by_user_id(self):
+        # A ordem das linhas do resumo semanal sai daqui. Por `user_id` (que
+        # não muda), não por `display_name` (que o painel pode renomear) nem
+        # por quantidade comprada (que oscilaria semana a semana).
+        rows = [
+            state_row("leg-1", "monitoring", user_id="user-z"),
+            state_row("leg-1", "monitoring", user_id="user-a"),
+            state_row("leg-1", "monitoring", user_id="user-m"),
+        ]
+        with patch("supabase_client.get_effective_leg_state", return_value=rows):
+            counts = supabase_client.get_weekend_leg_counts(CUTOFF)
+        self.assertEqual(list(counts.keys()), ["user-a", "user-m", "user-z"])
+
+    def test_duplicate_row_for_same_leg_and_user_counts_once(self):
+        rows = [state_row("leg-1", "purchased"), state_row("leg-1", "purchased")]
+        with patch("supabase_client.get_effective_leg_state", return_value=rows):
+            counts = supabase_client.get_weekend_leg_counts(CUTOFF)
+        self.assertEqual(counts, {"user-a": (1, 1)})
+
+    def test_no_rows_is_empty_dict(self):
+        # Modo degradado (nenhum usuário em `settings`): dicionário vazio, e é
+        # o que faz o resumo semanal dizer "contagem indisponível" em vez de
+        # imprimir "0 de 0 pernas compradas", que pareceria progresso zerado.
         with patch("supabase_client.get_effective_leg_state", return_value=[]):
-            self.assertEqual(supabase_client.get_weekend_leg_counts(CUTOFF), (0, 0))
+            self.assertEqual(supabase_client.get_weekend_leg_counts(CUTOFF), {})
 
     # --- Fatia D1 (12/08/2026): recorte pela janela de compra -------------
 
@@ -71,20 +125,31 @@ class GetWeekendLegCountsTest(unittest.TestCase):
             state_row("leg-2", "monitoring", outbound_date="2027-02-05"),  # depois do corte
         ]
         with patch("supabase_client.get_effective_leg_state", return_value=rows):
-            total, purchased = supabase_client.get_weekend_leg_counts(CUTOFF)
-        self.assertEqual((total, purchased), (1, 0))
+            counts = supabase_client.get_weekend_leg_counts(CUTOFF)
+        self.assertEqual(counts, {"user-a": (1, 0)})
 
     def test_purchased_leg_before_cutoff_does_not_count_as_purchased(self):
         rows = [state_row("leg-1", "purchased", outbound_date="2026-09-04")]
         with patch("supabase_client.get_effective_leg_state", return_value=rows):
-            total, purchased = supabase_client.get_weekend_leg_counts(CUTOFF)
-        self.assertEqual((total, purchased), (0, 0))
+            counts = supabase_client.get_weekend_leg_counts(CUTOFF)
+        self.assertEqual(counts, {})
 
     def test_outbound_date_equal_to_cutoff_counts_as_inside(self):
         rows = [state_row("leg-1", "monitoring", outbound_date=CUTOFF)]
         with patch("supabase_client.get_effective_leg_state", return_value=rows):
-            total, purchased = supabase_client.get_weekend_leg_counts(CUTOFF)
-        self.assertEqual((total, purchased), (1, 0))
+            counts = supabase_client.get_weekend_leg_counts(CUTOFF)
+        self.assertEqual(counts, {"user-a": (1, 0)})
+
+    def test_cutoff_applies_to_every_user(self):
+        rows = [
+            state_row("leg-1", "purchased", user_id="user-a", outbound_date="2026-09-04"),
+            state_row("leg-1", "purchased", user_id="user-b", outbound_date="2026-09-04"),
+            state_row("leg-2", "monitoring", user_id="user-a", outbound_date="2027-02-05"),
+            state_row("leg-2", "monitoring", user_id="user-b", outbound_date="2027-02-05"),
+        ]
+        with patch("supabase_client.get_effective_leg_state", return_value=rows):
+            counts = supabase_client.get_weekend_leg_counts(CUTOFF)
+        self.assertEqual(counts, {"user-a": (1, 0), "user-b": (1, 0)})
 
 
 class GetLastWeekendLegAlertTest(unittest.TestCase):

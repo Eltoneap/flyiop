@@ -360,35 +360,58 @@ def insert_weekend_leg_run_log(leg_id: str, outcome: str, price: float | None = 
     resp.raise_for_status()
 
 
-def get_weekend_leg_counts(cutoff: str) -> tuple[int, int]:
-    """(pernas dentro da janela de compra, quantas já compradas) — pro resumo
-    semanal.
+def get_weekend_leg_counts(cutoff: str) -> dict[str, tuple[int, int]]:
+    """{user_id: (pernas dentro da janela de compra, quantas ESSE usuário já
+    comprou)} — pro resumo semanal. Ordenado por `user_id`: ordem estável entre
+    semanas (`display_name` pode mudar no painel, `user_id` não).
 
     Lê `weekend_leg_effective` (Etapa 4.2, pendência 13) em vez de
     `weekend_legs.status` — coluna congelada desde as pendências 3/4 (o painel
     passou a escrever status em `weekend_leg_user_state`, não mais em
     `weekend_legs`). `weekend_legs.status` sempre reportava 0 compradas.
 
-    A view é perna × usuário (cross join com `settings`); uma perna conta como
-    comprada só quando TODOS os usuários que a monitoram marcaram
-    'purchased' — mesma regra de "sai da fila" da pendência 9, aplicada aqui
-    ao complemento. Só existem dois estados hoje
-    (`check (status in ('monitoring','purchased'))`,
+    E7-7 (05/09/2026): a contagem passou a ser POR USUÁRIO. O critério anterior
+    — a view é perna × usuário, e uma perna só contava como comprada quando
+    TODOS os usuários a tinham marcado 'purchased' — nasceu com um usuário só
+    (onde "todos" era "ele") e sub-contava PARA SEMPRE com dois: Elton e
+    Gustavo compram passagens INDEPENDENTES na mesma perna, não a mesma
+    passagem, então a interseção nunca foi medida de progresso de ninguém. O
+    painel já contava assim desde a Etapa 4.2 (cada navegador lê a view sob RLS
+    e enxerga só as próprias 132 linhas, `docs/js/dashboard.js`
+    renderProgresso) — esta fatia alinha o robô ao painel, não inventa um
+    critério novo. NÃO reintroduzir o `all(...)`: a regra foi revogada por
+    decisão de produto, não é regressão.
+
+    Só existem dois estados hoje (`check (status in ('monitoring','purchased'))`,
     `sql/etapa4_1_estado_por_usuario.sql:91`), então checar `== 'purchased'`
-    diretamente é seguro e explícito — nenhuma inferência por ausência.
+    diretamente é seguro e explícito — nenhuma inferência por ausência. O
+    dicionário intermediário por perna preserva a robustez a linha duplicada
+    que o agrupamento anterior tinha (a view devolve uma linha por
+    (perna, usuário), mas a contagem não depende disso).
+
+    O denominador também é por usuário e CONTADO, não assumido igual: a view é
+    cross join com `settings`, então hoje os dois dão o mesmo número, mas um
+    usuário com menos linhas aparece com o denominador dele, não com o do
+    outro.
 
     `cutoff` (Fatia D1, 12/08/2026): recorta pela `outbound_date` do fim de
     semana (âncora), pernas com `outbound_date < cutoff` não entram no total
     nem no numerador — mesma regra que `docs/js/dashboard.js` já aplica pro
     progresso/orçamento (renderProgresso/renderOrcamento) desde 28/07/2026.
-    A COLETA não é afetada: esta função só monta o número do resumo semanal,
-    não decide o que o robô consulta ou grava."""
+
+    Continua sendo UMA leitura de `weekend_leg_effective` por execução de
+    segunda-feira, agrupada em memória — nenhuma consulta por usuário. A
+    garantia central da Fatia D4 (nenhum caminho que cresça com número de
+    usuário) não é tocada, e a COLETA não é afetada: esta função lê status já
+    gravado e não decide o que o robô consulta ou grava."""
     rows = [r for r in get_effective_leg_state() if r["outbound_date"] >= cutoff]
-    legs: dict[str, list[str]] = {}
+    by_user: dict[str, dict[str, str]] = {}
     for row in rows:
-        legs.setdefault(row["leg_id"], []).append(row["status"])
-    purchased = sum(1 for statuses in legs.values() if all(s == "purchased" for s in statuses))
-    return len(legs), purchased
+        by_user.setdefault(row["user_id"], {})[row["leg_id"]] = row["status"]
+    return {
+        user_id: (len(legs), sum(1 for status in legs.values() if status == "purchased"))
+        for user_id, legs in sorted(by_user.items())
+    }
 
 
 def get_last_weekend_leg_alert(leg_id: str, alert_type: str, user_id: str) -> dict | None:
