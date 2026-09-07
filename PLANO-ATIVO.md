@@ -1075,31 +1075,24 @@ solta** e não deve reaparecer como "pendente" em fatia intermediária.
 
 Concluída (E7-0 a E7-4 em 15-16/08/2026, E7-5 em 24/08/2026 com evidência ampliada em 05/09/2026, E7-6 e E7-7 em 05/09/2026). Detalhe completo movido para `HISTORICO.md`, item 27.
 
-### Pendência de verificação em produção (única coisa que sobrou da E7-7)
+### Verificação de produção da E7-7 — ✅ CONFIRMADA (07/09/2026)
 
-**Confirmar, na primeira segunda-feira DEPOIS do push, que o resumo semanal do
-Telegram sai com uma linha de progresso por usuário** — `👤 Elton: X de Y
-pernas compradas` e `👤 Gustavo: Z de Y pernas compradas`, nessa ordem (por
-`user_id`), seguidas da linha `Janela de compra a partir de 29/01/2027`.
-Formato antigo, que NÃO deve mais aparecer: um número só, `"X de Y pernas
-compradas · janela de compra a partir de …"` na mesma linha.
+Mensagem real recebida no Telegram em 07/09/2026 (segunda-feira, run das
+~13:10 BRT — atrasado do horário habitual de ~08h, mas primeira execução do
+dia, então carregou a flag de `primary_run` normalmente):
 
-- **Depende do push:** o commit da E7-7 estava commitado só localmente em
-  05/09/2026 (regra de janela de deploy: 08h–20h BRT, longe dos horários de
-  execução ~08h/~20h). **A verificação cai na primeira segunda-feira em que o
-  código já estiver em produção** — se o push sair antes da execução de
-  segunda ~08h BRT, é na mesma semana; se sair depois, escorrega para a
-  segunda seguinte. Conferir a data do push antes de dar a verificação por
-  perdida.
-- **Só a execução primária de segunda-feira manda o resumo** (`main.py`,
-  `primary_run and date.today().weekday() == 0`) — em qualquer outro dia a
-  ausência da mensagem é o comportamento correto, não falha.
-- **Se sair com um número só:** o deploy não pegou (código antigo rodando) —
-  conferir o commit em produção antes de suspeitar da lógica.
-- **Se sair com "contagem por usuário indisponível":** aí sim é defeito real —
-  significa `settings` vazia para o robô (modo degradado), o que contradiz as
-  duas contas existirem. Nesse caso, investigar a leitura de `get_all_settings`
-  antes de mexer no resumo.
+```
+📅 Resumo semanal — pernas RIO↔BSB
+👤 Gustavo: 0 de 90 pernas compradas
+👤 Elton: 0 de 90 pernas compradas
+Janela de compra a partir de 29/01/2027
+```
+
+Confirmado: duas linhas por usuário, nenhum traço do formato antigo (linha
+única combinada), denominador `90` consistente com a janela de compra.
+Gustavo aparece antes de Elton porque a ordenação é por `user_id` (UUID), não
+por nome — comportamento esperado, já registrado no plano original, não é
+bug. Fecha a última pendência da E7-7 e da Etapa 7 como um todo.
 
 Mesmo padrão das verificações de segunda-feira anteriores (pendência 13 da
 Etapa 4.2 e Fatia D1, ambas registradas na seção 3 do `STATE.md`).

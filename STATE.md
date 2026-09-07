@@ -24,12 +24,13 @@
 > pré-existente e independente (commit separado): `tests/test_live_check.py`
 > usava a data fixa "2026-09-04" como data de viagem, que venceu ontem — 3
 > testes quebrados e outros 4 passando pelo motivo errado. **Código
-> implementado e COMMITADO LOCALMENTE, ainda NÃO enviado** (push pendente de
-> autorização, dentro da janela 08h–20h BRT e fora dos horários de execução do
-> robô) — só o fechamento da E7-6, que é documentação pura, foi enviado
-> (`37128b4`). Único dos 11 itens sem observação em produção: o 10
-> (`notification_mode` por dono no caminho de rota), que depende de o Gustavo
-> cadastrar rota flexível — registrado, não bloqueante.
+> confirmado em produção (07/09/2026)** — resumo semanal do Telegram de
+> segunda-feira 07/09/2026 saiu com uma linha por usuário (`👤 Gustavo: 0 de
+> 90 pernas compradas` / `👤 Elton: 0 de 90 pernas compradas`), fechando a
+> última pendência de verificação da E7-7 (detalhe completo em
+> `PLANO-ATIVO.md`, "Etapa 7"). Único dos 11 itens sem observação em produção:
+> o 10 (`notification_mode` por dono no caminho de rota), que depende de o
+> Gustavo cadastrar rota flexível — registrado, não bloqueante.
 > Sessão anterior: Claude Code (05/09/2026, documentação apenas) — **E7-5:
 > evidência ampliada, confirmação sistemática do fan-out.** A conclusão de
 > 24/08/2026 (2 pares encontrados manualmente, ver sessão abaixo) foi
