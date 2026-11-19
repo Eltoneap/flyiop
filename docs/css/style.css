@@ -630,6 +630,22 @@ ul.suggestions li:hover {
   border-color: var(--primary);
 }
 
+/* "Mostrar passados" (19/11/2026): alterna visibilidade, não é filtro —
+   borda tracejada para não parecer mais um chip de filtro. */
+.filter-chip.past-toggle {
+  border-style: dashed;
+  color: var(--muted);
+}
+.filter-chip.past-toggle.active {
+  border-style: solid;
+  color: #fff;
+}
+
+/* Fim de semana já passado, visível só com "Mostrar passados". */
+.weekend-card.is-past {
+  opacity: 0.6;
+}
+
 .advisory {
   background: var(--neutral-bg);
   border-radius: 8px;

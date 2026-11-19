@@ -1670,6 +1670,63 @@ próprio push zera o contador de 60 dias, então o efeito do keepalive em
 
 ---
 
+## 30. Aba Compras mostra só o que vem pela frente, 19/11/2026
+
+**Motivação:** item 2 da fila do `STATE.md` — era preciso rolar 11 fins de
+semana já passados (04/09 a 13/11) para chegar ao presente.
+
+**Regra (decisão do usuário, 19/11/2026):** um fim de semana some da aba
+Compras quando a data da ÚLTIMA perna dele já passou, no fuso
+America/Sao_Paulo; no dia da viagem continua aparecendo, some no seguinte.
+Data real de cada perna: ida = sexta; volta comprada = data do voo
+registrado na compra (`purchased_departure_time` do snapshot do próprio
+usuário, convertido para SP); volta não comprada = variante escolhida pelo
+robô (domingo/segunda); variante indefinida = segunda (a mais tardia, nunca
+esconde cedo).
+
+**Implementação (só `docs/`, nada de banco, nada apagado):**
+- `docs/js/weekend-dates.js` (novo) — **regra única**: `todaySaoPaulo`,
+  `legTravelDate`, `weekendLastTravelDate`, `isWeekendPast`. O resumo de
+  compras do Dashboard (item 4 da fila) deve importar daqui, não reescrever.
+- `docs/js/compras.js` — passados somem das duas abas (Ativos e Comprados);
+  botão "Mostrar passados (N)" no fim da linha de filtros, desligado a cada
+  carga, sem persistência; card passado aparece esmaecido. Contadores de
+  progresso ("X de 132 pernas"), ordem e filtros não mudaram. `daysUntil`
+  passou a contar a partir do "hoje" de SP da página (antes: fuso do
+  aparelho) e o rótulo do card ganhou "ida já passou · volta pela frente"
+  para o caso de borda (antes dizia "já passou" com a volta ainda por vir).
+  Seletores dos chips de filtro restritos a `[data-filter]` para o botão
+  novo não ser tratado como filtro.
+- **Parâmetro de teste `?hoje=AAAA-MM-DD`**, aprovado pelo usuário: só vale em
+  `localhost`/`127.0.0.1`; no site publicado é ignorado.
+- `docs/css/style.css` — botão com borda tracejada (alterna visibilidade, não
+  é filtro) e card passado com opacidade 0,6.
+
+**Verificação no painel local, logado (19/11/2026), prints no chat:**
+- antes: 63 cards em Ativos, começando em 04/09; depois: 52, começando em
+  20/11, botão "Mostrar passados (11)"; ligado → 63, os 11 marcados como
+  passados; aba Comprados: 3 cards, 0 passados; filtro "Próximos 60 dias"
+  continua funcionando (9 cards); console sem erros;
+- caso de borda com `?hoje=`: **22/11** — fim de semana de 20/11 (ida
+  passada, volta de domingo hoje) continua visível com "ida já passou · volta
+  pela frente"; **23/11** e **24/11** — sumiu (volta era domingo), 12
+  passados;
+- função pura conferida no console: variante domingo/segunda/indefinida,
+  volta comprada na segunda às 22h30 (fica visível na segunda), fim de
+  semana sem pernas, e fuso (01:30 UTC de 20/11 = 19/11 em SP).
+
+**Achado colateral — robô ainda consulta perna já passada (registrado como
+pendência nomeada, NÃO corrigido nesta sessão):** ver `PLANO-ATIVO.md`,
+"Pendência nomeada — D+1". Radar não tem esse problema (varre de hoje em
+diante, `radar_check.py:159-160`, filtros em `:360` e `:456`).
+
+**Nota de ambiente:** o servidor de pré-visualização do app continuou
+servindo a pasta antiga (`~/Documents/FlyIop`, iCloud) mesmo com a sessão
+em `~/dev/flyiop`; a verificação usou um `http.server` iniciado direto em
+`~/dev/flyiop/docs`, mesma porta (5051).
+
+---
+
 ## Anexo — Diário de sessões do STATE.md (01/08 a 05/09/2026, movido em 19/11/2026)
 
 _Movido do topo do `STATE.md` em 19/11/2026 (31 blocos "Última sessão /

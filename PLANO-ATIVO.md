@@ -2240,3 +2240,42 @@ conferidas: `HISTORICO.md`, item 29.
 evitar a desativação não é observável antes de 60 dias sem commit. A
 garantia real é o alarme de robô parado (item 6 da fila).
 
+---
+
+## Aba Compras só com o que vem pela frente (implementado 19/11/2026)
+
+Detalhe e verificação: `HISTORICO.md`, item 30. Regra única de "já passou"
+em `docs/js/weekend-dates.js` — o resumo de compras do Dashboard (item 4 da
+fila do `STATE.md`) deve importar dali. Falta só publicar (push aprovado
+pelo usuário) e conferir no site publicado.
+
+## Pendência nomeada — D+1: lote `fli` consultando perna já passada (registrada 19/11/2026, corrigir na PRÓXIMA sessão, separada)
+
+Achado lendo o código, sem alteração (pedido da sessão de 19/11):
+1. **Perna passada continua na lista ativa.** `weekends.get_active_legs`
+   (`weekends.py:221` e `:258`) só descarta a perna quando a data de
+   expiração fica antes de ONTEM — margem D+1 proposital ("folga de
+   segurança", docstring). E `leg_expiry_date` (`weekends.py:131-140`) usa
+   sempre `return_monday` para a volta, mesmo com variante domingo: volta de
+   domingo fica ativa até terça (2 dias depois do voo).
+   `supabase_client.get_monitoring_weekends` (`:207-221`) tem o mesmo corte.
+2. **O lote não recusa data passada.** `live_check.batch_regime`
+   (`live_check.py:123-158`) só recusa data além do alcance da fonte; com
+   radar ligado devolve 'metadata' (se a última checagem tem 7+ dias), sem
+   radar devolve 'price'. Resultado: `SearchFlights` pode ser chamada para
+   data que já passou.
+3. **Efeito possível, não verificado:** resposta vazia de data passada conta
+   para o detector de bloqueio do lote — mesmo mecanismo do falso bloqueio
+   de 01/09/2026 (`HISTORICO.md` item 25).
+4. **Fuso:** os cortes usam `date.today()`, que no runner do GitHub é UTC —
+   nos runs depois das 21h BRT o "hoje" do robô já é o dia seguinte. Em
+   outros pontos o código já usa `current_brt_date()`.
+5. Cache Travelpayouts: consulta por mês (a partir do mês atual), não por
+   data passada, mas casa com a mesma lista ativa que inclui as pernas do
+   D+1.
+
+Radar fora disso: varre de hoje (BRT) até +305 dias e filtra
+`today <= travel_date`. **Não corrigir sem plano aprovado** — a margem D+1
+foi decisão registrada (Parte 9, 28/07/2026); a correção precisa decidir o
+que fica dela.
+

@@ -328,7 +328,15 @@ segue como acompanhamento contínuo pelo Dashboard, sem item próprio._
    arquivos. Detalhe em `HISTORICO.md` item 29 e `PLANO-ATIVO.md`.
    **Em paralelo, sem ação:** o `fli` seguia bloqueado nos dois runs
    agendados de 19/11 (radar 3/24 blocos, 0 linhas) — em observação.
-2. **Aba Compras mostrar só fins de semana futuros.**
+2. **Aba Compras mostrar só fins de semana futuros — ✅ IMPLEMENTADO
+   (19/11/2026), verificado no painel local, ainda não publicado.** Some no
+   dia seguinte à última perna (fuso de SP, data real da volta), botão
+   "Mostrar passados", só visual. Regra única em `docs/js/weekend-dates.js`,
+   para o resumo do Dashboard (item 4) reaproveitar. `HISTORICO.md` item 30.
+   **Pendência nomeada, corrigir na PRÓXIMA sessão (separada):** o lote `fli`
+   ainda pode consultar perna com data já passada (margem D+1; volta de
+   domingo fica ativa até terça) e o corte usa `date.today()` em UTC no
+   runner — detalhe em `PLANO-ATIVO.md`, "Pendência nomeada — D+1".
 3. **Checkpoint do radar em 01/12/2026** (`PLANO-ATIVO.md`, "Checkpoint —
    radar como gatilho de alerta"). **Atenção:** o buraco de dados de 06-18/11
    caiu justamente na faixa de 30-60 dias antes das pernas de fim de ano

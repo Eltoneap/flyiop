@@ -1,6 +1,7 @@
 import { supabase } from './supabase-client.js';
 import { requireAuth, wireLogout } from './auth-guard.js';
 import { weekendTags } from './holidays.js';
+import { isWeekendPast, todaySaoPaulo } from './weekend-dates.js';
 
 const VALID_FILTERS = ['todas', 'abaixo-do-teto', 'sem-preco', 'feriado-alta-temporada', 'proximos-60-dias'];
 const URGENCY_WINDOW_DAYS = 60;
@@ -11,6 +12,17 @@ let allWeekends = [];
 let currentTab = 'active';
 let currentFilter = 'todas';
 let currentUserId = null;
+let showPast = false; // "Mostrar passados" — desligado a cada carga, sem persistência
+
+// "Hoje" da página, no fuso de São Paulo. `?hoje=AAAA-MM-DD` só vale em
+// localhost — serve para testar casos de borda (ex.: ida já passou, volta é
+// hoje) sem esperar o calendário; no site publicado é ignorado.
+function pageToday() {
+  const isLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
+  const forced = isLocal ? new URLSearchParams(location.search).get('hoje') : null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(forced || '') ? forced : todaySaoPaulo();
+}
+const TODAY = pageToday();
 
 function showFlash(text) {
   const flash = document.getElementById('flash');
@@ -25,10 +37,9 @@ function formatDateBr(iso) {
 }
 
 function daysUntil(iso) {
-  const target = new Date(`${iso}T00:00:00`);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return Math.round((target - today) / 86400000);
+  // Diferença de datas puras (UTC meia-noite dos dois lados), a partir do
+  // "hoje" de SP da página — sem depender do fuso do aparelho.
+  return Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.parse(`${TODAY}T00:00:00Z`)) / 86400000);
 }
 
 // Um weekend só sai de "Ativos" quando as DUAS pernas estiverem compradas —
@@ -640,7 +651,10 @@ function renderCard(weekend) {
   const legs = weekend.weekend_legs || [];
   const purchasedCount = legs.filter((leg) => leg.status === 'purchased').length;
   const days = daysUntil(weekend.outbound_date);
-  const urgency = days < 0 ? 'já passou' : days === 0 ? 'é hoje' : `faltam ${days} dias`;
+  const past = isWeekendPast(weekend, TODAY);
+  const urgency = past ? 'já passou'
+    : days < 0 ? 'ida já passou · volta pela frente'
+    : days === 0 ? 'é hoje' : `faltam ${days} dias`;
 
   // Progresso do fim de semana (0/2, 1/2, 2/2) reaproveitado na faixa no
   // topo do card (A3), na cor do contador (A6) e no card colapsado (B2).
@@ -651,7 +665,7 @@ function renderCard(weekend) {
 
   // Card 2/2 nasce colapsado (B2) — estado só em memória/DOM, some ao
   // recarregar. Sem persistência nova.
-  card.className = `card weekend-card${isDone ? ' is-collapsed' : ''}`;
+  card.className = `card weekend-card${isDone ? ' is-collapsed' : ''}${past ? ' is-past' : ''}`;
   card.id = `weekend-${weekend.id}`;
 
   const rail = document.createElement('div');
@@ -734,8 +748,14 @@ function renderWeekends() {
   const empty = document.getElementById('empty-state');
   grid.innerHTML = '';
 
-  const filtered = allWeekends
-    .filter((w) => (currentTab === 'active' ? !isWeekendComplete(w) : isWeekendComplete(w)))
+  const inTab = allWeekends
+    .filter((w) => (currentTab === 'active' ? !isWeekendComplete(w) : isWeekendComplete(w)));
+  // Fins de semana passados (regra única em weekend-dates.js) somem por
+  // padrão — só visual, nada é apagado; "Mostrar passados" traz de volta.
+  const pastCount = inTab.filter((w) => isWeekendPast(w, TODAY)).length;
+  updatePastToggle(pastCount);
+  const filtered = inTab
+    .filter((w) => showPast || !isWeekendPast(w, TODAY))
     .filter((w) => weekendMatchesFilter(w, currentFilter));
   // Ordenação puramente temporal (outbound_date) — NUNCA reordenar por preço.
   // Um fim de semana próximo sem preço no meio da lista é sinal de alerta,
@@ -756,6 +776,21 @@ function renderWeekends() {
   }
 
   updateProgress();
+}
+
+function updatePastToggle(pastCount) {
+  const btn = document.getElementById('toggle-past');
+  if (!btn) return;
+  btn.textContent = `${showPast ? 'Ocultar' : 'Mostrar'} passados (${pastCount})`;
+  btn.classList.toggle('active', showPast);
+  btn.setAttribute('aria-pressed', String(showPast));
+}
+
+function wirePastToggle() {
+  document.getElementById('toggle-past').addEventListener('click', () => {
+    showPast = !showPast;
+    renderWeekends();
+  });
 }
 
 function updateProgress() {
@@ -839,7 +874,7 @@ async function loadWeekends() {
 }
 
 function wireFilterChips() {
-  const chips = document.querySelectorAll('.filter-chip');
+  const chips = document.querySelectorAll('.filter-chip[data-filter]');
   chips.forEach((chip) => {
     chip.addEventListener('click', () => {
       currentFilter = chip.dataset.filter;
@@ -878,9 +913,10 @@ async function initPage(session) {
   wireLogout('logout');
   wireTabs();
   wireFilterChips();
+  wirePastToggle();
 
   currentFilter = initialFilterFromUrl();
-  document.querySelectorAll('.filter-chip').forEach((chip) => {
+  document.querySelectorAll('.filter-chip[data-filter]').forEach((chip) => {
     chip.classList.toggle('active', chip.dataset.filter === currentFilter);
   });
 
