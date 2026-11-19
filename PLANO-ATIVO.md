@@ -1,6 +1,8 @@
 # Plano Ativo — FlyIop
 
-_Atualizado em 02/08/2026. Contém só o que está em execução ou pendente de aprovação/implementação. Tudo que já foi entregue (com data e decisões tomadas) está em `HISTORICO.md` — referencie por lá em vez de reproduzir aqui._
+> **Incidente 06-18/11/2026:** workflows agendados desativados pelo GitHub por inatividade do repositório (60 dias sem commit); 24 disparos do robô perdidos e buraco em `weekend_radar_precision_log`. Detalhe e evidência em `HISTORICO.md`, item 28.
+
+_Atualizado em 19/11/2026 (antes: 02/08/2026). Contém só o que está em execução ou pendente de aprovação/implementação. Tudo que já foi entregue (com data e decisões tomadas) está em `HISTORICO.md` — referencie por lá em vez de reproduzir aqui._
 
 **Regra de apresentação (24/07/2026):** ao apresentar um plano ou atualização no chat, mostrar só a seção nova/alterada, nunca o arquivo inteiro. Para contexto, referenciar a seção pelo nome (ex.: "ver Parte 8 no HISTORICO.md") em vez de reproduzir. O arquivo completo fica no disco; o chat recebe só o delta. (Ver também `PROTOCOLO-DE-TRABALHO.md`.)
 
@@ -308,7 +310,7 @@ a view devolvendo 264 linhas, a RLS com dois donos e `alert_log` com dois
 `user_id` distintos. Fica registrado nesses termos — nem "verificado", nem
 "impossível". Prova ponta a ponta: Etapa 7.
 
-### Fatia D1 — janela de compra no Telegram (implementada 12/08/2026, verificação em produção em andamento)
+### Fatia D1 — janela de compra no Telegram (implementada 12/08/2026; ✅ verificação em produção fechada pelo resumo semanal de 07/09/2026 — registrado em 19/11/2026)
 
 **Decisão de origem:** `STATE.md`, seção 2, 11/08/2026 — o Telegram passa a
 respeitar a janela de compra (fins de semana ≥ 29/01/2027) nos dois caminhos
@@ -606,7 +608,7 @@ real de produção (itens 1-5). Resta apenas a lacuna de longo prazo do item
 
 ---
 
-### Fatia D3 — `alert_log` ganha `user_id` (implementada 14/08/2026; SQL executado e verificado em produção em 14/08/2026, verificação pós-deploy em aberto)
+### Fatia D3 — `alert_log` ganha `user_id` (implementada 14/08/2026, commit `5352e3f`; SQL executado e verificado em produção em 14/08/2026; itens 4-6 da verificação pós-deploy sem marca de fechamento)
 
 **Objetivo:** `alert_log` ganha `user_id`, preparando a D4 (avaliação por
 usuário) e a Etapa 7 (segundo usuário). Hoje cooldown e histórico de alerta
@@ -770,7 +772,7 @@ verificação pós-deploy com o robô rodando o código novo ainda não acontece
 
 ---
 
-### Fatia D4 — avaliação por usuário (implementada 15/08/2026; SQL executado e verificado — deploy do código e verificação pós-deploy em aberto)
+### Fatia D4 — avaliação por usuário (✅ CONCLUÍDA — implementada 15/08/2026, commit `8a54529`; SQL executado e verificado; verificação pós-deploy fechada em 19/11/2026)
 
 Última fatia da Etapa 6. Fecha a "JANELA ABERTA 2" (acima).
 
@@ -1041,6 +1043,18 @@ confirmado. Itens 7-10 não foram objeto desta rodada e não foram avaliados.
 **A Fatia D4 só deve ser marcada como CONCLUÍDA depois dos itens 4-10** —
 mesmo critério de D1, D2 e D3. **Não foi marcada nesta rodada:** fecharam só
 os itens 5 e 6.
+
+**✅ FECHAMENTO (19/11/2026) — itens 4 e 7-10, com a evidência disponível
+(`HISTORICO.md` item 28):**
+- **Item 4: ✅** código publicado no commit `8a54529` (15/08/2026).
+- **Item 7: ✅** varredura dos 169 logs do `daily.yml` de 15/08 a 06/11/2026 —
+  zero `[alert_log] FALHA AO GRAVAR`.
+- **Item 8: ✅ por log e código** — zero linha "provisório" nos mesmos 169
+  logs; bloco renomeado para "avisos de DEGRADAÇÃO"
+  (`telegram_notifier.py:413`). Canal do Telegram não conferido.
+- **Itens 9 e 10: não verificados, aceitos.**
+
+**Com isso a Fatia D4 está CONCLUÍDA.**
 
 #### Duas decisões fechadas, com gatilho de revisão nomeado (param de ricochetear)
 
@@ -1879,7 +1893,9 @@ decisão de qual dos dois fica para a próxima conversa de planejamento.
 
 ---
 
-## Radar de calendário — implementação (fatia 1): IMPLEMENTADA, NÃO ATIVADA EM PRODUÇÃO (`radar_enabled=false`)
+## Radar de calendário — implementação (fatia 1): ✅ EM PRODUÇÃO (`radar_enabled=true` desde ~29/08/2026)
+
+> Correção de 19/11/2026: o título dizia "NÃO ATIVADA EM PRODUÇÃO (`radar_enabled=false`)" — desatualizado. O radar roda em produção desde ~29/08/2026 (`HISTORICO.md` item 25) e a lista "Pendente" abaixo está toda cumprida; mantida como registro.
 
 Sessão de Plan Mode dedicada, a partir dos 7 achados da Etapa 0 acima. As 7
 decisões de arquitetura chegaram fechadas no prompt (regime C+D, gatilho
@@ -2162,13 +2178,15 @@ por esta mudança.
 
 ## Radar de calendário — Fatia 2: preço na tela + persistência (implementada, 04/09/2026)
 
-Fecha a lacuna registrada na seção "Observação para sessão própria" acima (correção de 01/09/2026): `radar_price`/`radar_price_at`/`radar_airport` gravados em `weekend_legs` pra toda perna dentro do alcance (~88), `current_price_at` corrige o rótulo de idade do preço confirmado, e `weekend_radar_precision_log` persiste a comparação radar×precisão. Detalhe completo, decisões e verificação: `HISTORICO.md`, item 26. SQL (`sql/radar_fatia2_preco_de_tela.sql`) pendente de execução manual pelo usuário — código não deve subir antes.
+Fecha a lacuna registrada na seção "Observação para sessão própria" acima (correção de 01/09/2026): `radar_price`/`radar_price_at`/`radar_airport` gravados em `weekend_legs` pra toda perna dentro do alcance (~88), `current_price_at` corrige o rótulo de idade do preço confirmado, e `weekend_radar_precision_log` persiste a comparação radar×precisão. Detalhe completo, decisões e verificação: `HISTORICO.md`, item 26. ✅ SQL (`sql/radar_fatia2_preco_de_tela.sql`) executado e código publicado no commit `e0c45a6` (04/09/2026 22:05 BRT); em produção desde o run de 05/09/2026 13:35 UTC (`HISTORICO.md` item 28). Correção de 19/11/2026: esta frase dizia "SQL pendente de execução manual".
 
 ### Checkpoint — radar como gatilho de alerta (reabrir em 01/12/2026)
 
 **O que é:** hoje o disparo de alerta de compra exige confirmação por `SearchFlights`/Travelpayouts — o radar (`SearchDates`) nunca decide alertar sozinho, só descobre preço e alimenta a seleção de candidatas de precisão. Decisão explícita da sessão de 04/09/2026: **não reabrir isso agora.** A amostra de comparação radar×precisão acumulada até aqui (Etapa 0, 24/08/2026, e a produção real desde então) é pequena e concentrada — só rota GIG/BSB, sempre voo direto, baixa temporada, sempre pernas perto do teto (é assim que `select_precision_candidates` escolhe quem vira candidata). 0,0% de divergência nessa amostra não é prova de que o radar nunca diverge em condição diferente.
 
 **Quando reabrir:** **01/12/2026**, no chat de planejamento — nunca decisão automática, nunca implementação direta a partir desta data. Motivo da data: até lá as pernas de fim de ano (29/12/2026, 06/01/2027) terão atravessado a janela de 30-60 dias antes do voo, a primeira condição real de alta temporada/volatilidade de preço que o sistema vai enfrentar — a amostra atual nunca cobriu isso.
+
+**⚠️ Nota de 19/11/2026 — buraco na série:** de 06/11 a 17/11/2026 o robô não rodou (workflows desativados por inatividade, `HISTORICO.md` item 28) e `weekend_radar_precision_log` não recebeu linhas — exatamente na faixa de 30-60 dias antes das pernas de fim de ano (25/12/2026 e 01/01/2027), que é o motivo desta data. Em 19/11 o `fli` ainda veio bloqueado no primeiro run agendado (comparações `no_data`). Medir a série real (consulta no item 28) antes de tirar qualquer conclusão no checkpoint.
 
 **Critérios objetivos que a reavaliação deve checar** (consulta em `weekend_radar_precision_log`, que esta fatia criou pra sustentar exatamente esta reavaliação):
 - número total de comparações acumuladas desde 04/09/2026;
@@ -2188,7 +2206,9 @@ Fecha a lacuna registrada na seção "Observação para sessão própria" acima 
 
 ---
 
-## Próximo item de roadmap declarado — inserção manual de rotas/datas-alvo (05/09/2026)
+## Próximo item de roadmap declarado — inserção manual de rotas/datas-alvo (05/09/2026) — SUBSTITUÍDO (19/11/2026)
+
+> **Substituído em 19/11/2026** pelo item 7 da fila de próximos passos do `STATE.md` (seção 3): consulta de passagens sob demanda entre quaisquer cidades. Texto original mantido abaixo como registro.
 
 **Próximo passo declarado pelo usuário (sessão de planejamento, 05/09/2026):**
 permitir inserção manual de rotas/datas-alvo na aba Compras, respeitando a

@@ -1,6 +1,6 @@
 # STATE.md — FlyIop
 
-> Atualizado em: 05/09/2026
+> Atualizado em: 19/11/2026
 > Última sessão: Claude Code (05/09/2026) — **ETAPA 7 CONCLUÍDA (E7-6 e E7-7),
 > e com ela a iniciativa multi-usuário (Etapas 1 a 7).** **E7-6:** verificação
 > manual em produção com as DUAS contas reais logadas — visibilidade cruzada de
@@ -553,7 +553,7 @@
 
 ## 1. Status atual
 
-FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volta independentes) na rota RIO↔BSB entre set/2026 e dez/2027. A fila real de rotação do lote `fli` é bem menor que 132, e **depende do estado do radar e varia dia a dia** — não existe um número fixo (o "43 pernas elegíveis" medido em 31/07/2026 desatualizou por dois motivos independentes: a janela desliza com a data, e o radar mudou a própria regra de elegibilidade). Sobre as 132 pernas do seed: com `radar_enabled=false`, elegível = dentro de `LIVE_CHECK_WINDOW_DAYS` (183 dias) = **52 pernas** (número geométrico, estável enquanto o seed não muda). Com `radar_enabled=true`, **87 pernas** têm data dentro do teto da fonte (305 dias) — mas quantas dessas efetivamente entram no lote como refresh de metadado num dia específico depende de `last_live_check_at` (só entra a que não foi checada nos últimos `RADAR_METADATA_REFRESH_DAYS` = 7 dias) e por isso oscila; produção real em 01/09/2026 mostrou 69 elegíveis naquele dia, não 87. O número estável é o das **45** pernas além dos 305 dias, que não entram em consulta ao vivo nenhuma, ponto (`HISTORICO.md` item 25) — não um tempo de volta completa da fila, que também passou a depender do estágio de frequência automática (1x/2x/3x por dia) e não tem mais um valor único fixo como o "~3 dias" antigo. Fonte primária de preço é a `fli` (endpoint interno do Google Flights, migrada de `fast-flights` por bug de parsing), com Travelpayouts como cache secundário — desde a Parte 9 (28/07/2026), a `fli` também grava companhia aérea e horário de partida. Cada perna expira da rotação de forma independente pela própria data (D+1 de margem), não mais pela data de ida do weekend inteiro — corrigido bug que cortava a perna de volta 2-3 dias antes da hora. Desde a Parte 10 (28/07/2026), a frequência do lote `fli` escalona automaticamente em 3 estágios (1x/2x/3x por dia) conforme dias consecutivos sem bloqueio, com reversão imediata pro Estágio 0 em qualquer bloqueio detectado e teto automático no Estágio 2 — só a **primeira execução do dia** (não mais uma hora fixa — corrigido em 30/07/2026, ver item 15 do `HISTORICO.md`) roda rotas flexíveis/cache Travelpayouts/notificações, as execuções extras do mesmo dia só rodam o lote `fli`. Robô via GitHub Actions grava no Supabase (**cron restaurado para 2x/dia (08h/20h BRT) em 03/08/2026** — havia sido reduzido pra 1x/dia em 29/07/2026 enquanto se confirmava a correção do bug de agendamento; ver seção 3, item 1; decisão de rodar em Python); alertas via bot Telegram (FlyIopBot); site em GitHub Pages com 3 páginas (Dashboard, Compras, Configurações), login via Supabase Auth. Painel de Compras já tem: cards por fim de semana, teto editável por perna, campo de notas (localizador/horário), campo de valor pago, filtros (chips), selos de feriado/alta temporada, estado visual salvo/não-salvo/em-edição (âmbar), hierarquia visual por preço/status (perna comprada com identidade forte, card 2/2 colapsando por padrão com total pago). Dashboard redesenhado (ação do dia, urgência, progresso, oportunidades, orçamento, saúde do sistema); progresso/orçamento contam só a partir do fim de semana de 29/01/2027, oportunidades separadas em "abaixo do teto" (ação) e "mais baratas no momento" (informação). Alerta de bloqueio do scraping agora é rico e escalona por dias consecutivos. As 3 rotas flexíveis antigas (BSB→GIG, GIG→BSB, RIA→BSB) continuam rodando em paralelo, tratadas como legado.
+FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volta independentes) na rota RIO↔BSB entre set/2026 e dez/2027. A fila real de rotação do lote `fli` é bem menor que 132, e **depende do estado do radar e varia dia a dia** — não existe um número fixo (o "43 pernas elegíveis" medido em 31/07/2026 desatualizou por dois motivos independentes: a janela desliza com a data, e o radar mudou a própria regra de elegibilidade). Sobre as 132 pernas do seed: com `radar_enabled=false`, elegível = dentro de `LIVE_CHECK_WINDOW_DAYS` (183 dias) = **52 pernas** (número geométrico, estável enquanto o seed não muda). Com `radar_enabled=true`, **87 pernas** têm data dentro do teto da fonte (305 dias) — mas quantas dessas efetivamente entram no lote como refresh de metadado num dia específico depende de `last_live_check_at` (só entra a que não foi checada nos últimos `RADAR_METADATA_REFRESH_DAYS` = 7 dias) e por isso oscila; produção real em 01/09/2026 mostrou 69 elegíveis naquele dia, não 87. O número estável é o das **45** pernas além dos 305 dias, que não entram em consulta ao vivo nenhuma, ponto (`HISTORICO.md` item 25) — não um tempo de volta completa da fila, que também passou a depender do estágio de frequência automática (1x/2x/3x por dia) e não tem mais um valor único fixo como o "~3 dias" antigo. Fonte primária de preço é a `fli` (endpoint interno do Google Flights, migrada de `fast-flights` por bug de parsing), com Travelpayouts como cache secundário — desde a Parte 9 (28/07/2026), a `fli` também grava companhia aérea e horário de partida. Cada perna expira da rotação de forma independente pela própria data (D+1 de margem), não mais pela data de ida do weekend inteiro — corrigido bug que cortava a perna de volta 2-3 dias antes da hora. Desde a Parte 10 (28/07/2026), a frequência do lote `fli` escalona automaticamente em 3 estágios (1x/2x/3x por dia) conforme dias consecutivos sem bloqueio, com reversão imediata pro Estágio 0 em qualquer bloqueio detectado e teto automático no Estágio 2 — só a **primeira execução do dia** (não mais uma hora fixa — corrigido em 30/07/2026, ver item 15 do `HISTORICO.md`) roda rotas flexíveis/cache Travelpayouts/notificações, as execuções extras do mesmo dia só rodam o lote `fli`. Robô via GitHub Actions grava no Supabase (**cron restaurado para 2x/dia (08h/20h BRT) em 03/08/2026** — havia sido reduzido pra 1x/dia em 29/07/2026 enquanto se confirmava a correção do bug de agendamento; ver a fila arquivada em `HISTORICO.md` item 28, item 1; **pausado de 06/11 a 18/11/2026** pela desativação automática dos workflows por inatividade — `HISTORICO.md` item 28; decisão de rodar em Python); alertas via bot Telegram (FlyIopBot); site em GitHub Pages com 3 páginas (Dashboard, Compras, Configurações), login via Supabase Auth. Painel de Compras já tem: cards por fim de semana, teto editável por perna, campo de notas (localizador/horário), campo de valor pago, filtros (chips), selos de feriado/alta temporada, estado visual salvo/não-salvo/em-edição (âmbar), hierarquia visual por preço/status (perna comprada com identidade forte, card 2/2 colapsando por padrão com total pago). Dashboard redesenhado (ação do dia, urgência, progresso, oportunidades, orçamento, saúde do sistema); progresso/orçamento contam só a partir do fim de semana de 29/01/2027, oportunidades separadas em "abaixo do teto" (ação) e "mais baratas no momento" (informação). Alerta de bloqueio do scraping agora é rico e escalona por dias consecutivos. As 3 rotas flexíveis antigas (BSB→GIG, GIG→BSB, RIA→BSB) continuam rodando em paralelo, tratadas como legado.
 
 ## 2. Decisões vivas
 
@@ -580,8 +580,12 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
   `system_config` + tabela `weekend_radar_grid`) rodado em produção. Detalhe
   completo em `HISTORICO.md`, itens 24 e 25.
 - **Radar de calendário (Fatia 2) — preço na tela + persistência da
-  comparação — IMPLEMENTADO LOCALMENTE, PENDENTE DE COMMIT/PUSH E DE SQL
-  (04/09/2026).** Fecha o gargalo que a Fatia 1 deixou registrado
+  comparação — ✅ EM PRODUÇÃO desde 05/09/2026 (commit `e0c45a6`,
+  04/09/2026 22:05 BRT; SQL executado antes do código).** Correção de
+  19/11/2026: esta entrada dizia "implementado localmente, pendente de
+  commit/push e de SQL" — desatualizado; o primeiro run após o commit (05/09
+  13:35 UTC) já gravou `radar_price` em 87 pernas sem erro 400 (`HISTORICO.md`
+  item 28). Fecha o gargalo que a Fatia 1 deixou registrado
   (`HISTORICO.md` item 25): o radar descobria preço em ~88 pernas por
   varredura, mas só as 7-10 candidatas de precisão chegavam a
   `weekend_legs.current_price` — a maioria das pernas na aba Compras mostrava
@@ -599,10 +603,9 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
   Compras (só ela, não o Dashboard) mostra o preço mais recente entre radar
   e confirmado, sempre com rótulo "não confirmado" quando for do radar, e o
   confirmado mais antigo nunca some da tela. 348 testes locais passando (319
-  antes desta fatia). **Falta:** usuário rodar
-  `sql/radar_fatia2_preco_de_tela.sql` no SQL Editor, revisar o `git diff`,
-  aprovar, então commit/push (nesta ordem — SQL antes do código, mesma regra
-  de sempre). Detalhe completo em `HISTORICO.md`, item 26, e
+  antes desta fatia). **Lacuna de dado:** `weekend_radar_precision_log` não
+  recebeu linhas de 06/11 a 17/11/2026 (workflows desativados por
+  inatividade — `HISTORICO.md` item 28). Detalhe completo em `HISTORICO.md`, item 26, e
   `PLANO-ATIVO.md`, seção "Radar de calendário — Fatia 2".
 - **Limitação conhecida e não corrigida: `Airport.RIA` não é utilizável com a
   versão pinada da `fli`.** `Airport.RIA` é alias silencioso de `Airport.AJU`
@@ -732,8 +735,11 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
     `telegram_notifier.py`). Mesmo conceito, nomes diferentes por domínio —
     unificar tocaria código fora do escopo mínimo da fatia.
 - **Fatia D3 — `alert_log` ganha `user_id` (14/08/2026): IMPLEMENTADA,
-  SQL AINDA NÃO EXECUTADO, verificação em aberto — não marcada como
-  concluída.** Prepara a D4 (avaliação por usuário) e a Etapa 7; não
+  SQL EXECUTADO E VERIFICADO EM PRODUÇÃO EM 14/08/2026 (commit `5352e3f`);
+  itens 4-6 da verificação pós-deploy seguem como registrados no
+  `PLANO-ATIVO.md`.** Correção de 19/11/2026: esta entrada dizia "SQL ainda
+  não executado", contradizendo o `PLANO-ATIVO.md` (título e item 1 da
+  Fatia D3). Prepara a D4 (avaliação por usuário) e a Etapa 7; não
   individualiza nada ainda, não muda o que é alertado nem o que é coletado.
   - **Preenchimento assimétrico, e é a decisão central:** linha de
     `alert_log` com `route_id` recebe dono trivial (`routes.user_id`, backfill
@@ -818,102 +824,53 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
     `uuid[:8]`. **Numeração:** item 5 = banco, item 6 = mensagem — um prompt de
     outro chat inverteu isso na mesma data; correção registrada em
     `PLANO-ATIVO.md` → "Fatia D4" → "Nota de numeração".
-  - **A fatia NÃO está concluída.** Itens 4 e 7-10 seguem **sem marca de
-    fechamento** no `PLANO-ATIVO.md` (conferido em 17/08/2026, não presumido);
-    os 7-10 não foram avaliados nesta rodada. O item 4 (publicar o código) é
-    **pendência de registro**: as execuções da E7-5 rodaram com o código novo,
-    logo o deploy aconteceu, mas o fechamento nunca foi anotado.
+  - **✅ FATIA D4 CONCLUÍDA (fechamento registrado em 19/11/2026).** Itens
+    restantes da verificação pós-deploy, fechados com a evidência disponível
+    (`HISTORICO.md` item 28):
+    - **Item 4 (publicar o código): ✅** commit `8a54529`, 15/08/2026.
+    - **Item 7 (`had_error` não disparou): ✅** varredura dos 169 logs do
+      `daily.yml` de 15/08 a 06/11/2026 — zero `[alert_log] FALHA AO GRAVAR`.
+    - **Item 8 (avisos provisórios pararam): ✅ por log e código** — zero
+      linha "provisório" nos mesmos 169 logs, bloco renomeado para "avisos de
+      DEGRADAÇÃO" (`telegram_notifier.py:413`); canal do Telegram não
+      conferido.
+    - **Itens 9 (re-alerta de transição) e 10 (regressão estrutural): não
+      verificados, aceitos.** Três meses de produção com dois usuários sem
+      sinal de regressão; reconstruir a observação de 15-16/08 não vale o
+      custo.
 
 ## 3. Próximos passos (ordem sugerida)
 
-1. ✅ **Cron de `daily.yml` restaurado para 2x/dia (08h/20h BRT) em 03/08/2026.** Reduzido pra 1x/dia em 29/07/2026 enquanto se corrigia o bug de agendamento (item 15 do `HISTORICO.md`). Sequência:
-   a) ✅ `realert_days` ajustado para 1 em `settings` (confirmado 01/08/2026 via SELECT — `user_id c72bf50e...`, `realert_days = 1`).
-   b) ✅ Observação do cooldown/realert com `alert_log` de 01–02/08/2026 feita no chat de planejamento (03/08/2026).
-   c) ✅ Decisão: 2x/dia, não 3x/dia — motivo: fila de ~43 pernas elegíveis (número medido em 31/07/2026 e hoje desatualizado — ver seção 1), 40 slots em 2x/dia já cobre quase toda ela; 3x geraria recheque duplicado de parte da fila. Janela de 14h BRT avaliada e descartada. Cron restaurado nesta data (03/08/2026). **A decisão continua valendo depois da correção de 01/09/2026** (`HISTORICO.md` item 25): com o radar ligado o lote passa a ser majoritariamente refresh de metadado, volume igual ou menor — nada aqui precisa ser refeito.
-   d) Estágio do escalonamento automático confirmado em 0 (consulta feita no chat de planejamento em 03/08/2026: `select value from bot_state where key = 'weekend_scrape_stage'` retornou 0) — a rampa de 5 dias limpos por estágio começa do zero a partir de agora.
-2. **Etapa 4 da iniciativa multi-usuário** (`weekend_leg_user_state` — teto/status/notas/valor pago por usuário, o núcleo do trabalho que falta), **quebrada em três degraus: 4.1 / 4.2 / 4.3**:
-   - **4.1 — ✅ concluída e verificada (01/08/2026).** Estrutura nova criada no banco de produção (rodada à mão no SQL Editor) e verificada com os blocos A–G; nada em `src/` ou `docs/` lê a estrutura nova ainda, o sistema se comporta exatamente como antes. Ver `HISTORICO.md`, item 17.
-   - **4.2 — pendências 1–11 e 13 concluídas e verificadas em produção; resta a 12.** É a virada de leitura: frontend e robô passam a ler/escrever a estrutura nova. 12 pendências nomeadas no `PLANO-ATIVO.md`; **pendências 3 e 4 (`docs/js/compras.js` e o botão "aplicar teto a todos") concluídas, commitadas e enviadas ao remoto em 03/08/2026** (commits `531f34f` e `9436bc0`, `origin/main == HEAD` confirmado), com verificação manual completa no site publicado. **Pendências 1 e 2 (re-sync do estado) concluídas e executadas em produção em 04/08/2026** (`sql/etapa4_2_resync.sql`, mantido no repo mas **aposentado em 05/08/2026** — hardcoded pro teto de 250, não reutilizável sem revisão) — resultado: zero divergência, nada precisou ser copiado. **Pendência 5 (`docs/js/dashboard.js` lendo `weekend_leg_effective`, mesma troca de fonte de `compras.js`) concluída, commitada e enviada em 04/08/2026** (commits `05c6f97` e `c19329f`, `origin/main == HEAD` confirmado), com verificação manual no site publicado — teto individual (override) salvo em Compras refletido de forma consistente no Dashboard. **Pendências 6/7(leve)/8/9/10 concluídas, commitadas e verificadas em produção em 05/08/2026** (commit `029ea61`, `origin/main == HEAD` confirmado): o robô (`weekends.py`, `live_check.py`, `telegram_notifier.py`) e `main.py` passaram a ler o teto e o status efetivos de `weekend_leg_effective`, em vez de `weekend_legs.price_ceiling`/`status` direto. Verificação de produção (execução manual, 05/08/2026): fila de pernas idêntica à de antes (132 pernas, nenhuma entrou ou saiu por causa da mudança); teto efetivo funcionando — override de R$555 da perna Ida 04/09 confirmado tanto via SQL (`weekend_leg_effective`) quanto no log da execução. **Pendência 10 (ordenação da fila pelo menor teto entre usuários) já estava resolvida como efeito colateral da pendência 6** — `live_check.py` lê o mesmo `effective_ceiling` que `get_active_legs()` já resolve com MIN, sem trabalho extra. **Verificação de produção do teto R$300 em si CONCLUÍDA em 06/08/2026**: execução real do robô (não pulada por cota diária — "20/20 pernas checadas, 20 com preço", ~09:49 BRT) registrou todas as 22 ocorrências de teto no log em R$300, nenhuma em R$250; zero erros. Fecha a lacuna aberta pelo incidente de gravação de 04/08 — ver "Decisões vivas". **Pendência 13 (`get_weekend_leg_counts` lendo `weekend_legs.status` congelado, resumo de segunda-feira sempre relatando 0 compradas) concluída em 06/08/2026** (commit `b22a569`) — achada no diagnóstico da Etapa 4.3 mas tratada como bug vivo da 4.2, bloqueadora do `DROP` das colunas antigas; passou a ler `weekend_leg_effective`; verificado via SQL (132 pernas, 0 compradas, sem regressão), prova de produção da mensagem real fica para a próxima segunda-feira. Detalhe em `PLANO-ATIVO.md`. Restam a reavaliação de teto fora da coleta (decidida em 02/08, nasce desligada por chave em `system_config`) e a pendência 12 (backlog de UI, não iniciada) — a 11 foi concluída em 05/08/2026, com prova de produção. **A regra de janela aberta (seção 4) está encerrada desde 04/08/2026; a "Janela aberta 2" (painel novo × Telegram velho) está encerrada de vez na parte do teto, agora com prova de produção (06/08/2026)** — segue aberta só para fan-out de alerta por usuário, cooldown/dedup por usuário e limiares gerais individualizados, que são a Etapa 6 (detalhe no `PLANO-ATIVO.md`).
-   - **4.3 — CONCLUÍDA (07/08/2026), todos os 5 passos verificados.**
-     Remoção das 5 colunas antigas de `weekend_legs`. Passo 1 (código do
-     ramo degradado) concluído, commit `d5f97eb`. **Passo 2 desacoplado do
-     `DROP`** (06/08/2026) — pendência PARALELA de fechamento de registro,
-     não bloqueante, segue em aberto (ver item 5 abaixo). **Passo 3
-     CONCLUÍDO (06/08/2026):** backup íntegro (132 linhas) e `DROP`
-     executado em produção, zero colunas legadas restantes, confirmado por
-     select. **Passo 4 CONCLUÍDO (07/08/2026):** notas de cabeçalho nos 7
-     scripts `sql/` em escopo (a lista fina fechou diferente da contagem
-     original — `alvo_fins_de_semana.sql` saiu, `etapa4_3_drop_colunas_legadas.sql`
-     entrou) + aposentadoria do Bloco A de `sql/etapa4_1_verificacao.sql`.
-     **Passo 5 CONCLUÍDO (07/08/2026):** verificação pós-`DROP`
-     independente (`sql/etapa4_3_verificacao_pos_drop.sql`, 6 blocos, zero
-     divergência) — detalhe completo em `HISTORICO.md`, item 19, e
-     `PLANO-ATIVO.md`, Etapa 4.3.
-   - **4.4 — CONCLUÍDA (07/08/2026).** `weekend_legs` vira somente-leitura
-     no navegador — `revoke update` + `drop policy` dos papéis `anon`/
-     `authenticated`, `SELECT` inalterado. Checagem de segurança prévia
-     (`grep` em `docs/js/`) confirmou zero escrita contra `weekend_legs` no
-     frontend. Script
-     [sql/etapa4_4_weekend_legs_readonly.sql](sql/etapa4_4_weekend_legs_readonly.sql),
-     zero divergência no resultado real. Detalhe em `PLANO-ATIVO.md`, Etapa
-     4.4. **Fecha só o lado de escrita da RLS "genérica" de `weekend_legs`
-     registrada na seção 4 (Bloqueios)** — o lado de leitura (qualquer
-     autenticado enxergar todas as linhas de `weekend_legs`/`weekends`)
-     **foi fechado depois, em 08/08/2026**, por decisão de produto (dado
-     objetivo de voo é compartilhado entre usuários) mais diagnóstico
-     só-leitura — ver seção 4 e `PLANO-ATIVO.md`, Etapa 4.4. **Não é
-     pendência e não bloqueia a Etapa 7.** (Correção de 15/08/2026: este
-     trecho ainda descrevia o lado de leitura como "pendência separada a
-     resolver antes da Etapa 7", contradizendo a seção 4 do próprio arquivo.)
+_Fila substituída em 19/11/2026, depois do incidente de 06-18/11
+(`HISTORICO.md` item 28). A fila anterior (itens 1-9, quase todos concluídos)
+foi arquivada na íntegra em `HISTORICO.md`, item 28, subseção "Fila de
+próximos passos substituída". Destino de cada item antigo: 1, 2, 3, 5, 7 e 8
+concluídos; 6 (resumo com denominador 90, prazo 17/08) fechado pelo resumo
+semanal de 07/09/2026 (E7-7); 9 (ativar o radar) superado — radar ligado
+desde ~29/08 e Fatia 2 em produção desde 05/09; 4 (observar o escalonamento)
+segue como acompanhamento contínuo pelo Dashboard, sem item próprio._
 
-   **Etapa 5** (frontend por usuário) — **CONCLUÍDA POR COMPOSIÇÃO em 08/08/2026.** Os três itens do escopo original foram cobertos por trabalho feito sob outros nomes: "`weekend_legs` somente-leitura no navegador" = Etapa 4.4 (07/08/2026); "redesenho de RLS de update" = Etapa 4.1, RLS de `weekend_leg_user_state`, provada nos blocos F/F2; "Compras/Dashboard por usuário logado" = funcionalmente pela Etapa 4.2 (pendências 3/5, leitura via `weekend_leg_effective`), visualmente pelas Fatias A/B (UI, `HISTORICO.md` itens 21/22). Ver seção 4 e item 5 do "Ordem de execução" em `PLANO-ATIVO.md`.
-
-   **Fatia C — visibilidade de compra entre usuários — CONCLUÍDA (Parte 1 banco 10/08/2026, Parte 2 frontend 11/08/2026).** Terceira fatia do handoff de UI multi-usuário (depois das Fatias A e B, `HISTORICO.md` itens 21/22) — a única que toca o banco. Regra de produto: o outro usuário vê QUE você comprou uma perna e EM QUAL VOO, nunca quanto pagou/teto/localizador, só depois de `status = 'purchased'`. Mecanismo: tabela de projeção (`weekend_leg_purchase_shared`) mantida por trigger `security definer`, com só os 3 campos de voo — nenhum campo sensível chega a existir na tabela compartilhada; view/função `security definer` avaliadas e descartadas por serem bypass de RLS. Script [sql/fatia_c_visibilidade_compra.sql](sql/fatia_c_visibilidade_compra.sql) rodado manualmente no SQL Editor de produção em 10/08/2026, os 5 blocos de verificação (G0 + V1-V4) batendo 100% com o esperado. **Parte 2 (frontend)** (`docs/js/compras.js`, `docs/css/style.css`; `docs/compras.html` não tocado) — painel de confirmação de compra, bloco de edição pós-compra, linha "outro usuário já comprou" no card — commitada/enviada (`ca54dd8`, 11/08/2026) e com roteiro de verificação manual em produção **100% passado** (sem erro no console, sem regressão). O item mais sensível, a linha do outro usuário, segue sem verificação positiva possível (só na Etapa 7, quando a segunda conta existir) — limite estrutural, não pendência. **Detalhe completo, resultado real bloco a bloco e roteiro de verificação, em `HISTORICO.md`, item 23** (movido de `PLANO-ATIVO.md`, que mantém só um ponteiro de uma linha).
-
-   **Desejo do usuário, registrado em 02/08/2026: criar a conta do segundo usuário — objetivo ativo, não recusado.** É a **Etapa 7**, e o caminho até ela encurtou: **desde 15/08/2026 ela está PLANEJADA E TOTALMENTE DECIDIDA** (plano fatiado E7-0 a E7-7, com as quatro decisões de produto fechadas — ver item 7 da seção 3 e a seção "Etapa 7" do `PLANO-ATIVO.md`). **Gate estreitado (decisão de 15/08/2026): resta só o item 5 da verificação pós-deploy da Fatia D4** — itens 9-10 viram cauda longa em paralelo à execução da Etapa 7; detalhe na abertura da seção "Etapa 7" do `PLANO-ATIVO.md`. **Os dois desejos registrados em 02/08/2026 (aumentar frequência do scraping, item 1 acima, e criar a conta do segundo usuário) seguem ativos, nenhum recusado.**
-3. ✅ **Concluído (04/08/2026, corrigido em 05/08/2026, verificado em produção em 06/08/2026).** Teto padrão recalibrado de R$250 para R$300 — ver seção 2, "Decisões vivas", pelo incidente de gravação, a correção manual e a prova final de produção.
-4. **Observar o escalonamento automático rodando em produção** — acompanhar via Dashboard (seção "Saúde do sistema") se o estágio sobe conforme esperado e se algum bloqueio real acontece nos volumes mais altos (40/60 pernas·dia); agora depende de o cron 2x/dia estar restaurado (item 1) pra ter mais de 1 execução/dia pra observar.
-5. ✅ **Concluído (11/08/2026).** Resultado do resumo semanal do Telegram de
-   segunda-feira 10/08/2026 trazido e registrado: recebido pelo usuário às
-   08:42 BRT, "0 de 132 pernas compradas", sem erro — fecha a prova de
-   produção da pendência 13 da Etapa 4.2 (`get_weekend_leg_counts`, commit
-   `b22a569`). Resultado completo em `PLANO-ATIVO.md`, Etapa 4.3, Passo 2.
-6. **Pendente — prazo 17/08/2026 (segunda-feira).** Trazer o resultado do
-   resumo semanal real do Telegram, primeira execução depois da Fatia D1
-   (filtro de janela de compra, commit `757ab3e`, 12/08/2026): denominador
-   esperado **90** (não mais 132), "Mais próximas" começando em 29/01/2027.
-   Mesmo padrão do item 5 acima (pendência 13 da Etapa 4.2) — fecha a
-   verificação de produção da Fatia D1. Detalhe completo, incluindo os
-   outros 3 itens de verificação que não dependem de segunda-feira, em
-   `PLANO-ATIVO.md`, "Etapa 6" → "Fatia D1".
-7. **Etapa 7 (conta do segundo usuário) — ✅ CONCLUÍDA (05/09/2026), E7-0 a
-   E7-7.** Com ela encerra-se a iniciativa multi-usuário (Etapas 1 a 7). As
-   duas últimas fatias fecharam nesta data: **E7-6** (painel do Gustavo —
-   visibilidade cruzada de compra confirmada nas duas direções e o rótulo
-   "Você" só do lado de quem comprou; primeira verificação positiva do item
-   que estava registrado como "sem verificação positiva possível" desde
-   11/08/2026) e **E7-7** (fechamento e higiene — `sql/etapa4_1_verificacao.sql`
-   marcado como parcialmente vencido, resumo semanal do Telegram passando a
-   contar pernas compradas por usuário, e a seção "Etapa 7" movida do
-   `PLANO-ATIVO.md` para o `HISTORICO.md`). Detalhe completo em
-   `HISTORICO.md`, item 27. **Cauda longa que sobrevive, sem bloquear nada:**
-   item 10 da lista dos 11 (`notification_mode` por dono no caminho de rota)
-   segue sem observação em produção — depende de o Gustavo cadastrar uma rota
-   flexível.
-
-8. **Etapa 0 (validação da grade de calendário) — ✅ CONCLUÍDA (24/08/2026).**
-   Ver seção 2, "Decisões vivas", e `HISTORICO.md`, item 24.
-9. **Radar de calendário — IMPLEMENTADO, faltam 4 passos pra ativar em
-   produção (ver seção 2, "Decisões vivas", e `PLANO-ATIVO.md`).**
-   a) Usuário roda `sql/radar_calendario.sql` no SQL Editor, confere V1-V3.
-   b) Push do código desta fatia (não incluso automaticamente).
-   c) Ligar `radar_enabled=true` via SQL Editor (RUNBOOK.md) — decisão
-      separada, só depois de (a) e (b) em produção.
-   d) Ler a primeira varredura real no log do Actions: linha `[radar]
-      regime: ...` (contagem de pernas por regime), `[radar] precisão:
-      ...` (candidatas selecionadas) e o formato de divergência
-      radar×precisão por candidata — nenhum desses foi visto em execução
-      real ainda, só em teste local com mock.
+1. **Reativação automática dos workflows dentro do `daily.yml` + atualizar
+   `actions/checkout` e `actions/setup-python` para as versões Node 24.**
+   Evita a repetição do incidente de 06-18/11 (GitHub desativa workflow
+   agendado de repo público após 60 dias sem atividade). O log do Actions
+   já avisa que as duas actions estão sendo forçadas de Node 20 para Node 24.
+2. **Aba Compras mostrar só fins de semana futuros.**
+3. **Checkpoint do radar em 01/12/2026** (`PLANO-ATIVO.md`, "Checkpoint —
+   radar como gatilho de alerta"). **Atenção:** o buraco de dados de 06-18/11
+   caiu justamente na faixa de 30-60 dias antes das pernas de fim de ano
+   (25/12/2026 e 01/01/2027) — a condição que motivou a data do checkpoint.
+   Medir a série real em `weekend_radar_precision_log` (consulta em
+   `HISTORICO.md` item 28) antes de concluir qualquer coisa.
+4. **Resumo das pernas compradas no Dashboard.**
+5. **Gustavo deixa de participar:** sem alertas, fora do resumo semanal e das
+   mensagens, mas com o login mantido.
+6. **Alarme de "robô parado" fora do GitHub, antes de 29/01/2027** (início da
+   janela de compra) — o incidente de 06-18/11 passou 12 dias sem ninguém
+   perceber, porque o próprio GitHub era o que tinha parado.
+7. **Consulta de passagens sob demanda entre quaisquer cidades.** Substitui o
+   item "inserção manual de rotas/datas-alvo" declarado em 05/09/2026
+   (`PLANO-ATIVO.md`).
 
 ## 4. Bloqueios / perguntas em aberto
 
@@ -1035,7 +992,7 @@ FlyIop está em produção, monitorando 66 fins de semana (132 "pernas" ida/volt
 
 - Repo: github.com/Eltoneap/flyiop (público)
 - `STATE.md` — este arquivo: orientação de alto nível, lido no início de qualquer sessão nova
-- `PLANO-ATIVO.md` — plano técnico detalhado só da Parte em execução agora. **Não está vazio (11/08/2026):** contém a iniciativa multi-usuário (Etapa 4.2 com as 13 pendências nomeadas — 12 concluídas, 1–11 e 13, restando só a 12, backlog de UI — e o histórico da regra de janela aberta, encerrada; Etapas 4.3 e 4.4 concluídas e verificadas em produção), o que restou do diagnóstico de alerta de perna (item (e), perguntas abertas) e as pendências de escopo separado. A **Fatia C (visibilidade de compra entre usuários), CONCLUÍDA (Parte 1 banco + Parte 2 frontend), foi movida para o `HISTORICO.md` (item 23)** — `PLANO-ATIVO.md` mantém só um ponteiro de uma linha.
+- `PLANO-ATIVO.md` — plano técnico detalhado só da Parte em execução agora. **Conteúdo em 19/11/2026:** ainda carrega seções já concluídas que não foram migradas para o `HISTORICO.md` (diagnóstico de alerta de perna com as perguntas abertas do item (e); iniciativa multi-usuário — Etapa 4.2 com a pendência 12 de UI em backlog, Etapas 4.3/4.4 concluídas; Etapa 6, Fatias D1-D4, todas concluídas, D3 com itens 4-6 da verificação ainda sem marca; Etapa 0 e radar Fatias 1 e 2, em produção). O que segue **vivo** ali: o **checkpoint do radar de 01/12/2026** (com nota sobre o buraco de 06-18/11, `HISTORICO.md` item 28) e as pendências nomeadas do falso bloqueio de 01/09. O próximo item de roadmap de 05/09 foi substituído pela fila da seção 3 deste arquivo.
 - `HISTORICO.md` — tudo já decidido/implementado, cronológico
 - `CLAUDE.md` — escopo geral do projeto (lido automaticamente pelo Claude Code)
 - `PROTOCOLO-DE-TRABALHO.md` — como usuário e Claude Code trabalham juntos (Plan Mode, gatilhos de revisão, regra de manutenção dos três arquivos de documentação)
