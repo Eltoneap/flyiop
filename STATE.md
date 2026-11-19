@@ -318,10 +318,16 @@ desde ~29/08 e Fatia 2 em produção desde 05/09; 4 (observar o escalonamento)
 segue como acompanhamento contínuo pelo Dashboard, sem item próprio._
 
 1. **Reativação automática dos workflows dentro do `daily.yml` + atualizar
-   `actions/checkout` e `actions/setup-python` para as versões Node 24.**
-   Evita a repetição do incidente de 06-18/11 (GitHub desativa workflow
-   agendado de repo público após 60 dias sem atividade). O log do Actions
-   já avisa que as duas actions estão sendo forçadas de Node 20 para Node 24.
+   `actions/checkout` e `actions/setup-python` para as versões Node 24 —
+   IMPLEMENTADO (19/11/2026), VERIFICAÇÃO PENDENTE.** Keepalive com `gh
+   workflow enable` (por nome de arquivo) no fim do `daily.yml`, checkout e
+   setup-python em `@v7` nos 5 workflows. Que `enable` zera o contador de 60
+   dias é comportamento observado pela comunidade, não documentado pelo
+   GitHub — a garantia real é o item 6. Falta: próximo run agendado do
+   `daily` e do bot sem aviso de Node 20, com `[keepalive] ok` nos dois
+   arquivos. Detalhe em `HISTORICO.md` item 29 e `PLANO-ATIVO.md`.
+   **Em paralelo, sem ação:** o `fli` seguia bloqueado nos dois runs
+   agendados de 19/11 (radar 3/24 blocos, 0 linhas) — em observação.
 2. **Aba Compras mostrar só fins de semana futuros.**
 3. **Checkpoint do radar em 01/12/2026** (`PLANO-ATIVO.md`, "Checkpoint —
    radar como gatilho de alerta"). **Atenção:** o buraco de dados de 06-18/11

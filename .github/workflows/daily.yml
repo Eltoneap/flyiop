@@ -10,13 +10,22 @@ on:
     - cron: "0 23 * * *"   # 20:00 BRT
   workflow_dispatch:
 
+# Bloco permissions: o que não estiver listado aqui é REMOVIDO do token.
+# Antes (padrão do repo "read", visto no log): Contents read, Metadata read,
+# Packages read. Metadata é sempre concedido; contents/packages mantidos;
+# actions: write é o único acréscimo, só para o passo de keepalive.
+permissions:
+  contents: read
+  packages: read
+  actions: write
+
 jobs:
   run:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -45,3 +54,28 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+      # Keepalive (19/11/2026, HISTORICO item 29): reativa este workflow e o do
+      # bot a cada run, para o GitHub não desativá-los após 60 dias sem
+      # commit (incidente 06-18/11, item 28). Que "enable" zera o contador
+      # é comportamento OBSERVADO PELA COMUNIDADE, não documentado pelo GitHub.
+      # Usa nome de ARQUIVO de propósito: por nome de exibição, `gh workflow
+      # enable` só procura workflows desativados e falharia com eles ativos.
+      # Falha aqui não derruba o run (continue-on-error); procure "[keepalive] FALHA".
+      - name: Keepalive dos workflows agendados
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ok=1
+          for wf in daily.yml bot_commands.yml; do
+            if gh workflow enable "$wf"; then
+              echo "[keepalive] ok: $wf"
+            else
+              echo "[keepalive] FALHA: $wf"
+              ok=0
+            fi
+          done
+          [ "$ok" = 1 ]

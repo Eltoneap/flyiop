@@ -1615,6 +1615,61 @@ fila nova de 19/11/2026. Texto original, sem edição:_
 
 ---
 
+## 29. Keepalive dos workflows agendados + Actions em Node 24, 19/11/2026
+
+**Motivação:** incidente de 06-18/11/2026 (item 28) — o GitHub desativou os
+workflows agendados após 60 dias sem commit. Item 1 da fila do `STATE.md`.
+
+**Keepalive (`daily.yml`, último passo):** `gh workflow enable daily.yml` e
+`gh workflow enable bot_commands.yml` a cada run, com o token nativo
+(`GH_TOKEN: ${{ github.token }}`), sem segredo novo e sem commit automático.
+`if: always()` (roda mesmo se radar/`main.py` falharem antes) e
+`continue-on-error: true` (falha do keepalive não marca o run como falho nem
+atrapalha o robô); cada workflow imprime `[keepalive] ok: <arquivo>` ou
+`[keepalive] FALHA: <arquivo>` — esta última é a linha a procurar.
+- **Ressalva registrada:** que `enable` num workflow ativo zera o contador de
+  60 dias é **comportamento observado pela comunidade, não documentado pelo
+  GitHub**. A garantia de verdade vem com o alarme de robô parado fora do
+  GitHub (item 6 da fila do `STATE.md`).
+- **Detalhe de implementação que importa:** o passo usa **nome de arquivo**,
+  não nome de exibição. Lido no código do `gh` (`pkg/cmd/workflow/enable`):
+  por nome de exibição ele só procura entre workflows *desativados* e, com o
+  workflow ativo, falharia todo dia com "there are no disabled workflows to
+  enable"; por nome de arquivo ele faz o `PUT .../enable` direto, em qualquer
+  estado.
+- **Permissões do token (`daily.yml`):** declarar `permissions:` remove o que
+  não estiver listado. Antes (padrão do repositório = "read", conferido no log
+  "GITHUB_TOKEN Permissions"): `Contents: read`, `Metadata: read`,
+  `Packages: read`. Depois: `contents: read`, `packages: read` (mantido, nada
+  usa, para não mudar nada além do necessário), `actions: write` (novo, só
+  para o keepalive). `Metadata` é sempre concedido. `bot_commands.yml` não
+  mudou de permissão.
+
+**Actions atualizadas, nos 5 workflows** (`daily`, `bot_commands`,
+`etapa0-validacao`, `validate_fastflights`, `validate_rio`):
+`actions/checkout@v4 → @v7` e `actions/setup-python@v5 → @v7`. Conferido nas
+páginas de release em 19/11/2026: checkout v7.0.1 (20/07/2026) e setup-python
+v7.1.0 (22/10/2026), as duas `using: node24`. Notas de breaking change de v6 e
+v7 lidas — nenhuma afeta o projeto (sem `pip-install`, sem checkout de PR de
+fork, Python 3.12 suportado). Motivo: aviso "Node.js 20 is deprecated" em
+todos os runs (item 28).
+
+**Linha de base antes da mudança:** `.venv` recriado em `~/dev/flyiop`
+(Python 3.12), **361 testes, todos OK**. A mudança não toca `src/`.
+
+**Contexto no momento da mudança:** o `fli` seguia bloqueado nos dois runs
+agendados de 19/11 (04:00 e 19:12 UTC; radar 3/24 blocos, 0 linhas). Nada do
+scraping foi tocado — regra de sempre, recuar e avisar.
+
+**Verificação (pendente no momento do commit):** próximo run AGENDADO do
+`daily` sem aviso de Node 20, com `[keepalive] ok: daily.yml` e
+`[keepalive] ok: bot_commands.yml` e o passo em success; próximo run AGENDADO
+do bot sem aviso de Node 20 (ele não tem passo de keepalive). Limite: o
+próprio push zera o contador de 60 dias, então o efeito do keepalive em
+*evitar* a desativação só seria observável depois de 60 dias sem commit.
+
+---
+
 ## Anexo — Diário de sessões do STATE.md (01/08 a 05/09/2026, movido em 19/11/2026)
 
 _Movido do topo do `STATE.md` em 19/11/2026 (31 blocos "Última sessão /

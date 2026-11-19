@@ -2218,3 +2218,25 @@ investigação de schema ou UI feita.
 **Ordem:** isto vem **depois** de E7-6 e E7-7 fecharem a Etapa 7 — a Etapa 7
 continua sendo o item de execução ativa mais próximo (ver seção "Etapa 7"
 acima).
+
+---
+
+## Keepalive dos workflows + Actions em Node 24 (implementado 19/11/2026, verificação pendente)
+
+Item 1 da fila do `STATE.md`. Desenho, permissões antes/depois e versões
+conferidas: `HISTORICO.md`, item 29.
+
+**Verificação pós-push — só runs AGENDADOS contam (não `workflow_dispatch`):**
+1. Próximo run agendado do `daily.yml`: sem `Node.js 20 is deprecated` no
+   log; `[keepalive] ok: daily.yml` e `[keepalive] ok: bot_commands.yml`;
+   passo "Keepalive dos workflows agendados" em success.
+2. Próximo run agendado do `bot_commands.yml`: sem `Node.js 20 is
+   deprecated` no log (não tem passo de keepalive).
+3. Se aparecer `[keepalive] FALHA`: o run não fica vermelho (continue-on-error)
+   — investigar permissão `actions: write` e o nome do arquivo antes de
+   qualquer outra coisa.
+
+**Limite:** o push zera o contador de 60 dias; o efeito do keepalive em
+evitar a desativação não é observável antes de 60 dias sem commit. A
+garantia real é o alarme de robô parado (item 6 da fila).
+
