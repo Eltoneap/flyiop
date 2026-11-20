@@ -39,6 +39,7 @@ import traceback
 from datetime import date, datetime, timedelta, timezone
 
 from rules import cooldown_blocks_alert, evaluate_good_price, is_suspicious_price
+from scrape_schedule import current_brt_date
 from supabase_client import (
     DEFAULT_SETTINGS,
     DEFAULT_SYSTEM_CONFIG,
@@ -108,6 +109,17 @@ def date_candidates(leg: dict) -> list[tuple[str | None, str]]:
     if leg["direction"] == "outbound":
         return [(None, leg["outbound_date"])]
     return [("sunday", leg["return_sunday"]), ("monday", leg["return_monday"])]
+
+
+def future_date_candidates(leg: dict, today: str) -> list[tuple[str | None, str]]:
+    """`date_candidates` sem as datas ANTERIORES a `today` (ISO, BRT) — a
+    própria data de hoje fica. É o que a varredura de cache pode avaliar
+    (19/11/2026): a margem D+1 de `get_active_legs` mantém na lista a perna de
+    ontem, e o domingo de uma volta continua candidato até a segunda — sem
+    este corte, uma entrada da Travelpayouts com data já passada podia casar
+    e virar avaliação (e alerta) de voo que já saiu. Lista vazia = a perna
+    inteira já passou."""
+    return [(variant, d) for variant, d in date_candidates(leg) if d >= today]
 
 
 def fetch_leg_month_entries(month: str, airport: str, direction: str) -> list[dict]:
@@ -218,7 +230,11 @@ def get_active_legs() -> list[dict]:
     monitora" (estado normal, a perna terminou). Aplicar o segundo
     incondicionalmente esvaziaria a fila em silêncio no modo degradado —
     transformaria um erro de dado em "acabou o trabalho"."""
-    cutoff = (date.today() - timedelta(days=1)).isoformat()
+    # Base em data de Brasília (19/11/2026): o runner é UTC, e às 21h BRT o
+    # date.today() já é o dia seguinte. A margem D+1 em si não mudou — o corte
+    # do que vira consulta/avaliação é feito por quem consome a lista
+    # (select_batch e process_all_weekend_legs), não aqui.
+    cutoff = (date.fromisoformat(current_brt_date()) - timedelta(days=1)).isoformat()
     weekends_by_id = {w["id"]: w for w in get_monitoring_weekends()}
 
     state_rows = get_effective_leg_state()
@@ -532,10 +548,14 @@ def evaluate_and_record_leg_price(leg: dict, system_settings: dict, settings_by_
 
 
 def process_weekend_leg(leg: dict, system_settings: dict, settings_by_user: dict[str, dict],
-                        month_cache: dict) -> dict:
+                        month_cache: dict, today: str | None = None) -> dict:
     """Filtra localmente as entradas já buscadas pra essa perna (1 ou 2 datas
     candidatas × 2 aeroportos) e delega a gravação/avaliação pra
-    evaluate_and_record_leg_price (fonte 'cache')."""
+    evaluate_and_record_leg_price (fonte 'cache').
+
+    `today` (ISO, BRT): quando informado, só casa datas candidatas >= today
+    (`future_date_candidates`). `process_all_weekend_legs` sempre informa;
+    None (só chamada direta, em teste) mantém todas as candidatas."""
     leg_id = leg["id"]
     direction = leg["direction"]
     label = f"perna {direction} {leg['outbound_date']}"
@@ -546,7 +566,8 @@ def process_weekend_leg(leg: dict, system_settings: dict, settings_by_user: dict
             entries = month_cache.get((month, airport, direction))
             if not entries:
                 continue
-            for variant, target_date in date_candidates(leg):
+            candidates = date_candidates(leg) if today is None else future_date_candidates(leg, today)
+            for variant, target_date in candidates:
                 if target_date[:7] != month:
                     continue
                 best = match_leg_entries(entries, target_date)
@@ -571,8 +592,19 @@ def process_all_weekend_legs(system_settings: dict, settings_by_user: dict[str, 
     """Varre todas as pernas ativas, agrupando as buscas por (mês, aeroporto,
     direção) — cada chave é buscada 1 vez e reusada pelas pernas que a
     compartilham. Falha ao buscar uma chave só afeta as pernas que dependem
-    dela; falha ao processar uma perna não derruba as outras."""
-    legs = get_active_legs()
+    dela; falha ao processar uma perna não derruba as outras.
+
+    Perna cujas datas candidatas já passaram todas (antes de hoje, BRT) sai
+    aqui, antes de montar as chaves: nem consulta mês, nem avalia, nem grava
+    run_log — não houve consulta (19/11/2026). As que sobram só casam datas
+    de hoje em diante."""
+    today = current_brt_date()
+    legs = []
+    for leg in get_active_legs():
+        if future_date_candidates(leg, today):
+            legs.append(leg)
+        else:
+            print(f"[perna {leg['direction']} {leg['outbound_date']}] data de viagem já passou (antes de {today}, BRT) — fora da varredura de cache")
     if not legs:
         return []
 
@@ -583,6 +615,8 @@ def process_all_weekend_legs(system_settings: dict, settings_by_user: dict[str, 
     fetch_keys = set()
     for leg in legs:
         for month in relevant_months(leg):
+            if not any(d[:7] == month for _, d in future_date_candidates(leg, today)):
+                continue  # mês só da data que já passou (volta na virada do mês)
             for airport in AIRPORTS:
                 fetch_keys.add((month, airport, leg["direction"]))
 
@@ -602,11 +636,16 @@ def process_all_weekend_legs(system_settings: dict, settings_by_user: dict[str, 
     reports = []
     for leg in legs:
         label = f"perna {leg['direction']} {leg['outbound_date']}"
-        needed_keys = [(month, airport, leg["direction"]) for month in relevant_months(leg) for airport in AIRPORTS]
+        needed_keys = [
+            (month, airport, leg["direction"])
+            for month in relevant_months(leg)
+            if any(d[:7] == month for _, d in future_date_candidates(leg, today))
+            for airport in AIRPORTS
+        ]
         try:
             if all(month_cache.get(k) is None for k in needed_keys):
                 raise RuntimeError("todas as buscas necessárias falharam")
-            reports.append(process_weekend_leg(leg, system_settings, settings_by_user, month_cache))
+            reports.append(process_weekend_leg(leg, system_settings, settings_by_user, month_cache, today=today))
         except Exception:
             detail = traceback.format_exc()[-500:]
             print(f"[{label}] ERRO:\n{detail}")

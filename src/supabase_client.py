@@ -3,6 +3,8 @@ from datetime import date, datetime, timedelta, timezone
 
 import requests
 
+from scrape_schedule import current_brt_date
+
 DEFAULT_SETTINGS = {
     "window_3d_pct": 10,
     "window_7d_pct": 15,
@@ -210,8 +212,9 @@ def get_monitoring_weekends() -> list[dict]:
     de margem), não por `outbound_date`: expirar pela ida cortava a perna de
     volta 2-3 dias antes da própria data dela (Parte 9, 28/07/2026). A
     expiração fina por perna (ida vs. volta, cada uma com sua própria data)
-    acontece depois, em `get_active_legs` (weekends.py)."""
-    cutoff = (date.today() - timedelta(days=1)).isoformat()
+    acontece depois, em `get_active_legs` (weekends.py). Base em data de
+    Brasília desde 19/11/2026 (o runner é UTC; às 21h BRT o UTC já virou)."""
+    cutoff = (date.fromisoformat(current_brt_date()) - timedelta(days=1)).isoformat()
     params = {
         "return_monday": f"gte.{cutoff}",
         "select": "id,outbound_date,return_sunday,return_monday",

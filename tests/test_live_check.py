@@ -132,6 +132,52 @@ class LegTravelDateTest(unittest.TestCase):
         self.assertEqual(live_check.leg_travel_date(leg), RETURN_LEG["return_monday"])
 
 
+class FrozenUtcRollover(datetime):
+    """Relógio fixo em 20/11/2026 00:30 UTC = 19/11/2026 21:30 BRT."""
+
+    @classmethod
+    def now(cls, tz=None):
+        return datetime(2026, 11, 20, 0, 30, tzinfo=timezone.utc)
+
+
+class PastLegBatchCutTest(unittest.TestCase):
+    """19/11/2026 — perna com data de viagem anterior a hoje (BRT) nunca entra
+    no lote fli, com ou sem radar; a de hoje entra."""
+
+    def ids(self, legs, settings=SYSTEM_SETTINGS):
+        with patch("live_check.get_active_legs", return_value=legs):
+            return [leg["id"] for leg in live_check.select_batch(settings)]
+
+    def test_yesterday_leg_is_out_of_batch(self):
+        yesterday = {**OUTBOUND_LEG, "id": "ontem", "outbound_date": days_from_today(-1)}
+        self.assertEqual(self.ids([yesterday]), [])
+
+    def test_yesterday_leg_is_out_of_batch_with_radar(self):
+        yesterday = {**OUTBOUND_LEG, "id": "ontem", "outbound_date": days_from_today(-1)}
+        settings = {**SYSTEM_SETTINGS, "radar_enabled": True}
+        self.assertEqual(self.ids([yesterday], settings), [])
+
+    def test_today_leg_is_in_batch(self):
+        today = {**OUTBOUND_LEG, "id": "hoje", "outbound_date": days_from_today(0)}
+        self.assertEqual(self.ids([today]), ["hoje"])
+
+    def test_return_with_past_sunday_is_out_even_if_monday_is_today(self):
+        # Sem variante conhecida a volta consulta o domingo — que já passou.
+        ret = {**RETURN_LEG, "id": "volta", "return_sunday": days_from_today(-1),
+               "return_monday": days_from_today(0)}
+        self.assertEqual(self.ids([ret]), [])
+
+    def test_cut_uses_brt_date_at_utc_rollover(self):
+        # Run às 21h30 BRT de 19/11 (UTC já é 20/11): a perna de 19/11 é HOJE
+        # e entra; a de 18/11 é ontem e sai. Com a data UTC, a de 19/11 sairia.
+        legs = [
+            {**OUTBOUND_LEG, "id": "dia-19", "outbound_date": "2026-11-19"},
+            {**OUTBOUND_LEG, "id": "dia-18", "outbound_date": "2026-11-18"},
+        ]
+        with patch("scrape_schedule.datetime", FrozenUtcRollover):
+            self.assertEqual(self.ids(legs), ["dia-19"])
+
+
 class SelectBatchTest(unittest.TestCase):
     def test_legs_beyond_window_are_excluded(self):
         near = {**OUTBOUND_LEG, "id": "near", "outbound_date": days_from_today(30)}

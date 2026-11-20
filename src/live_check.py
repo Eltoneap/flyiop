@@ -176,6 +176,13 @@ def select_batch(system_settings: dict) -> list[dict]:
     mais perto de bater meta. `batch_size` (inalterado por este filtro)
     continua sendo o teto real de quantas consultas o lote faz por dia.
 
+    Perna com data de viagem ANTERIOR a hoje (BRT) nunca entra, com radar
+    ligado ou desligado (19/11/2026): a margem D+1 de `get_active_legs` mantém
+    a perna de ontem na lista ativa de propósito, mas consultar data que já
+    passou é inútil e a resposta vazia ainda contaria pro detector de
+    bloqueio. A perna de HOJE continua elegível. "Hoje" é sempre a data de
+    Brasília — o runner do GitHub está em UTC, e às 21h30 BRT o UTC já virou.
+
     Só configuração de SISTEMA entra aqui (`batch_size`, `radar_enabled`): a
     seleção do lote é sobre quanto o robô consulta, não sobre a decisão de
     quem alerta — por isso `settings_by_user` não passa por esta função
@@ -196,10 +203,19 @@ def select_batch(system_settings: dict) -> list[dict]:
 
     source_horizon = today + timedelta(days=RADAR_COVERAGE_WINDOW_DAYS)
 
+    today_iso = today.isoformat()
+
     legs = []
     regime_counts = {"price": 0, "metadata": 0, "none": 0}
     beyond_horizon = 0
+    past = 0
     for leg in get_active_legs():
+        if leg_travel_date(leg) < today_iso:
+            # Data de viagem já passou (a perna só segue na lista ativa pela
+            # margem D+1). Nunca vira consulta ao vivo — vale com e sem radar,
+            # por isso vem antes de batch_regime.
+            past += 1
+            continue
         if cutoff is not None and leg_travel_date(leg) > cutoff:
             continue
         if leg_travel_date(leg) > source_horizon.isoformat():
@@ -216,6 +232,8 @@ def select_batch(system_settings: dict) -> list[dict]:
     # batch_regime devolve o MESMO None pra dois motivos muito diferentes
     # ("radar já cobriu há pouco" e "fonte não tem esse dado") — sem separar,
     # a linha esconderia justamente o sintoma que causou o falso bloqueio.
+    if past:
+        print(f"[live-check] {past} perna(s) com data de viagem já passada (antes de {today_iso}, BRT) — fora do lote")
     if radar_on:
         in_horizon = regime_counts["metadata"] + regime_counts["none"] - beyond_horizon
         print(

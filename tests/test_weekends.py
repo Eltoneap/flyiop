@@ -810,6 +810,14 @@ class DegradedLegEvaluationTest(EvaluateLegMixin, unittest.TestCase):
 
 
 class ProcessAllWeekendLegsTest(unittest.TestCase):
+    def setUp(self):
+        # Os casos desta classe usam datas absolutas de set/2026 (chaves de
+        # month_cache). Desde 19/11/2026 process_all_weekend_legs descarta
+        # perna com data já passada (BRT) — então "hoje" fica fixo antes delas.
+        patcher = patch("weekends.current_brt_date", return_value="2026-09-01")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_shared_fetch_key_used_once_across_legs(self):
         """2 pernas outbound no mesmo mês -> a chave (mês, aeroporto, direção)
         é buscada 1 vez só, não 1 por perna."""
@@ -855,7 +863,7 @@ class ProcessAllWeekendLegsTest(unittest.TestCase):
     def test_individual_leg_failure_does_not_crash_others(self):
         leg2 = {**OUTBOUND_LEG, "id": "leg-out-2", "weekend_id": "wknd-2"}
 
-        def fake_process(leg, system_settings, settings_by_user, cache):
+        def fake_process(leg, system_settings, settings_by_user, cache, today=None):
             if leg["id"] == "leg-out-2":
                 raise RuntimeError("falha simulada")
             return {"leg": leg, "status": "ok", "price": 300.0}
@@ -877,6 +885,103 @@ class ProcessAllWeekendLegsTest(unittest.TestCase):
             reports = weekends.process_all_weekend_legs(SYSTEM_SETTINGS, SETTINGS_BY_USER)
         self.assertEqual(reports, [])
         mock_fetch.assert_not_called()
+
+
+class PastLegCacheCutTest(unittest.TestCase):
+    """19/11/2026 — a varredura de cache nunca avalia data de viagem anterior
+    a hoje (BRT). A perna de ontem segue na lista ativa (margem D+1), mas não
+    vira consulta de mês, nem avaliação, nem run_log. A de hoje continua."""
+
+    TODAY = "2026-09-05"  # sábado: a sexta 04/09 é ontem; domingo/segunda vêm depois
+
+    def run_all(self, legs, fetch_return):
+        with patch("weekends.current_brt_date", return_value=self.TODAY), \
+             patch("weekends.get_active_legs", return_value=legs), \
+             patch("weekends.fetch_leg_month_entries", return_value=fetch_return) as mock_fetch, \
+             patch("weekends.insert_weekend_leg_price") as mock_insert, \
+             patch("weekends.get_weekend_leg_price_history", return_value=[]), \
+             patch("weekends.get_last_weekend_leg_alert", return_value=None), \
+             patch("weekends.update_weekend_leg"), \
+             patch("weekends.insert_weekend_leg_run_log") as mock_run_log, \
+             patch("weekends.time.sleep", return_value=None):
+            reports = weekends.process_all_weekend_legs(SYSTEM_SETTINGS, SETTINGS_BY_USER)
+        return reports, mock_fetch, mock_insert, mock_run_log
+
+    def test_yesterday_leg_is_not_fetched_evaluated_or_logged(self):
+        # Ida 04/09 = ontem. A entrada do cache casaria a data exata — e
+        # antes desta correção virava avaliação de voo que já saiu.
+        reports, mock_fetch, mock_insert, mock_run_log = self.run_all(
+            [OUTBOUND_LEG], [entry(150.0, "2026-09-04")]
+        )
+        self.assertEqual(reports, [])
+        mock_fetch.assert_not_called()
+        mock_insert.assert_not_called()
+        mock_run_log.assert_not_called()
+
+    def test_today_leg_is_still_evaluated(self):
+        leg = {**OUTBOUND_LEG, "outbound_date": self.TODAY}
+        reports, mock_fetch, mock_insert, _ = self.run_all([leg], [entry(150.0, self.TODAY)])
+        self.assertEqual([r["status"] for r in reports], ["ok"])
+        mock_insert.assert_called_once()
+
+    def test_return_only_matches_dates_from_today_on(self):
+        # Hoje = segunda 07/09: o domingo 06/09 (mais barato) já passou e não
+        # pode casar; só a segunda é avaliada.
+        with patch.object(self, "TODAY", "2026-09-07"):
+            reports, _, mock_insert, _ = self.run_all(
+                [RETURN_LEG], [entry(100.0, "2026-09-06"), entry(250.0, "2026-09-07")]
+            )
+        self.assertEqual(len(reports), 1)
+        self.assertEqual(reports[0]["status"], "ok")
+        self.assertEqual(reports[0]["price"], 250.0)
+        self.assertEqual(reports[0]["variant"], "monday")
+
+    def test_month_of_only_past_candidate_is_not_fetched(self):
+        # Volta na virada do mês: domingo 31/01 (passado) e segunda 01/02.
+        # Só o mês de fevereiro é consultado.
+        leg = {**RETURN_LEG, "outbound_date": "2027-01-29",
+               "return_sunday": "2027-01-31", "return_monday": "2027-02-01"}
+        with patch.object(self, "TODAY", "2027-02-01"):
+            _, mock_fetch, _, _ = self.run_all([leg], [entry(250.0, "2027-02-01")])
+        months = {c.args[0] for c in mock_fetch.call_args_list}
+        self.assertEqual(months, {"2027-02"})
+
+
+class ActiveLegsBrtDateTest(unittest.TestCase):
+    """19/11/2026 — o corte D+1 de get_active_legs usa a data de Brasília, não
+    o date.today() do runner (UTC). Run às 21h30 BRT de 19/11 = 00h30 UTC de
+    20/11: a ida de 18/11 (ontem em BRT) ainda está dentro do D+1; com a base
+    UTC ela já teria saído."""
+
+    def test_d_plus_1_cut_uses_brt_date_at_utc_rollover(self):
+        weekend_row = {"id": "wknd-1", "outbound_date": "2026-11-18",
+                       "return_sunday": "2026-11-20", "return_monday": "2026-11-21"}
+        outbound = {"id": "leg-out-1", "weekend_id": "wknd-1", "direction": "outbound"}
+        with patch("scrape_schedule.datetime", FrozenUtcRollover), \
+             patch("weekends.date", RunnerUtcDate), \
+             patch("weekends.get_monitoring_weekends", return_value=[weekend_row]), \
+             patch("weekends.get_all_weekend_legs", return_value=[outbound]), \
+             patch("weekends.get_effective_leg_state", return_value=state_rows("leg-out-1")):
+            legs = weekends.get_active_legs()
+        self.assertEqual([leg["id"] for leg in legs], ["leg-out-1"])
+
+
+class RunnerUtcDate(date):
+    """`date.today()` como o runner do GitHub (UTC) o vê nesse mesmo instante:
+    já é 20/11. Garante que o teste falha se o corte voltar a usar
+    date.today() — na máquina local (BRT) o bug não apareceria."""
+
+    @classmethod
+    def today(cls):
+        return date(2026, 11, 20)
+
+
+class FrozenUtcRollover(datetime):
+    """Relógio fixo em 20/11/2026 00:30 UTC = 19/11/2026 21:30 BRT."""
+
+    @classmethod
+    def now(cls, tz=None):
+        return datetime(2026, 11, 20, 0, 30, tzinfo=timezone.utc)
 
 
 class CurrentPriceAtTest(EvaluateLegMixin, unittest.TestCase):

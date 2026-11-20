@@ -1727,6 +1727,64 @@ em `~/dev/flyiop`; a verificação usou um `http.server` iniciado direto em
 
 ---
 
+## 31. Robô nunca consulta nem avalia perna com data já passada, 19/11/2026
+
+**Motivação:** pendência nomeada registrada na sessão do item 30 (texto
+original em `PLANO-ATIVO.md` até esta data). A margem D+1 de
+`get_active_legs` mantinha na lista ativa a perna de ontem (e a volta de
+domingo até terça), e nem o lote `fli` nem a varredura de cache recusavam
+data passada. Resposta vazia de data passada contaria para o detector de
+bloqueio — mesmo mecanismo do falso bloqueio de 01/09/2026 (item 25).
+
+**Decisões do usuário (19/11/2026):** o corte é no que vira consulta ou
+avaliação, NÃO na lista ativa — a margem D+1 fica (serve a outros usos, como
+registrar a compra feita no dia). A perna do próprio dia continua sendo
+consultada, mesmo que o voo já tenha saído. "Hoje" é sempre a data de
+Brasília (`current_brt_date()`). Detector de bloqueio e resto do scraping
+intocados.
+
+**Implementação:**
+- `live_check.select_batch` — perna com `leg_travel_date < hoje (BRT)` sai
+  antes de `batch_regime`, com radar ligado ou desligado; log
+  `[live-check] N perna(s) com data de viagem já passada … — fora do lote`.
+  A data cortada é a mesma que seria consultada: volta sem variante
+  conhecida consulta o domingo, então numa segunda ela já sai.
+- Cache Travelpayouts — **confirmado que avaliava perna passada**: a ida de
+  ontem, ou o domingo de uma volta ainda ativa, casava com entrada de data
+  passada do mês e ia para `evaluate_and_record_leg_price` (podia alertar).
+  Novo `weekends.future_date_candidates(leg, hoje)`; `process_all_weekend_legs`
+  descarta a perna sem nenhuma data candidata a partir de hoje (sem consulta
+  de mês, sem avaliação, sem `run_log`), não consulta mês que só serviria a
+  data passada (volta na virada do mês) e passa `today` para
+  `process_weekend_leg`, que só casa datas de hoje em diante (`today=None`,
+  só em chamada direta de teste, mantém todas as candidatas).
+- Base em data de Brasília nos dois cortes do mesmo caminho:
+  `weekends.get_active_legs` e `supabase_client.get_monitoring_weekends`
+  (antes `date.today()`, UTC no runner — nos runs depois das 21h BRT o "hoje"
+  do robô já era o dia seguinte). O `-1` da margem não mudou.
+- Fora do escopo, de propósito: `date.today()` de `live_check.py:381`
+  (streak do detector de bloqueio), `main.py` (rotas legado, resumo de
+  segunda) e `bot_commands.py`. Radar já filtrava `today <= travel_date` com
+  data BRT.
+
+**Testes (371 passando; 361 antes):** `PastLegBatchCutTest` (perna de ontem
+fora com e sem radar; de hoje dentro; volta com domingo passado fora; virada
+de fuso com relógio em 20/11 00h30 UTC = 19/11 21h30 BRT), `PastLegCacheCutTest`
+(ontem sem consulta/avaliação/run_log; hoje avaliada; volta numa segunda só
+casa a segunda; mês só da data passada não é consultado) e
+`ActiveLegsBrtDateTest` (D+1 com base BRT na virada, com `date.today()`
+simulando o runner em UTC). Os 10 novos rodados contra o código anterior:
+9 falham, o que passa é "perna de hoje dentro do lote" (comportamento que
+já existia). `ProcessAllWeekendLegsTest` ganhou "hoje" fixo em 01/09/2026
+(as fixtures são de set/2026), sem mudar asserção.
+
+**Verificação em produção: pendente** — próximo run agendado do `daily`
+depois do push: a linha `fora do lote` / `fora da varredura de cache` deve
+aparecer só quando houver perna de ontem na lista, e nenhuma consulta `fli`
+com data anterior ao dia BRT do run.
+
+---
+
 ## Anexo — Diário de sessões do STATE.md (01/08 a 05/09/2026, movido em 19/11/2026)
 
 _Movido do topo do `STATE.md` em 19/11/2026 (31 blocos "Última sessão /
