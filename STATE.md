@@ -318,25 +318,28 @@ desde ~29/08 e Fatia 2 em produção desde 05/09; 4 (observar o escalonamento)
 segue como acompanhamento contínuo pelo Dashboard, sem item próprio._
 
 1. **Reativação automática dos workflows dentro do `daily.yml` + atualizar
-   `actions/checkout` e `actions/setup-python` para as versões Node 24 —
-   IMPLEMENTADO (19/11/2026), VERIFICAÇÃO PENDENTE.** Keepalive com `gh
-   workflow enable` (por nome de arquivo) no fim do `daily.yml`, checkout e
-   setup-python em `@v7` nos 5 workflows. Que `enable` zera o contador de 60
-   dias é comportamento observado pela comunidade, não documentado pelo
-   GitHub — a garantia real é o item 6. Falta: próximo run agendado do
-   `daily` e do bot sem aviso de Node 20, com `[keepalive] ok` nos dois
-   arquivos. Detalhe em `HISTORICO.md` item 29 e `PLANO-ATIVO.md`.
-   **Em paralelo, sem ação:** o `fli` seguia bloqueado nos dois runs
-   agendados de 19/11 (radar 3/24 blocos, 0 linhas) — em observação.
+   `actions/checkout` e `actions/setup-python` para as versões Node 24 — ✅
+   VERIFICADO (20/11/2026).** Run agendado do `daily` de 20/11 com
+   `[keepalive] ok` nos dois arquivos e zero anotações (sem aviso de Node 20);
+   run agendado do bot também sem anotações. Que `enable` zera o contador de
+   60 dias continua não documentado pelo GitHub — a garantia real é o item 6.
+   `HISTORICO.md` item 29.
+   **Em paralelo, sem ação:** o `fli` segue bloqueado em 20/11, agora parcial
+   (lote parou após 8 consultas, 2 com preço; radar 24/24 blocos, 13/20 em
+   anomalia) — em observação. E o agendamento do GitHub está atrasando muito:
+   o run das 08h de 19/11 saiu às 16h12 BRT, o das 20h às 00h54, e o das 08h
+   de 20/11 não tinha saído às 14h13 — mais um motivo para o item 6.
 2. **Aba Compras mostrar só fins de semana futuros — ✅ IMPLEMENTADO
    (19/11/2026), verificado no painel local, ainda não publicado.** Some no
    dia seguinte à última perna (fuso de SP, data real da volta), botão
    "Mostrar passados", só visual. Regra única em `docs/js/weekend-dates.js`,
    para o resumo do Dashboard (item 4) reaproveitar. `HISTORICO.md` item 30.
    **Pendência D+1 — ✅ CORRIGIDA (19/11/2026), verificação em produção
-   pendente:** lote `fli` e varredura de cache não consultam nem avaliam
+   parcial:** lote `fli` e varredura de cache não consultam nem avaliam
    perna com data anterior a hoje (BRT); a de hoje continua; margem D+1 da
-   lista ativa mantida; cortes com data de Brasília. `HISTORICO.md` item 31.
+   lista ativa mantida; cortes com data de Brasília. Primeiro run (20/11)
+   coerente, mas sem perna de ontem na lista para cortar; caso positivo
+   esperado nos runs de 21/11 e 23/11. `HISTORICO.md` item 31.
 3. **Checkpoint do radar em 01/12/2026** (`PLANO-ATIVO.md`, "Checkpoint —
    radar como gatilho de alerta"). **Atenção:** o buraco de dados de 06-18/11
    caiu justamente na faixa de 30-60 dias antes das pernas de fim de ano

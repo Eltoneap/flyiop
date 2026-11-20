@@ -1668,6 +1668,13 @@ do bot sem aviso de Node 20 (ele não tem passo de keepalive). Limite: o
 próprio push zera o contador de 60 dias, então o efeito do keepalive em
 *evitar* a desativação só seria observável depois de 60 dias sem commit.
 
+**Verificado em 20/11/2026** no primeiro run agendado do `daily` depois do
+push (`44670794479`, disparado 03:54 UTC de 20/11, commit `fcc1fda`):
+`[keepalive] ok: daily.yml` e `[keepalive] ok: bot_commands.yml`, run em
+success e **zero anotações** no job (nenhum aviso de Node 20). Run agendado
+do bot (`44716910306`, 10:10 UTC de 20/11): success, zero anotações. O
+limite acima (efeito real só observável após 60 dias sem commit) continua.
+
 ---
 
 ## 30. Aba Compras mostra só o que vem pela frente, 19/11/2026
@@ -1782,6 +1789,31 @@ já existia). `ProcessAllWeekendLegsTest` ganhou "hoje" fixo em 01/09/2026
 depois do push: a linha `fora do lote` / `fora da varredura de cache` deve
 aparecer só quando houver perna de ontem na lista, e nenhuma consulta `fli`
 com data anterior ao dia BRT do run.
+
+**Primeiro run com o `fcc1fda` — 20/11/2026, parcial** (`44670794479`, run
+agendado das 20h BRT de 19/11 que só disparou às 03:54 UTC = 00:54 BRT de
+20/11 — mesmo dia em UTC e BRT, então NÃO serviu de teste de virada de fuso):
+- **Efeito da mudança:** coerente, mas sem caso positivo. Nenhuma linha
+  `fora do lote` nem `fora da varredura de cache` — e era o esperado: com
+  hoje = 20/11 (sexta), a lista ativa começa no fim de semana de 20/11 (ida
+  hoje); o de 13/11 já tinha saído pela margem D+1 (volta de segunda 16/11).
+  Não havia perna de ontem para cortar. A varredura de cache avaliou a ida e
+  a volta do fim de semana de 20/11 normalmente ("sem dado ainda").
+- **Bloqueio do `fli` (separado, vem de 19/11): continua, parcial.** Lote
+  interrompido por taxa de sucesso após 8 consultas, 2 com preço
+  (`BLOQUEADO`); radar 24/24 blocos consultados, 430 linhas, mas 13/20 blocos
+  com histórico em anomalia ("hoje 0 datas") — melhor que 19/11 (3/24
+  blocos, 0 linhas), ainda degradado. A mudança não interfere nisso.
+- **Caso positivo fica para os próximos runs:** sábado 21/11 (a ida de 20/11
+  vira ontem e segue na lista pelo D+1 — deve sair `1 perna(s) … fora do
+  lote` e `[perna outbound 2026-11-20] … fora da varredura de cache`) e
+  segunda 23/11 (a volta de domingo 22/11 não pode casar). Virada de fuso:
+  primeiro run das 20h BRT que dispare antes da meia-noite BRT.
+- **Atraso do agendamento do GitHub (não é desta mudança):** o cron das 08h
+  BRT de 19/11 disparou às 19:12 UTC (16h12 BRT) e o das 20h às 03:54 UTC;
+  o das 08h de 20/11 ainda não tinha disparado às 17:13 UTC (14h13 BRT).
+  Reforça o item 6 da fila do `STATE.md` (alarme de robô parado fora do
+  GitHub).
 
 ---
 
