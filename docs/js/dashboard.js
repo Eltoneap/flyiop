@@ -3,6 +3,7 @@ import { requireAuth, wireLogout } from './auth-guard.js';
 import { loadAirports, findByIata } from './airports.js';
 import { buyingWindowAdvice } from './buying-window.js';
 import { weekendTags } from './holidays.js';
+import { legTravelDate, todaySaoPaulo } from './weekend-dates.js';
 
 const DEFAULT_SETTINGS = {
   window_3d_pct: 10,
@@ -27,6 +28,7 @@ const BLOCK_RECENT_HOURS = 48;
 const BLOCK_SCOPE = {
   'acao-do-dia': 'own',
   progresso: 'own',
+  'minhas-compras': 'own',
   oportunidades: 'own',
   orcamento: 'own',
   'rotas-legado': 'own',
@@ -176,6 +178,130 @@ function renderProgresso(allLegs, weekends) {
     <p class="price-meta">${purchasedLegs} de ${inScopeLegs.length} pernas compradas · ${completeWeekends} de ${inScopeWeekends.length} fins de semana completos</p>
     <div class="progress-bar"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
     ${earlyLegsCount > 0 ? `<p class="price-meta">+ ${earlyLegsCount} pernas em construção de histórico (set/2026–jan/2027) não entram nesse número — continuam sendo monitoradas normalmente.</p>` : ''}
+  `;
+}
+
+// ---------- (c2) Minhas compras ----------
+//
+// Pernas compradas pelo usuário logado: próximas no bloco principal, já
+// realizadas em "Voos anteriores" (fechado). A data de cada perna e a regra de
+// "já passou" vêm de weekend-dates.js (a mesma da aba Compras) — nada de data
+// reimplementado aqui. Só leitura: paid_price/notes/status vêm de
+// weekend_leg_effective e o snapshot do voo de weekend_leg_user_state, as duas
+// filtradas pela RLS para o próprio usuário.
+
+// "Hoje" do bloco no fuso de São Paulo. `?hoje=AAAA-MM-DD` só vale em
+// localhost (mesma regra de compras.js) — testa a virada de dia sem esperar o
+// calendário; no site publicado é ignorado.
+function pageToday() {
+  const isLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
+  const forced = isLocal ? new URLSearchParams(location.search).get('hoje') : null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(forced || '') ? forced : todaySaoPaulo();
+}
+
+const LOCATOR_MAX_CHARS = 30;
+
+// purchased_departure_time é timestamptz gravado com -03:00 real (compras.js,
+// composeDepartureTimestamp): a hora é lida convertida para São Paulo, nunca
+// em UTC — senão um voo das 22h BRT apareceria 01h do dia seguinte.
+const SP_TIME_FORMATTER = new Intl.DateTimeFormat('pt-BR', {
+  timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+});
+
+function purchasedTimeSp(leg) {
+  const iso = leg.purchased_snapshot?.purchased_departure_time;
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : SP_TIME_FORMATTER.format(d);
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function formatBrl(value) {
+  return `R$ ${Number(value).toFixed(2)}`;
+}
+
+// Soma só o que tem valor; quem não tem entra na contagem do aviso — nunca
+// some do total em silêncio (total parcial + "(N sem valor informado)").
+function paidSummary(legs) {
+  const withValue = legs.filter((l) => l.paid_price != null && l.paid_price !== '');
+  return {
+    total: withValue.reduce((sum, l) => sum + Number(l.paid_price), 0),
+    missing: legs.length - withValue.length,
+  };
+}
+
+function paidSummaryHtml(legs) {
+  const { total, missing } = paidSummary(legs);
+  const warn = missing > 0
+    ? ` <span class="price-meta">(parcial — ${missing} sem valor informado)</span>` : '';
+  return `<strong>${formatBrl(total)}</strong>${warn}`;
+}
+
+function purchaseItemHtml({ leg, date, time }) {
+  const route = leg.direction === 'outbound' ? 'Ida RIO→BSB' : 'Volta BSB→RIO';
+  const airport = leg.purchased_snapshot?.purchased_airport;
+  const airline = (leg.purchased_snapshot?.purchased_airline || '').trim();
+  const notes = (leg.notes ?? '').toString().trim();
+  const locatorShort = notes.length > LOCATOR_MAX_CHARS
+    ? `${notes.slice(0, LOCATOR_MAX_CHARS).trimEnd()}…` : notes;
+  const locatorHtml = notes
+    ? `<span class="purchase-locator" title="${escapeHtml(notes)}">${escapeHtml(locatorShort)}</span>`
+    : '—';
+  const paid = leg.paid_price != null && leg.paid_price !== '' ? formatBrl(leg.paid_price) : '—';
+
+  return `<li><a href="compras.html#weekend-${escapeHtml(leg.weekend_id)}">
+    <span class="purchase-main">
+      <span>${formatDateBr(date)}${time ? ` ${time}` : ''} · ${route}${airport ? ` (${escapeHtml(airport)})` : ''}</span>
+      <span class="price-meta">${airline ? escapeHtml(airline) : '—'} · loc. ${locatorHtml}</span>
+    </span>
+    <span class="purchase-paid">${paid}</span>
+  </a></li>`;
+}
+
+function renderMinhasCompras(weekends, today) {
+  const section = document.getElementById('minhas-compras');
+  const items = weekends.flatMap((w) => (w.weekend_legs || [])
+    .filter((leg) => leg.status === 'purchased')
+    .map((leg) => ({ leg, date: legTravelDate(leg, w), time: purchasedTimeSp(leg) })));
+
+  if (!items.length) {
+    section.innerHTML = `
+      <h2>Minhas compras</h2>
+      <p class="price-meta">Nenhuma perna comprada ainda — marque em <a href="compras.html">Compras</a>.</p>
+    `;
+    return;
+  }
+
+  // Ordem: data, hora (sem hora vai antes), ida antes de volta no mesmo dia.
+  const key = ({ leg, date, time }) => `${date} ${time || ''} ${leg.direction === 'outbound' ? 0 : 1}`;
+  // Some no dia SEGUINTE à viagem: no próprio dia continua em "próximos".
+  const upcoming = items.filter((i) => i.date >= today).sort((a, b) => key(a).localeCompare(key(b)));
+  const past = items.filter((i) => i.date < today).sort((a, b) => key(b).localeCompare(key(a)));
+
+  const upcomingHtml = upcoming.length
+    ? `<ul class="link-list purchase-list">${upcoming.map(purchaseItemHtml).join('')}</ul>`
+    : '<p class="price-meta">Nenhum voo comprado pela frente.</p>';
+  const pastHtml = past.length
+    ? `<ul class="link-list purchase-list">${past.map(purchaseItemHtml).join('')}</ul>`
+    : '<p class="price-meta">Nenhum voo realizado ainda.</p>';
+
+  section.innerHTML = `
+    <h2>Minhas compras</h2>
+    ${upcomingHtml}
+    <details class="past-purchases">
+      <summary>Voos anteriores (${past.length})</summary>
+      <div class="purchase-totals">
+        <p>Total gasto: ${paidSummaryHtml(items.map((i) => i.leg))}</p>
+        <p class="price-meta">já viajado: ${paidSummaryHtml(past.map((i) => i.leg))}</p>
+        <p class="price-meta">a viajar: ${paidSummaryHtml(upcoming.map((i) => i.leg))}</p>
+      </div>
+      ${pastHtml}
+    </details>
   `;
 }
 
@@ -600,11 +726,19 @@ async function initPage(session) {
     { data: legRows, error: lErr },
     { data: settingsRows },
     systemConfigResult,
+    snapshotRes,
   ] = await Promise.all([
     supabase.from('weekends').select('*').order('outbound_date', { ascending: true }),
     supabase.from('weekend_leg_effective').select('*'),
     supabase.from('settings').select('*').eq('user_id', session.user.id).limit(1),
     supabase.from('system_config').select('fast_flights_enabled').limit(1)
+      .then((res) => res, (err) => ({ data: null, error: err })),
+    // Snapshot do voo comprado (companhia/aeroporto/horário) — a MESMA
+    // consulta de compras.js; a RLS wlus_select_own só devolve linhas do
+    // próprio usuário. Falha suave: o bloco "Minhas compras" mostra "—".
+    supabase.from('weekend_leg_user_state')
+      .select('leg_id, purchased_airline, purchased_airport, purchased_departure_time')
+      .eq('user_id', session.user.id) // defesa em profundidade, além da RLS
       .then((res) => res, (err) => ({ data: null, error: err })),
   ]);
 
@@ -619,10 +753,16 @@ async function initPage(session) {
 
   const settings = settingsRows && settingsRows[0] ? settingsRows[0] : DEFAULT_SETTINGS;
 
+  if (snapshotRes?.error) console.error('Erro ao carregar snapshot de compra:', snapshotRes.error);
+  const snapshotByLeg = {};
+  for (const row of snapshotRes?.data || []) snapshotByLeg[row.leg_id] = row;
+
   // Sem normalizar leg_id -> id (o que compras.js precisa fazer): nenhuma
-  // função deste arquivo referencia leg.id.
+  // função deste arquivo referencia leg.id. purchased_snapshot no mesmo
+  // formato de compras.js, que é o que legTravelDate (weekend-dates.js) lê.
   const legsByWeekend = {};
   for (const row of legRows || []) {
+    row.purchased_snapshot = snapshotByLeg[row.leg_id] || null;
     (legsByWeekend[row.weekend_id] ??= []).push(row);
   }
 
@@ -641,6 +781,7 @@ async function initPage(session) {
   renderAcaoDoDia(allLegs);
   renderUrgencia(allWeekends);
   renderProgresso(allLegs, allWeekends);
+  renderMinhasCompras(allWeekends, pageToday());
   renderOportunidades(allLegs, weekendById);
   renderOrcamento(allWeekends);
   await renderSaude(liveActive);

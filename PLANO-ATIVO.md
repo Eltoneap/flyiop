@@ -2257,3 +2257,12 @@ nos cortes de `get_active_legs`/`get_monitoring_weekends`; margem D+1 da
 lista ativa mantida. Detalhe, testes e o que conferir no próximo run:
 `HISTORICO.md`, item 31.
 
+## Resumo "Minhas compras" no Dashboard (implementado 20/11/2026)
+
+Só `docs/`. Próximos voos comprados + "Voos anteriores" fechado com total
+gasto (já viajado / a viajar, parcial quando falta valor); localizador =
+texto de `notes` (não existe coluna própria, decisão do usuário). Datas por
+`weekend-dates.js`. Consultas a `weekend_leg_user_state` (Dashboard e
+Compras) com `.eq('user_id', …)` além da RLS. Detalhe e verificação:
+`HISTORICO.md`, item 32. Falta conferir no site publicado.
+

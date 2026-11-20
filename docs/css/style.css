@@ -393,6 +393,44 @@ section h3:first-of-type {
   color: var(--primary);
 }
 
+/* Minhas compras (Dashboard): data/trecho em cima, companhia/localizador
+   embaixo, valor pago à direita. */
+.purchase-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.purchase-paid {
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.purchase-locator {
+  overflow-wrap: anywhere;
+}
+
+details.past-purchases {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+details.past-purchases summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.purchase-totals {
+  margin: 12px 0 4px;
+}
+
+.purchase-totals p {
+  margin: 2px 0;
+}
+
 details#rotas-legado {
   background: var(--card);
   border: 1px solid var(--border);

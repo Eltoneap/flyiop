@@ -823,7 +823,8 @@ async function loadWeekends() {
       .select('leg_id, user_id, purchased_airline, purchased_airport, purchased_departure_time')
       .neq('user_id', currentUserId), // policy devolve a própria linha também — filtro no front é obrigatório
     supabase.from('weekend_leg_user_state')
-      .select('leg_id, purchased_airline, purchased_airport, purchased_departure_time'),
+      .select('leg_id, purchased_airline, purchased_airport, purchased_departure_time')
+      .eq('user_id', currentUserId), // defesa em profundidade, além da RLS
   ]);
 
   if (wRes.error) {

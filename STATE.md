@@ -1,6 +1,6 @@
 # STATE.md — FlyIop
 
-> Atualizado em: 19/11/2026
+> Atualizado em: 20/11/2026
 > Última sessão: Claude Code (19/11/2026, investigação só-leitura +
 > documentação) — **incidente de 06-18/11/2026: workflows agendados
 > desativados pelo GitHub por 60 dias sem commit** (reativados manualmente
@@ -346,7 +346,12 @@ segue como acompanhamento contínuo pelo Dashboard, sem item próprio._
    (25/12/2026 e 01/01/2027) — a condição que motivou a data do checkpoint.
    Medir a série real em `weekend_radar_precision_log` (consulta em
    `HISTORICO.md` item 28) antes de concluir qualquer coisa.
-4. **Resumo das pernas compradas no Dashboard.**
+4. **Resumo das pernas compradas no Dashboard — ✅ IMPLEMENTADO
+   (20/11/2026), verificado no painel local com dados reais.** Bloco "Minhas
+   compras" (próximos voos; "Voos anteriores" fechado com total gasto já
+   viajado / a viajar); localizador vem de `notes` (não há coluna própria).
+   Consultas ao snapshot de compra filtram `user_id` além da RLS.
+   `HISTORICO.md` item 32.
 5. **Gustavo deixa de participar:** sem alertas, fora do resumo semanal e das
    mensagens, mas com o login mantido.
 6. **Alarme de "robô parado" fora do GitHub, antes de 29/01/2027** (início da
@@ -355,6 +360,10 @@ segue como acompanhamento contínuo pelo Dashboard, sem item próprio._
 7. **Consulta de passagens sob demanda entre quaisquer cidades.** Substitui o
    item "inserção manual de rotas/datas-alvo" declarado em 05/09/2026
    (`PLANO-ATIVO.md`).
+8. **Compras: título da volta usa a variante do robô, não a data do voo
+   comprado (cosmético).** Ex.: volta comprada para quarta 10/02/2027 num
+   card que diz domingo/segunda. Só o rótulo; a regra de "já passou" já usa
+   a data certa. `HISTORICO.md` item 32.
 
 ## 4. Bloqueios / perguntas em aberto
 

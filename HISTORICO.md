@@ -1817,6 +1817,71 @@ agendado das 20h BRT de 19/11 que só disparou às 03:54 UTC = 00:54 BRT de
 
 ---
 
+## 32. Resumo "Minhas compras" no Dashboard, 20/11/2026
+
+**Motivação:** item 4 da fila do `STATE.md` — ver os voos comprados sem abrir
+a aba Compras.
+
+**Levantamento de campos (antes de codar):** valor pago (`paid_price`),
+status e observações (`notes`) vêm de `weekend_leg_effective`; companhia,
+aeroporto e horário do voo comprado (`purchased_airline`,
+`purchased_airport`, `purchased_departure_time`) vêm de
+`weekend_leg_user_state`. **Não existe coluna de localizador** — decisão do
+usuário: mostrar o texto de `notes` (onde o localizador já é digitado), sem
+criar coluna. `weekend_legs.current_airline` (voo que o robô viu hoje) não é
+usado como companhia da compra.
+
+**Implementação (só `docs/`, nenhuma mudança de banco/RLS/robô):**
+- `docs/index.html` — seção `#minhas-compras` logo após Progresso; etiqueta
+  "só seu" (`BLOCK_SCOPE`).
+- `docs/js/dashboard.js` — `renderMinhasCompras`: pernas `purchased`, data de
+  cada uma por `legTravelDate` e "hoje" por `todaySaoPaulo`
+  (`weekend-dates.js`, mesma regra da aba Compras — sem regra de data nova).
+  Próximos voos (data ≥ hoje) em ordem crescente; voo some no dia SEGUINTE à
+  viagem e vai para "Voos anteriores" (`<details>` fechado, ordem
+  decrescente). Linha: data + hora em America/Sao_Paulo, trecho
+  (Ida RIO→BSB / Volta BSB→RIO + aeroporto), companhia, localizador (`notes`
+  cortado em 30 caracteres com "…", texto inteiro no `title`), valor pago;
+  campo vazio = "—"; todo texto do usuário escapado. No topo de "Voos
+  anteriores": total gasto, "já viajado" e "a viajar"; perna sem valor pago
+  entra como total PARCIAL + "(N sem valor informado)" nos três números.
+  Soma TODAS as compras (não só ≥ 29/01/2027, diferente do bloco Orçamento).
+  `?hoje=AAAA-MM-DD` só em localhost, igual a Compras.
+- Consulta nova = a mesma de `compras.js` em `weekend_leg_user_state`, com
+  falha suave. **Ajuste de segurança pedido na revisão:** as duas consultas
+  (Dashboard e Compras) ganharam `.eq('user_id', <usuário logado>)` —
+  defesa em profundidade além da RLS `wlus_select_own`.
+- `docs/css/style.css` — estilos do bloco.
+- Aba Compras: nenhuma mudança de tela — cards passados ("Mostrar passados")
+  já mostravam valor pago e total do card.
+
+**Verificação:**
+- Cópia da tela com cliente Supabase simulado (5 pernas compradas; uma sem
+  valor/companhia/localizador; localizador longo; texto com HTML), cenários
+  `?hoje=` 20/11, 22/11, 23/11 e 01/01/2028: volta de domingo 22h30 BRT
+  (01h30 UTC de segunda) mostrada como 22/11 22:30 e só sai do bloco em
+  23/11; ida das 22h BRT em 13/11 mostrada como 13/11 22:00; totais
+  parciais corretos; nenhum elemento HTML injetado; 375px sem rolagem
+  lateral.
+- Painel local logado com dados reais (20/11/2026): 7 pernas compradas, de
+  31/01/2027 a 28/02/2027, todas em "próximos"; "Voos anteriores (0)"; total
+  R$ 1827,67, igual à soma de `paid_price` lida direto de
+  `weekend_leg_effective`, nenhuma perna sem valor. Consulta a
+  `weekend_leg_user_state` sem filtro devolveu só linhas do próprio usuário;
+  a URL real da consulta saiu com `user_id=eq.<id>`; console sem erros.
+- **Policies de SELECT:** nos `sql/*.sql` versionados só existe
+  `wlus_select_own` (`user_id = auth.uid()`); catálogo `pg_policies` de
+  produção não foi consultado nesta sessão (sem acesso ao banco pelo
+  terminal).
+
+**Achado colateral (cosmético, para a fila):** o título da volta na aba
+Compras usa a variante do robô ("Volta (seg) 23/11"), não a data do voo
+comprado — dados reais têm volta registrada numa quarta (10/02/2027) num
+card que diz domingo/segunda. A regra de esconder passados já usa a data
+certa.
+
+---
+
 ## Anexo — Diário de sessões do STATE.md (01/08 a 05/09/2026, movido em 19/11/2026)
 
 _Movido do topo do `STATE.md` em 19/11/2026 (31 blocos "Última sessão /
