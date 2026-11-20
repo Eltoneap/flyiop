@@ -1880,6 +1880,20 @@ comprado — dados reais têm volta registrada numa quarta (10/02/2027) num
 card que diz domingo/segunda. A regra de esconder passados já usa a data
 certa.
 
+**Complemento (20/11/2026) — só as 4 próximas à vista:** com 7 pernas
+compradas o bloco ficava longo. Agora só as `UPCOMING_VISIBLE` (= 4,
+constante em `docs/js/dashboard.js`) pernas futuras mais próximas aparecem
+abertas; as demais vão para um `<details>` fechado logo abaixo, "Mais N voos
+comprados" (singular "Mais 1 voo comprado"), mesmo estilo de "Voos
+anteriores" (reaproveita a classe `past-purchases`, sem mudança de CSS), em
+ordem crescente de data. Com 4 ou menos futuras o toggle não aparece. Totais
+e "Voos anteriores" inalterados ("a viajar" continua somando todas as
+futuras, visíveis ou não). Só `docs/js/dashboard.js`.
+Verificado no painel local com dados reais: hoje (20/11/2026) → 4 visíveis
+(31/01 a 19/02/2027) + "Mais 3 voos comprados" fechado (21/02, 26/02,
+28/02); `?hoje=2027-02-20` → 3 futuras visíveis, sem toggle, "Voos
+anteriores (4)"; console sem erros.
+
 ---
 
 ## Anexo — Diário de sessões do STATE.md (01/08 a 05/09/2026, movido em 19/11/2026)

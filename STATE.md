@@ -351,6 +351,8 @@ segue como acompanhamento contínuo pelo Dashboard, sem item próprio._
    compras" (próximos voos; "Voos anteriores" fechado com total gasto já
    viajado / a viajar); localizador vem de `notes` (não há coluna própria).
    Consultas ao snapshot de compra filtram `user_id` além da RLS.
+   Complemento (20/11): só as 4 próximas à vista (`UPCOMING_VISIBLE` em
+   `dashboard.js`), demais em "Mais N voos comprados" fechado.
    `HISTORICO.md` item 32.
 5. **Gustavo deixa de participar:** sem alertas, fora do resumo semanal e das
    mensagens, mas com o login mantido.

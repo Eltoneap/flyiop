@@ -201,6 +201,10 @@ function pageToday() {
 
 const LOCATOR_MAX_CHARS = 30;
 
+// Quantas pernas futuras aparecem abertas no bloco; as demais ficam no toggle
+// "Mais N voos comprados" (fechado por padrão).
+const UPCOMING_VISIBLE = 4;
+
 // purchased_departure_time é timestamptz gravado com -03:00 real (compras.js,
 // composeDepartureTimestamp): a hora é lida convertida para São Paulo, nunca
 // em UTC — senão um voo das 22h BRT apareceria 01h do dia seguinte.
@@ -283,9 +287,19 @@ function renderMinhasCompras(weekends, today) {
   const upcoming = items.filter((i) => i.date >= today).sort((a, b) => key(a).localeCompare(key(b)));
   const past = items.filter((i) => i.date < today).sort((a, b) => key(b).localeCompare(key(a)));
 
+  // Só as UPCOMING_VISIBLE mais próximas ficam à vista; o resto vai para um
+  // toggle fechado logo abaixo (mesma ordem crescente de data).
+  const upcomingVisible = upcoming.slice(0, UPCOMING_VISIBLE);
+  const upcomingMore = upcoming.slice(UPCOMING_VISIBLE);
   const upcomingHtml = upcoming.length
-    ? `<ul class="link-list purchase-list">${upcoming.map(purchaseItemHtml).join('')}</ul>`
+    ? `<ul class="link-list purchase-list">${upcomingVisible.map(purchaseItemHtml).join('')}</ul>`
     : '<p class="price-meta">Nenhum voo comprado pela frente.</p>';
+  const moreHtml = upcomingMore.length
+    ? `<details class="past-purchases more-purchases">
+        <summary>Mais ${upcomingMore.length} ${upcomingMore.length === 1 ? 'voo comprado' : 'voos comprados'}</summary>
+        <ul class="link-list purchase-list">${upcomingMore.map(purchaseItemHtml).join('')}</ul>
+      </details>`
+    : '';
   const pastHtml = past.length
     ? `<ul class="link-list purchase-list">${past.map(purchaseItemHtml).join('')}</ul>`
     : '<p class="price-meta">Nenhum voo realizado ainda.</p>';
@@ -293,6 +307,7 @@ function renderMinhasCompras(weekends, today) {
   section.innerHTML = `
     <h2>Minhas compras</h2>
     ${upcomingHtml}
+    ${moreHtml}
     <details class="past-purchases">
       <summary>Voos anteriores (${past.length})</summary>
       <div class="purchase-totals">
