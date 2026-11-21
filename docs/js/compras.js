@@ -1,7 +1,7 @@
 import { supabase } from './supabase-client.js';
 import { requireAuth, wireLogout } from './auth-guard.js';
 import { weekendTags } from './holidays.js';
-import { isWeekendPast, todaySaoPaulo } from './weekend-dates.js';
+import { isWeekendPast, legTravelDate, todaySaoPaulo } from './weekend-dates.js';
 
 const VALID_FILTERS = ['todas', 'abaixo-do-teto', 'sem-preco', 'feriado-alta-temporada', 'proximos-60-dias'];
 const URGENCY_WINDOW_DAYS = 60;
@@ -58,9 +58,23 @@ function isWeekendComplete(weekend) {
   return legs.length > 0 && legs.every(isLegResolved);
 }
 
+// Dia da semana curto de uma data pura 'YYYY-MM-DD' (calculado em UTC para
+// não depender do fuso do aparelho — a data já vem resolvida no fuso de SP).
+const WEEKDAYS_SHORT_PT = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+function weekdayShortPt(iso) {
+  return WEEKDAYS_SHORT_PT[new Date(`${iso}T00:00:00Z`).getUTCDay()];
+}
+
 function legLabel(leg, weekend) {
   if (leg.direction === 'outbound') {
     return { title: 'Ida (sex)', date: weekend.outbound_date };
+  }
+  // Volta comprada com voo registrado (STATE item 8, 20/11/2026): o título usa
+  // a data/dia do voo de verdade (ex.: qua 10/02), não a variante dom/seg do
+  // robô. Mesma regra de data da aba "já passou" (legTravelDate).
+  if (leg.status === 'purchased' && leg.purchased_snapshot?.purchased_departure_time) {
+    const date = legTravelDate(leg, weekend);
+    return { title: `Volta (${weekdayShortPt(date)})`, date };
   }
   if (leg.current_variant === 'sunday') return { title: 'Volta (dom)', date: weekend.return_sunday };
   if (leg.current_variant === 'monday') return { title: 'Volta (seg)', date: weekend.return_monday };
@@ -321,6 +335,7 @@ function renderLegRow(leg, weekend) {
         <span class="save-check leg-ceiling-check">✓</span>
       </label>
       <button type="button" class="small leg-ceiling-save">Salvar</button>
+      ${leg.ceiling_is_explicit && !isPurchased ? '<button type="button" class="btn-ceiling-reset leg-ceiling-reset">usar teto padrão</button>' : ''}
       <span class="badge ${badge.cls}">${badge.text}</span>
       ${isPurchased ? '<button type="button" class="btn-undo">Desfazer compra</button>' : ''}
       ${isDismissed ? '<button type="button" class="btn-undismiss">Voltar a monitorar</button>' : ''}
@@ -423,6 +438,25 @@ function renderLegRow(leg, weekend) {
     showFlash('Teto salvo.');
     await loadWeekends(); // recarrega tudo — o novo render já nasce "salvo"
   });
+
+  // "Usar teto padrão" (PLANO-ATIVO pendência 12, 20/11/2026): só aparece em
+  // perna NÃO comprada com teto próprio. Grava price_ceiling = NULL na linha
+  // do usuário em weekend_leg_user_state (NULL = "usa meu padrão"); o upsert
+  // só atualiza a coluna enviada, então status, notas e valor pago ficam
+  // intactos. Não apaga a linha. O trigger de auditoria registra a mudança.
+  const ceilingResetBtn = row.querySelector('.leg-ceiling-reset');
+  if (ceilingResetBtn) {
+    ceilingResetBtn.addEventListener('click', async () => {
+      if (!confirm('Tirar o teto próprio desta perna e voltar a usar seu teto padrão?')) return;
+      const error = await updateLegState(leg.id, { price_ceiling: null });
+      if (error) {
+        alert('Erro ao voltar ao teto padrão: ' + error.message);
+        return;
+      }
+      showFlash('Perna voltou ao teto padrão.');
+      await loadWeekends();
+    });
+  }
 
   const notesInput = row.querySelector('.leg-notes-input');
   const notesBtn = row.querySelector('.leg-notes-save');

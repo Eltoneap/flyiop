@@ -1976,6 +1976,44 @@ Progresso 7/90→7/89 e 3→4 fins de semana completos, restantes do orçamento
 
 ---
 
+## 34. Compras: título da volta comprada e "usar teto padrão", 20/11/2026
+
+Duas correções só de tela (`docs/js/compras.js`, `docs/css/style.css`).
+Nada em `src/`, workflows, `sql/` ou RLS.
+
+**1. Título da volta comprada (`STATE.md` item 8).** `legLabel` usava a
+variante dom/seg do robô (`current_variant`) mesmo em volta comprada para
+outro dia. Agora volta (`direction` ≠ `'outbound'`, mesma comparação de
+antes; valor real no banco é `'return'`) com `status = 'purchased'` e
+`purchased_departure_time` no snapshot do próprio usuário usa
+`legTravelDate` (`docs/js/weekend-dates.js`, já converte para
+America/Sao_Paulo) e o dia da semana dessa data. Volta comprada sem horário
+registrado, volta não comprada e ida: como antes.
+
+**2. "Usar teto padrão" (`PLANO-ATIVO.md`, Etapa 4.2, pendência 12).** Teto
+próprio vive em `weekend_leg_user_state.price_ceiling` (NULL = usa
+`settings.weekend_default_ceiling`); a view expõe `ceiling_is_explicit`.
+Botão discreto ao lado do Salvar do teto, só quando `ceiling_is_explicit` e
+a perna NÃO está comprada (monitorando ou dispensada). Clique → confirmação
+→ `upsert {leg_id, price_ceiling: null}`: a linha já existe, então vira
+UPDATE só dessa coluna — status, notas, valor pago e snapshot de compra
+intactos; a linha não é apagada. O trigger de
+`weekend_leg_ceiling_audit` registra a volta ao padrão.
+
+**Verificação local (dados reais, só leitura):** página temporária que
+interceptava em memória toda escrita REST do Supabase (apagada depois).
+- Comprados: "Volta (qua) 10/02" (fim de semana 05/02/2027); demais voltas
+  compradas com o dia do voo (dom 31/01, 21/02, 28/02).
+- Ativos: voltas não compradas seguem "Volta (dom)/(seg)/(dom/seg)".
+- 10 pernas com teto próprio no banco: 3 compradas sem botão; 7 não
+  compradas com botão (6 em Ativos + ida dispensada de 29/01 em Comprados).
+- Clique simulado na ida de 12/02: teto 500 → padrão 300, selo "abaixo do
+  teto" → "9% acima", botão some; escrita interceptada só com `leg_id` +
+  `price_ceiling: null`; banco real conferido depois, ainda 500. Console sem
+  erros.
+
+---
+
 ## Anexo — Diário de sessões do STATE.md (01/08 a 05/09/2026, movido em 19/11/2026)
 
 _Movido do topo do `STATE.md` em 19/11/2026 (31 blocos "Última sessão /

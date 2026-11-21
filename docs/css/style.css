@@ -975,6 +975,20 @@ button.small.dirty {
 
 .btn-dismiss:hover { color: var(--text); }
 
+/* "Usar teto padrão" (20/11/2026) — link discreto ao lado do Salvar do teto,
+   só em perna não comprada com teto próprio. */
+.btn-ceiling-reset {
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.btn-ceiling-reset:hover { color: var(--text); }
+
 .leg-row.is-dismissed .leg-row-main,
 .leg-row.is-dismissed .leg-row-meta { opacity: 0.55; }
 

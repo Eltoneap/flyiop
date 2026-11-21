@@ -368,10 +368,12 @@ segue como acompanhamento contínuo pelo Dashboard, sem item próprio._
 7. **Consulta de passagens sob demanda entre quaisquer cidades.** Substitui o
    item "inserção manual de rotas/datas-alvo" declarado em 05/09/2026
    (`PLANO-ATIVO.md`).
-8. **Compras: título da volta usa a variante do robô, não a data do voo
-   comprado (cosmético).** Ex.: volta comprada para quarta 10/02/2027 num
-   card que diz domingo/segunda. Só o rótulo; a regra de "já passou" já usa
-   a data certa. `HISTORICO.md` item 32.
+8. **Compras: título da volta comprada usa a data do voo — ✅ RESOLVIDO
+   (20/11/2026), verificado no painel local com dados reais.** Volta
+   comprada com voo registrado mostra o dia/data do voo (ex.: "Volta (qua)
+   10/02"), via `legTravelDate` (`docs/js/weekend-dates.js`); volta não
+   comprada segue com a variante do robô. Junto: botão "usar teto padrão"
+   (PLANO-ATIVO pendência 12). Só tela. `HISTORICO.md` item 34.
 
 ## 4. Bloqueios / perguntas em aberto
 

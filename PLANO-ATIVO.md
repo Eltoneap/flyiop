@@ -1477,7 +1477,13 @@ entre agora e a execução real da 4.2 pode gerar divergência nova.
     - **✅ Prova de produção (05/08/2026):** os três blocos (E, F, F2) rodaram
       no SQL Editor em produção e bateram exatamente com o esperado — ver
       `STATE.md`, entrada de sessão de 05/08/2026, para os números completos.
-12. **Backlog — "limpar override" por perna** (registrado 03/08/2026, fora do
+12. ✅ **Concluída (20/11/2026).** Botão discreto "usar teto padrão" em
+    Compras, só em perna NÃO comprada (monitorando ou dispensada) com
+    `ceiling_is_explicit = true`. Grava `price_ceiling = NULL` na linha do
+    usuário em `weekend_leg_user_state` (upsert parcial — não apaga a linha;
+    status, notas e valor pago intactos); o trigger de auditoria registra a
+    mudança. Detalhe em `HISTORICO.md` item 34. Texto original abaixo.
+    **Backlog — "limpar override" por perna** (registrado 03/08/2026, fora do
     escopo da pendência 3/4). Ação para remover a linha específica de
     `weekend_leg_user_state` (ou zerar `price_ceiling` para NULL) e a perna
     voltar a seguir o teto padrão do usuário automaticamente. A coluna
