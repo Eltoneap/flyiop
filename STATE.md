@@ -354,8 +354,14 @@ segue como acompanhamento contínuo pelo Dashboard, sem item próprio._
    Complemento (20/11): só as 4 próximas à vista (`UPCOMING_VISIBLE` em
    `dashboard.js`), demais em "Mais N voos comprados" fechado.
    `HISTORICO.md` item 32.
-5. **Gustavo deixa de participar:** sem alertas, fora do resumo semanal e das
-   mensagens, mas com o login mantido.
+5. **Gustavo deixa de participar — ✅ IMPLEMENTADO E APLICADO (20/11/2026),
+   junto com "perna dispensada" ("Não preciso").** Migração
+   `sql/perna_dispensada_usuario_ativo.sql` rodada e verificada pelo usuário
+   (Bloco 5 ok), Gustavo desligado (`settings.monitoring_active = false`,
+   login preservado; religar: `sql/usuario_monitoramento_religar_gustavo.sql`).
+   Ordem SQL → push cumprida. **Verificação no run de 21/11:** fila menor
+   (sem as 7 compradas), nenhum alerta "para Gustavo", nenhum erro de coluna
+   `monitoring_active`. `HISTORICO.md` item 33.
 6. **Alarme de "robô parado" fora do GitHub, antes de 29/01/2027** (início da
    janela de compra) — o incidente de 06-18/11 passou 12 dias sem ninguém
    perceber, porque o próprio GitHub era o que tinha parado.

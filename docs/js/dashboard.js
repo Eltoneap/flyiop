@@ -101,9 +101,21 @@ function daysUntil(iso) {
   return Math.round((target - today) / 86400000);
 }
 
+// Perna dispensada (status 'dismissed', "Não preciso", 20/11/2026) conta como
+// resolvida: sai de pendências, do progresso (denominador) e do orçamento.
+// Ação do dia e oportunidades já filtram status 'monitoring'. Mesma regra de
+// compras.js (isLegResolved), mantida em sincronia manualmente.
+function isLegResolved(leg) {
+  return leg.status === 'purchased' || leg.status === 'dismissed';
+}
+
+function neededLegs(legs) {
+  return legs.filter((leg) => leg.status !== 'dismissed');
+}
+
 function isWeekendComplete(weekend) {
   const legs = weekend.weekend_legs || [];
-  return legs.length > 0 && legs.every((leg) => leg.status === 'purchased');
+  return legs.length > 0 && legs.every(isLegResolved);
 }
 
 // ---------- (a) Ação do dia ----------
@@ -156,7 +168,8 @@ function renderUrgencia(weekends) {
         const d = daysUntil(w.outbound_date);
         const legs = w.weekend_legs || [];
         const purchased = legs.filter((l) => l.status === 'purchased').length;
-        return `<li><a href="compras.html#weekend-${w.id}"><span>${formatDateBrShort(w.outbound_date)}</span><span>faltam ${d} dias · ${purchased}/2 compradas</span></a></li>`;
+        const needed = neededLegs(legs).length;
+        return `<li><a href="compras.html#weekend-${w.id}"><span>${formatDateBrShort(w.outbound_date)}</span><span>faltam ${d} dias · ${purchased}/${needed} compradas</span></a></li>`;
       }).join('')}
     </ul>
   `;
@@ -167,11 +180,13 @@ function renderUrgencia(weekends) {
 function renderProgresso(allLegs, weekends) {
   const section = document.getElementById('progresso');
   const inScopeWeekends = weekends.filter((w) => w.outbound_date >= BUYING_CUTOFF_DATE);
-  const inScopeLegs = inScopeWeekends.flatMap((w) => w.weekend_legs || []);
+  const inScopeLegs = neededLegs(inScopeWeekends.flatMap((w) => w.weekend_legs || []));
   const purchasedLegs = inScopeLegs.filter((l) => l.status === 'purchased').length;
   const completeWeekends = inScopeWeekends.filter(isWeekendComplete).length;
   const pct = inScopeLegs.length ? Math.round((purchasedLegs / inScopeLegs.length) * 100) : 0;
-  const earlyLegsCount = allLegs.length - inScopeLegs.length;
+  const earlyLegsCount = weekends
+    .filter((w) => w.outbound_date < BUYING_CUTOFF_DATE)
+    .reduce((n, w) => n + (w.weekend_legs || []).length, 0);
 
   section.innerHTML = `
     <h2>Progresso</h2>
@@ -384,9 +399,10 @@ function median(values) {
 
 function renderOrcamento(weekends) {
   const section = document.getElementById('orcamento');
-  const inScopeLegs = weekends
+  // Dispensada sai do orçamento: não entra em "restantes" nem na estimativa.
+  const inScopeLegs = neededLegs(weekends
     .filter((w) => w.outbound_date >= BUYING_CUTOFF_DATE)
-    .flatMap((w) => w.weekend_legs || []);
+    .flatMap((w) => w.weekend_legs || []));
 
   const purchased = inScopeLegs.filter((l) => l.status === 'purchased');
   const withPaid = purchased.filter((l) => l.paid_price != null);

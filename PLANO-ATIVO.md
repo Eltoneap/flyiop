@@ -8,6 +8,24 @@ _Atualizado em 19/11/2026 (antes: 02/08/2026). Contém só o que está em execu�
 
 ---
 
+## Perna dispensada + usuário fora do monitoramento (20/11/2026) — verificação em produção pendente
+
+Implementado e publicado em 20/11/2026; migração
+`sql/perna_dispensada_usuario_ativo.sql` aplicada pelo usuário ANTES do push
+(Bloco 5: true, true, 0, true, 2, 264, 0); Gustavo desligado
+(`monitoring_active = false`). Detalhe em `HISTORICO.md`, item 33.
+
+**Verificação no run de 21/11/2026:**
+- [ ] log da fila (`[live-check]` / `[radar] regime`) com menos pernas que
+  antes — sem as 7 compradas do Elton;
+- [ ] nenhum alerta "para Gustavo";
+- [ ] nenhum erro de coluna `monitoring_active` (HTTP 400 da view).
+
+Rollback, se preciso: reverter o commit ANTES de
+`sql/perna_dispensada_usuario_ativo_ROLLBACK.sql`.
+
+---
+
 ## Diagnóstico: caminho de alerta de perna de fim de semana (31/07/2026)
 
 `alert_log` tem 0 registros com `leg_id` desde que a coluna existe

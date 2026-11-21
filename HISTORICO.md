@@ -1896,6 +1896,86 @@ anteriores (4)"; console sem erros.
 
 ---
 
+## 33. "Quem ainda quer esta perna?" — perna dispensada e usuário fora do monitoramento, 20/11/2026
+
+**Motivação:** item 5 da fila do `STATE.md` (Gustavo deixa de participar) e
+pedido do Elton de marcar pernas que não vai comprar (ex.: ida de 29/01/2027,
+só precisa da volta de 31/01). Mesma raiz: a fila, os alertas e as contagens
+devem considerar só quem ainda quer a perna.
+
+**Regra-alvo:** oportunidades, pendências e alertas de PREÇO consideram só
+pernas NÃO compradas e NÃO dispensadas por usuário ATIVO. Avisos de sistema
+(bloqueio do fli, robô com falha) continuam saindo normalmente.
+
+**Investigação (só leitura, antes do desenho):** só existiam os status
+`monitoring`/`purchased`; a fila do robô (`resolve_effective_leg_state`)
+mantinha a perna enquanto PELO MENOS UM usuário a monitorasse — as 7 pernas
+compradas pelo Elton seguiam consultadas no fli porque o Gustavo (132
+pernas em `monitoring`) ainda as "queria". Perna comprada já não aparecia em
+oportunidades/pendências nem gerava alerta para quem comprou. Telegram é um
+chat único (`TELEGRAM_CHAT_ID`); o Gustavo aparecia em alertas "para
+Gustavo" e numa linha do resumo de segunda. Comandos do bot (`/status`,
+`/precos`, `/rotas`) são só das rotas flexíveis — não leem pernas.
+
+**Banco** (`sql/perna_dispensada_usuario_ativo.sql`, aditiva; rollback em
+`sql/perna_dispensada_usuario_ativo_ROLLBACK.sql`):
+- `wlus_status_check` aceita `'dismissed'`.
+- `settings.monitoring_active boolean not null default true` — alterado só
+  pelo SQL Editor, sem UI (`sql/usuario_monitoramento_desligar_gustavo.sql`
+  / `_religar_gustavo.sql`). Os saves de settings do painel são upserts
+  parciais (`config.js:243/263`, `compras.js:1006`) e não a sobrescrevem.
+- Todo usuário de `auth.users` com linha em `settings` (`on conflict
+  (user_id)`, PK `settings_pkey`). Prévia (Bloco 0) vazia.
+- View `weekend_leg_effective` recriada com `create or replace`, `with
+  (security_invoker = true)`, EXPONDO `monitoring_active` como última
+  coluna, sem filtrar. Nenhuma migração tinha alterado a view depois da
+  Etapa 4.1 (Bloco 6). Nenhuma policy nova.
+- **Aplicada pelo usuário em 20/11/2026.** Bloco 5: check aceita dismissed
+  = true; security_invoker = true; usuários sem settings = 0; Gustavo tem
+  linha = true; usuários ativos = 2; linhas da view = 264; dismissed = 0.
+  Em seguida o Gustavo foi desligado (`monitoring_active = false`).
+  **Ordem SQL → push cumprida.**
+
+**Robô:**
+- `resolve_effective_leg_state` (`src/weekends.py`): usuário entra no dict
+  da perna só com status `monitoring` E ativo (`user_is_active`,
+  `src/supabase_client.py`: só `false` explícito desliga; ausente/nulo =
+  ativo). Fila do fli, candidatos de precisão do radar, varredura cache e
+  fan-out de alerta nascem todos desse dict. Ninguém ativo querendo nada =
+  fila vazia, sem cair no modo degradado.
+- `get_weekend_leg_counts` (resumo de segunda): dispensada sai do
+  denominador; usuário inativo sai do resumo.
+- Comparação avulso × pacote: suspensa desde 24/07/2026 (não consulta o
+  fli) — nada a mudar.
+- Limite conhecido: `radar_price` de tela deixa de ser atualizado em perna
+  que nenhum usuário ativo quer (usa a mesma lista); a grade do radar
+  (histórico por data) continua.
+
+**Painel:** Compras — "Não preciso desta perna" (discreto, abaixo de
+"Marcar como comprada") e "Voltar a monitorar" na perna dispensada (só o
+status muda; teto/notas/valor pago intactos); card "1/1 comprada · 1
+dispensada"; fim de semana com todas as pernas resolvidas vai para
+Comprados; progresso sem as dispensadas. Dashboard — dispensada sai de
+pendências, progresso, urgência e orçamento (ação do dia e oportunidades já
+filtravam `monitoring`). Bug pego no teste e corrigido antes do commit: o
+"Voltar a monitorar" herdava o handler do "Desfazer compra" pela classe.
+
+**Verificação local:** 384 testes (371 + 13 em
+`tests/test_quem_quer_a_perna.py`: Elton compra + dispensa, Gustavo
+inativo, usuário sem `monitoring_active`). Painel com cópia temporária que
+simulava a dispensa em memória e bloqueava escrita no banco (apagada):
+ida de 29/01 dispensada → Ação do dia 5→4, sai de "Abaixo do teto",
+Progresso 7/90→7/89 e 3→4 fins de semana completos, restantes do orçamento
+83→82; um clique = uma escrita; console sem erros.
+
+**Verificação pendente — run de 21/11/2026:**
+- [ ] log da fila (`[live-check]`/`[radar] regime`) mostra menos pernas que
+  antes — sem as 7 compradas do Elton (o Gustavo inativo não as mantém);
+- [ ] nenhum alerta "para Gustavo" e o Gustavo ausente de qualquer contagem;
+- [ ] nenhum erro de coluna `monitoring_active` (HTTP 400 da view).
+
+---
+
 ## Anexo — Diário de sessões do STATE.md (01/08 a 05/09/2026, movido em 19/11/2026)
 
 _Movido do topo do `STATE.md` em 19/11/2026 (31 blocos "Última sessão /

@@ -45,9 +45,17 @@ function daysUntil(iso) {
 // Um weekend só sai de "Ativos" quando as DUAS pernas estiverem compradas —
 // nunca por falta de preço (decisão de 24/07: card sem preço no meio da
 // ordem certa é sinal de alerta, não deve ser escondido nem reordenado).
+//
+// Perna "dispensada" (20/11/2026, status 'dismissed', "Não preciso"): conta
+// como RESOLVIDA — o usuário não vai comprá-la. Sai das pendências, do
+// progresso (denominador) e do orçamento; volta com "Voltar a monitorar".
+function isLegResolved(leg) {
+  return leg.status === 'purchased' || leg.status === 'dismissed';
+}
+
 function isWeekendComplete(weekend) {
   const legs = weekend.weekend_legs || [];
-  return legs.length > 0 && legs.every((leg) => leg.status === 'purchased');
+  return legs.length > 0 && legs.every(isLegResolved);
 }
 
 function legLabel(leg, weekend) {
@@ -158,6 +166,7 @@ function legPriceState(leg) {
 
 function legStatusBadge(leg, priceState) {
   if (leg.status === 'purchased') return { cls: 'bought', text: '✓ Comprada' };
+  if (leg.status === 'dismissed') return { cls: 'neutral', text: 'Não preciso' };
   const ceiling = Number(leg.price_ceiling);
   if (priceState === 'below') {
     const diff = Math.round(ceiling - Number(leg.current_price));
@@ -227,8 +236,9 @@ function displayedLegPrice(leg) {
 function renderLegRow(leg, weekend) {
   const { title, date } = legLabel(leg, weekend);
   const isPurchased = leg.status === 'purchased';
+  const isDismissed = leg.status === 'dismissed';
   const row = document.createElement('div');
-  row.className = `leg-row${isPurchased ? ' is-bought' : ''}`;
+  row.className = `leg-row${isPurchased ? ' is-bought' : ''}${isDismissed ? ' is-dismissed' : ''}`;
 
   const displayed = displayedLegPrice(leg);
   const livePriceText = displayed
@@ -270,6 +280,10 @@ function renderLegRow(leg, weekend) {
       `<small class="leg-price-note">você pagou</small>`;
   } else if (isPurchased) {
     priceHtml = `${livePriceText}${sourceText}<small class="leg-price-note">valor não informado</small>`;
+  } else if (isDismissed) {
+    // Sem cor de "abaixo/acima do teto": a perna não pede ação.
+    priceClass += ' leg-price--none';
+    priceHtml = `${livePriceText}${sourceText}`;
   } else {
     priceClass += priceState === 'below' ? ' leg-price--below'
       : priceState === 'above' ? ' leg-price--above'
@@ -309,6 +323,7 @@ function renderLegRow(leg, weekend) {
       <button type="button" class="small leg-ceiling-save">Salvar</button>
       <span class="badge ${badge.cls}">${badge.text}</span>
       ${isPurchased ? '<button type="button" class="btn-undo">Desfazer compra</button>' : ''}
+      ${isDismissed ? '<button type="button" class="btn-undismiss">Voltar a monitorar</button>' : ''}
     </div>
     <div class="leg-row-notes">
       <input type="text" class="leg-notes-input ${notesFilled ? 'field-filled' : 'field-empty'}" placeholder="localizador, observações..." value="${escapeAttr(leg.notes ?? '')}">
@@ -342,8 +357,9 @@ function renderLegRow(leg, weekend) {
       <span class="leg-flight-hint leg-confirm-hint" style="display:none;">Informe a data para salvar o horário.</span>
     </div>
     ` : ''}
-    ${!isPurchased ? `
+    ${!isPurchased && !isDismissed ? `
     <button type="button" class="btn-outline-full leg-mark-bought">Marcar como comprada</button>
+    <button type="button" class="btn-dismiss leg-dismiss">Não preciso desta perna</button>
     <div class="leg-row-confirm" style="display:none;">
       <label class="leg-confirm-label">Companhia
         <input type="text" class="leg-confirm-airline leg-confirm-input leg-confirm-input--text" placeholder="ex: LATAM">
@@ -476,6 +492,36 @@ function renderLegRow(leg, weekend) {
         return;
       }
       showFlash('Desfeito — voltou para monitoramento.');
+      await loadWeekends();
+    });
+  }
+
+  // "Não preciso" / "Voltar a monitorar" (20/11/2026) — reversível, um clique,
+  // mesmo padrão do Desfazer compra. Só o status muda: teto, notas e valor
+  // pago da linha ficam como estão. O robô para de avaliar/alertar esta perna
+  // para ESTE usuário (e de consultá-la, se nenhum usuário ativo a quiser).
+  const dismissBtn = row.querySelector('.leg-dismiss');
+  if (dismissBtn) {
+    dismissBtn.addEventListener('click', async () => {
+      const error = await updateLegState(leg.id, { status: 'dismissed' });
+      if (error) {
+        alert('Erro ao dispensar a perna: ' + error.message);
+        return;
+      }
+      showFlash('Perna dispensada — sem alertas dela. "Voltar a monitorar" desfaz.');
+      await loadWeekends();
+    });
+  }
+
+  const undismissBtn = row.querySelector('.btn-undismiss');
+  if (undismissBtn) {
+    undismissBtn.addEventListener('click', async () => {
+      const error = await updateLegState(leg.id, { status: 'monitoring' });
+      if (error) {
+        alert('Erro ao voltar a monitorar: ' + error.message);
+        return;
+      }
+      showFlash('Voltou para monitoramento.');
       await loadWeekends();
     });
   }
@@ -636,13 +682,15 @@ function renderLegRow(leg, weekend) {
 // Total pago de um fim de semana 2/2 — nunca soma ignorando perna sem
 // paid_price (produziria um total falso). Sem nenhum valor: sem total.
 function weekendPaidTotal(legs) {
-  const paidValues = legs
-    .filter((leg) => leg.status === 'purchased')
+  const purchased = legs.filter((leg) => leg.status === 'purchased');
+  const paidValues = purchased
     .map((leg) => leg.paid_price)
     .filter((v) => v != null);
   if (paidValues.length === 0) return null;
   const total = paidValues.reduce((sum, v) => sum + Number(v), 0);
-  const label = paidValues.length === legs.length ? 'total pago' : 'total parcial';
+  // Perna dispensada não é compra que falta — o total é "pago" quando toda
+  // perna COMPRADA tem valor.
+  const label = paidValues.length === purchased.length ? 'total pago' : 'total parcial';
   return { total, label };
 }
 
@@ -650,6 +698,9 @@ function renderCard(weekend) {
   const card = document.createElement('div');
   const legs = weekend.weekend_legs || [];
   const purchasedCount = legs.filter((leg) => leg.status === 'purchased').length;
+  const dismissedCount = legs.filter((leg) => leg.status === 'dismissed').length;
+  const resolvedCount = purchasedCount + dismissedCount;
+  const neededCount = legs.length - dismissedCount;
   const days = daysUntil(weekend.outbound_date);
   const past = isWeekendPast(weekend, TODAY);
   const urgency = past ? 'já passou'
@@ -658,9 +709,11 @@ function renderCard(weekend) {
 
   // Progresso do fim de semana (0/2, 1/2, 2/2) reaproveitado na faixa no
   // topo do card (A3), na cor do contador (A6) e no card colapsado (B2).
-  const progressClass = purchasedCount === 0 ? ''
-    : legs.length > 0 && purchasedCount === legs.length ? 'done'
+  const progressClass = resolvedCount === 0 ? ''
+    : legs.length > 0 && resolvedCount === legs.length ? 'done'
     : 'part';
+  const countText = `${purchasedCount}/${neededCount} comprada${neededCount === 1 ? '' : 's'}`
+    + (dismissedCount ? ` · ${dismissedCount} dispensada${dismissedCount === 1 ? '' : 's'}` : '');
   const isDone = progressClass === 'done';
 
   // Card 2/2 nasce colapsado (B2) — estado só em memória/DOM, some ao
@@ -682,7 +735,7 @@ function renderCard(weekend) {
   header.className = 'weekend-card-header';
   header.innerHTML = `
     <h3>${formatDateBr(weekend.outbound_date)} → ${formatDateBr(weekend.return_sunday)} ou ${formatDateBr(weekend.return_monday)} ${badges}</h3>
-    <span class="price-meta">${urgency} · <span class="count ${progressClass ? `count-${progressClass}` : ''}">${purchasedCount}/2 compradas</span></span>
+    <span class="price-meta">${urgency} · <span class="count ${progressClass ? `count-${progressClass}` : ''}">${countText}</span></span>
   `;
   card.appendChild(header);
 
@@ -698,7 +751,7 @@ function renderCard(weekend) {
     doneHead.innerHTML = `
       <div class="card-done-left">
         <div class="card-done-dates">✓ ${formatDateBr(weekend.outbound_date)} → ${formatDateBr(weekend.return_sunday)} ou ${formatDateBr(weekend.return_monday)}</div>
-        <div class="card-done-sub">2/2 compradas · ida e volta resolvidas</div>
+        <div class="card-done-sub">${countText} · ida e volta resolvidas</div>
       </div>
       ${paidTotal ? `<div class="card-done-total">R$ ${paidTotal.total.toFixed(2)}<small>${paidTotal.label}</small></div>` : ''}
       <div class="card-done-chev">▾</div>
@@ -794,7 +847,8 @@ function wirePastToggle() {
 }
 
 function updateProgress() {
-  const allLegs = allWeekends.flatMap((w) => w.weekend_legs || []);
+  // Perna dispensada sai do denominador (não é compra que falta).
+  const allLegs = allWeekends.flatMap((w) => w.weekend_legs || []).filter((leg) => leg.status !== 'dismissed');
   const purchasedLegs = allLegs.filter((leg) => leg.status === 'purchased').length;
   const completeWeekends = allWeekends.filter(isWeekendComplete).length;
   document.getElementById('progress-legs').textContent = `${purchasedLegs} de ${allLegs.length} pernas compradas`;

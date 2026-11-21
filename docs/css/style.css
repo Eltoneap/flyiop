@@ -942,7 +942,8 @@ button.small.dirty {
 
 .btn-outline-full:hover { background: var(--primary-tint-bg); }
 
-.btn-undo {
+.btn-undo,
+.btn-undismiss {
   display: inline-block;
   background: transparent;
   color: var(--bought);
@@ -955,7 +956,27 @@ button.small.dirty {
   cursor: pointer;
 }
 
-.btn-undo:hover { background: var(--bought-bg); }
+.btn-undo:hover,
+.btn-undismiss:hover { background: var(--bought-bg); }
+
+/* Perna dispensada ("Não preciso", 20/11/2026) — ação secundária e discreta
+   abaixo do "Marcar como comprada"; a linha dispensada fica esmaecida. */
+.btn-dismiss {
+  display: block;
+  width: 100%;
+  background: transparent;
+  color: var(--muted);
+  border: none;
+  padding: 8px 0 0;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.btn-dismiss:hover { color: var(--text); }
+
+.leg-row.is-dismissed .leg-row-main,
+.leg-row.is-dismissed .leg-row-meta { opacity: 0.55; }
 
 .count-part { color: var(--amber); }
 .count-done { color: var(--good); }

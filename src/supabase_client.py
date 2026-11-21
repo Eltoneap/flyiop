@@ -283,10 +283,20 @@ def get_effective_leg_state() -> list[dict]:
     (weekends.py) só lê `leg_id`/`status`/`price_ceiling` destas linhas — o
     campo extra é inerte para ela, as datas que ela usa vêm de
     `get_monitoring_weekends()`, não daqui."""
-    params = {"select": "leg_id,user_id,price_ceiling,status,outbound_date"}
+    params = {"select": "leg_id,user_id,price_ceiling,status,outbound_date,monitoring_active"}
     resp = requests.get(_url("weekend_leg_effective"), headers=_headers(), params=params, timeout=30)
     resp.raise_for_status()
     return resp.json()
+
+
+def user_is_active(row: dict) -> bool:
+    """`settings.monitoring_active` (20/11/2026, sql/perna_dispensada_usuario_ativo.sql),
+    exposto pela view. Só `false` explícito desliga: valor ausente/nulo conta
+    como ativo — usuário sem linha em settings conta como ativo, e a migração
+    garante linha para todo usuário existente. Desligado = fora da fila do
+    robô, do fan-out de alerta de preço e do resumo de segunda; login intacto.
+    Avisos de sistema (bloqueio do fli, robô com falha) não passam por aqui."""
+    return row.get("monitoring_active") is not False
 
 
 def update_weekend_leg(leg_id: str, **fields) -> None:
@@ -406,13 +416,25 @@ def get_weekend_leg_counts(cutoff: str) -> dict[str, tuple[int, int]]:
     segunda-feira, agrupada em memória — nenhuma consulta por usuário. A
     garantia central da Fatia D4 (nenhum caminho que cresça com número de
     usuário) não é tocada, e a COLETA não é afetada: esta função lê status já
-    gravado e não decide o que o robô consulta ou grava."""
-    rows = [r for r in get_effective_leg_state() if r["outbound_date"] >= cutoff]
+    gravado e não decide o que o robô consulta ou grava.
+
+    20/11/2026 (perna dispensada / usuário inativo): perna 'dismissed' sai do
+    denominador daquele usuário (não é compra que falta — ele disse que não
+    precisa), e usuário com `monitoring_active = false` sai do resumo inteiro.
+    O check passou a ter 3 valores; 'purchased' continua sendo o único que
+    conta no numerador."""
+    rows = [
+        r for r in get_effective_leg_state()
+        if r["outbound_date"] >= cutoff and user_is_active(r)
+    ]
     by_user: dict[str, dict[str, str]] = {}
     for row in rows:
         by_user.setdefault(row["user_id"], {})[row["leg_id"]] = row["status"]
     return {
-        user_id: (len(legs), sum(1 for status in legs.values() if status == "purchased"))
+        user_id: (
+            sum(1 for status in legs.values() if status != "dismissed"),
+            sum(1 for status in legs.values() if status == "purchased"),
+        )
         for user_id, legs in sorted(by_user.items())
     }
 

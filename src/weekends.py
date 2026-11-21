@@ -51,6 +51,7 @@ from supabase_client import (
     insert_weekend_leg_price,
     insert_weekend_leg_run_log,
     update_weekend_leg,
+    user_is_active,
 )
 from travelpayouts_client import get_prices_for_dates
 
@@ -187,14 +188,24 @@ def resolve_effective_leg_state(state_rows: list[dict]) -> dict[str, dict[str, f
     `alert_log`, e o estado "usuário presente, sem teto" desapareceria.
 
     Usuário que já marcou a perna como comprada não entra no dict: o teto dele
-    não deve mais governar um alerta que só interessa a quem ainda monitora."""
+    não deve mais governar um alerta que só interessa a quem ainda monitora.
+
+    "QUEM AINDA QUER ESTA PERNA?" (20/11/2026): pela mesma regra, também não
+    entra quem marcou a perna como 'dismissed' ("Não preciso", reversível no
+    painel) nem usuário com `monitoring_active = false` (fora do
+    monitoramento inteiro, login preservado — `user_is_active`). Como fila do
+    lote fli, candidatos de precisão do radar, varredura cache e fan-out de
+    alerta de preço nascem todos deste dict, uma perna que só o Elton quer e
+    ele dispensou sai de tudo isso de uma vez; o radar de calendário (grade
+    por data, sem perna) segue gravando histórico. Avisos de sistema não
+    passam por aqui."""
     rows_by_leg: dict[str, list[dict]] = {}
     for row in state_rows:
         rows_by_leg.setdefault(row["leg_id"], []).append(row)
 
     effective: dict[str, dict[str, float | None]] = {}
     for leg_id, rows in rows_by_leg.items():
-        monitoring = [r for r in rows if r.get("status") == "monitoring"]
+        monitoring = [r for r in rows if r.get("status") == "monitoring" and user_is_active(r)]
         if not monitoring:
             continue  # todos os usuários já decidiram outra coisa — sai da fila
         effective[leg_id] = {
