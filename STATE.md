@@ -1,7 +1,12 @@
 # STATE.md — FlyIop
 
-> Atualizado em: 20/11/2026
-> Última sessão: Claude Code (19/11/2026, investigação só-leitura +
+> Atualizado em: 21/11/2026
+> Última sessão: Claude Code (21/11/2026, verificação de produção só-leitura
+> dos runs desde 19/11 + registro) — perna dispensada/Gustavo fora e corte
+> D+1 confirmados no run `44863145046`; `fli` normal; anomalia do radar só
+> na madrugada; primeira divergência real radar×precisão (+13,7%).
+> `HISTORICO.md` itens 31, 33 e 35.
+> Sessão anterior: Claude Code (19/11/2026, investigação só-leitura +
 > documentação) — **incidente de 06-18/11/2026: workflows agendados
 > desativados pelo GitHub por 60 dias sem commit** (reativados manualmente
 > pelo usuário em 18/11; cron confirmado de volta por run agendado em 19/11;
@@ -324,28 +329,28 @@ segue como acompanhamento contínuo pelo Dashboard, sem item próprio._
    run agendado do bot também sem anotações. Que `enable` zera o contador de
    60 dias continua não documentado pelo GitHub — a garantia real é o item 6.
    `HISTORICO.md` item 29.
-   **Em paralelo, sem ação:** o `fli` segue bloqueado em 20/11, agora parcial
-   (lote parou após 8 consultas, 2 com preço; radar 24/24 blocos, 13/20 em
-   anomalia) — em observação. E o agendamento do GitHub está atrasando muito:
-   o run das 08h de 19/11 saiu às 16h12 BRT, o das 20h às 00h54, e o das 08h
-   de 20/11 não tinha saído às 14h13 — mais um motivo para o item 6.
+   **Em paralelo, sem ação:** `fli` normal desde 21/11 00h50 (lote 20/20 com
+   preço); radar com anomalia só nos runs da madrugada (13/20) e limpo à
+   tarde (0-2/20) — em observação. Atraso do GitHub de 4h50 a 8h12 nos 6
+   runs desde 19/11 — mais um motivo para o item 6. `HISTORICO.md` item 35.
 2. **Aba Compras mostrar só fins de semana futuros — ✅ IMPLEMENTADO
    (19/11/2026), verificado no painel local, ainda não publicado.** Some no
    dia seguinte à última perna (fuso de SP, data real da volta), botão
    "Mostrar passados", só visual. Regra única em `docs/js/weekend-dates.js`,
    para o resumo do Dashboard (item 4) reaproveitar. `HISTORICO.md` item 30.
-   **Pendência D+1 — ✅ CORRIGIDA (19/11/2026), verificação em produção
-   parcial:** lote `fli` e varredura de cache não consultam nem avaliam
-   perna com data anterior a hoje (BRT); a de hoje continua; margem D+1 da
-   lista ativa mantida; cortes com data de Brasília. Primeiro run (20/11)
-   coerente, mas sem perna de ontem na lista para cortar; caso positivo
-   esperado nos runs de 21/11 e 23/11. `HISTORICO.md` item 31.
+   **Pendência D+1 — ✅ CORRIGIDA (19/11/2026), ✅ caso positivo confirmado
+   em produção (21/11/2026):** lote `fli` e varredura de cache não consultam
+   nem avaliam perna com data anterior a hoje (BRT); a de hoje continua;
+   margem D+1 da lista ativa mantida; cortes com data de Brasília.
+   `HISTORICO.md` item 31.
 3. **Checkpoint do radar em 01/12/2026** (`PLANO-ATIVO.md`, "Checkpoint —
    radar como gatilho de alerta"). **Atenção:** o buraco de dados de 06-18/11
    caiu justamente na faixa de 30-60 dias antes das pernas de fim de ano
    (25/12/2026 e 01/01/2027) — a condição que motivou a data do checkpoint.
    Medir a série real em `weekend_radar_precision_log` (consulta em
-   `HISTORICO.md` item 28) antes de concluir qualquer coisa.
+   `HISTORICO.md` item 28) antes de concluir qualquer coisa. Primeira
+   divergência real em 21/11 (+13,7%, abaixo do gatilho de antecipação) —
+   nota de 21/11/2026 no `PLANO-ATIVO.md`.
 4. **Resumo das pernas compradas no Dashboard — ✅ IMPLEMENTADO
    (20/11/2026), verificado no painel local com dados reais.** Bloco "Minhas
    compras" (próximos voos; "Voos anteriores" fechado com total gasto já
@@ -359,9 +364,8 @@ segue como acompanhamento contínuo pelo Dashboard, sem item próprio._
    `sql/perna_dispensada_usuario_ativo.sql` rodada e verificada pelo usuário
    (Bloco 5 ok), Gustavo desligado (`settings.monitoring_active = false`,
    login preservado; religar: `sql/usuario_monitoramento_religar_gustavo.sql`).
-   Ordem SQL → push cumprida. **Verificação no run de 21/11:** fila menor
-   (sem as 7 compradas), nenhum alerta "para Gustavo", nenhum erro de coluna
-   `monitoring_active`. `HISTORICO.md` item 33.
+   Ordem SQL → push cumprida. **✅ Verificado em produção (21/11/2026, run
+   `44863145046`)**. `HISTORICO.md` item 33.
 6. **Alarme de "robô parado" fora do GitHub, antes de 29/01/2027** (início da
    janela de compra) — o incidente de 06-18/11 passou 12 dias sem ninguém
    perceber, porque o próprio GitHub era o que tinha parado.

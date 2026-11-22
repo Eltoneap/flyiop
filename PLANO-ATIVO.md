@@ -2,24 +2,17 @@
 
 > **Incidente 06-18/11/2026:** workflows agendados desativados pelo GitHub por inatividade do repositório (60 dias sem commit); 24 disparos do robô perdidos e buraco em `weekend_radar_precision_log`. Detalhe e evidência em `HISTORICO.md`, item 28.
 
-_Atualizado em 19/11/2026 (antes: 02/08/2026). Contém só o que está em execução ou pendente de aprovação/implementação. Tudo que já foi entregue (com data e decisões tomadas) está em `HISTORICO.md` — referencie por lá em vez de reproduzir aqui._
+_Atualizado em 21/11/2026 (antes: 19/11/2026). Contém só o que está em execução ou pendente de aprovação/implementação. Tudo que já foi entregue (com data e decisões tomadas) está em `HISTORICO.md` — referencie por lá em vez de reproduzir aqui._
 
 **Regra de apresentação (24/07/2026):** ao apresentar um plano ou atualização no chat, mostrar só a seção nova/alterada, nunca o arquivo inteiro. Para contexto, referenciar a seção pelo nome (ex.: "ver Parte 8 no HISTORICO.md") em vez de reproduzir. O arquivo completo fica no disco; o chat recebe só o delta. (Ver também `PROTOCOLO-DE-TRABALHO.md`.)
 
 ---
 
-## Perna dispensada + usuário fora do monitoramento (20/11/2026) — verificação em produção pendente
+## Perna dispensada + usuário fora do monitoramento (20/11/2026) — ✅ verificado em produção (21/11/2026)
 
-Implementado e publicado em 20/11/2026; migração
-`sql/perna_dispensada_usuario_ativo.sql` aplicada pelo usuário ANTES do push
-(Bloco 5: true, true, 0, true, 2, 264, 0); Gustavo desligado
-(`monitoring_active = false`). Detalhe em `HISTORICO.md`, item 33.
-
-**Verificação no run de 21/11/2026:**
-- [ ] log da fila (`[live-check]` / `[radar] regime`) com menos pernas que
-  antes — sem as 7 compradas do Elton;
-- [ ] nenhum alerta "para Gustavo";
-- [ ] nenhum erro de coluna `monitoring_active` (HTTP 400 da view).
+✅ Fila menor (sem as 7 compradas), ✅ nenhum alerta "para Gustavo", ✅
+nenhum erro de coluna `monitoring_active` — run `44863145046`, 21/11/2026.
+Detalhe e evidência em `HISTORICO.md`, item 33.
 
 Rollback, se preciso: reverter o commit ANTES de
 `sql/perna_dispensada_usuario_ativo_ROLLBACK.sql`.
@@ -2212,6 +2205,8 @@ Fecha a lacuna registrada na seção "Observação para sessão própria" acima 
 
 **⚠️ Nota de 19/11/2026 — buraco na série:** de 06/11 a 17/11/2026 o robô não rodou (workflows desativados por inatividade, `HISTORICO.md` item 28) e `weekend_radar_precision_log` não recebeu linhas — exatamente na faixa de 30-60 dias antes das pernas de fim de ano (25/12/2026 e 01/01/2027), que é o motivo desta data. Em 19/11 o `fli` ainda veio bloqueado no primeiro run agendado (comparações `no_data`). Medir a série real (consulta no item 28) antes de tirar qualquer conclusão no checkpoint.
 
+**Nota de 21/11/2026 — primeira divergência real:** GIG→BSB 2027-02-12, radar R$ 328 → precisão R$ 373 (+13,7%, via SDU, run `44932055309`) — radar abaixo da precisão, ou seja, radar otimista. É o maior diff_pct da série, mas não aciona o gatilho de antecipação abaixo (não é uma ordem de grandeza acima dos 5%). Pergunta para o checkpoint: radar e precisão compararam o mesmo aeroporto ("via SDU")? Em observação também a anomalia da grade só nos runs da madrugada (`HISTORICO.md`, item 35).
+
 **Critérios objetivos que a reavaliação deve checar** (consulta em `weekend_radar_precision_log`, que esta fatia criou pra sustentar exatamente esta reavaliação):
 - número total de comparações acumuladas desde 04/09/2026;
 - número de pernas DISTINTAS (`leg_id`) cobertas pelas comparações — não só volume, cobertura;
@@ -2245,10 +2240,10 @@ acima).
 
 ---
 
-## Keepalive dos workflows + Actions em Node 24 (implementado 19/11/2026, verificação pendente)
+## Keepalive dos workflows + Actions em Node 24 (implementado 19/11/2026, ✅ verificado (20/11/2026))
 
 Item 1 da fila do `STATE.md`. Desenho, permissões antes/depois e versões
-conferidas: `HISTORICO.md`, item 29.
+conferidas: `HISTORICO.md`, item 29 (verificação incluída).
 
 **Verificação pós-push — só runs AGENDADOS contam (não `workflow_dispatch`):**
 1. Próximo run agendado do `daily.yml`: sem `Node.js 20 is deprecated` no
@@ -2273,7 +2268,10 @@ em `docs/js/weekend-dates.js` — o resumo de compras do Dashboard (item 4 da
 fila do `STATE.md`) deve importar dali. Falta só publicar (push aprovado
 pelo usuário) e conferir no site publicado.
 
-## Pendência nomeada — D+1: lote `fli` consultando perna já passada — ✅ CORRIGIDA (19/11/2026), verificação em produção pendente
+## Pendência nomeada — D+1: lote `fli` consultando perna já passada — ✅ CORRIGIDA (19/11/2026), ✅ verificada em produção (21/11/2026)
+
+Caso positivo (ida de 20/11 cortada no lote e no cache) no run
+`44863145046`: `HISTORICO.md`, item 31.
 
 Plano aprovado e implementado em 19/11/2026: corte de data passada (BRT) no
 lote `fli` e na varredura de cache Travelpayouts; base `current_brt_date()`

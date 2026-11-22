@@ -1815,6 +1815,20 @@ agendado das 20h BRT de 19/11 que só disparou às 03:54 UTC = 00:54 BRT de
   Reforça o item 6 da fila do `STATE.md` (alarme de robô parado fora do
   GitHub).
 
+**Caso positivo confirmado em produção (21/11/2026)** (`44863145046`, run
+agendado das 20h BRT de 20/11 que disparou às 03:50 UTC = 00h50 BRT de
+21/11, código `33cde3a`). Com hoje = 21/11 (BRT), a ida de 20/11 virou
+ontem e saiu dos dois cortes:
+- varredura de cache: `[perna outbound 2026-11-20] data de viagem já passou
+  (antes de 2026-11-21, BRT) — fora da varredura de cache`
+- lote `fli`: `[live-check] 1 perna(s) com data de viagem já passada (antes
+  de 2026-11-21, BRT) — fora do lote`
+
+A volta de 20/11 seguiu na varredura de cache, como esperado (a data de
+viagem dela ainda não passou): `[perna return 2026-11-20] sem dado ainda
+(nenhum match exato) — estado normal, não é erro`. Segunda 23/11 e virada
+de fuso seguem sem caso observado.
+
 ---
 
 ## 32. Resumo "Minhas compras" no Dashboard, 20/11/2026
@@ -1969,10 +1983,40 @@ Progresso 7/90→7/89 e 3→4 fins de semana completos, restantes do orçamento
 83→82; um clique = uma escrita; console sem erros.
 
 **Verificação pendente — run de 21/11/2026:**
-- [ ] log da fila (`[live-check]`/`[radar] regime`) mostra menos pernas que
+- [x] log da fila (`[live-check]`/`[radar] regime`) mostra menos pernas que
   antes — sem as 7 compradas do Elton (o Gustavo inativo não as mantém);
-- [ ] nenhum alerta "para Gustavo" e o Gustavo ausente de qualquer contagem;
-- [ ] nenhum erro de coluna `monitoring_active` (HTTP 400 da view).
+- [x] nenhum alerta "para Gustavo" e o Gustavo ausente de qualquer contagem;
+- [x] nenhum erro de coluna `monitoring_active` (HTTP 400 da view).
+
+### Verificação em produção (21/11/2026) — ✅ CONCLUÍDA
+
+Run `44863145046` (schedule, 21/11/2026 00h50 BRT, código `33cde3a`;
+`f59932e` é ancestral). Comparação com `44670794479` (20/11 00h54 BRT).
+Só leitura de log.
+- **Fila menor:** pernas no alcance 88 → 79, elegíveis a refresh 51 → 35,
+  varredura de cache 110 → 101 pernas. Saíram exatamente 9: as 7 compradas
+  do Elton + a ida de 29/01/2027 (dispensada) + a ida de 20/11 (já passada,
+  item 31).
+  - antes: `[radar] regime: 88 perna(s) dentro do alcance da fonte
+    (hoje..hoje+305d), das quais 51 elegível(is) a refresh de metadado hoje;
+    22 além do alcance — sem consulta ao vivo até entrarem na janela`
+  - depois: `[radar] regime: 79 perna(s) dentro do alcance da fonte
+    (hoje..hoje+305d), das quais 35 elegível(is) a refresh de metadado hoje;
+    22 além do alcance — sem consulta ao vivo até entrarem na janela`
+- **Gustavo fora:** zero ocorrências de "Gustavo" e de "2446ec67"; zero
+  "2 usuários, menor teto" (eram 5 por run em 20/11, nos runs `44670794479`
+  e `44796913560`).
+- **Sem erro:** zero "400", "monitoring_active", "column", "FALHA AO
+  GRAVAR" e "Traceback". Run e todos os steps em success.
+- **Ida de 29/01/2027:** fora do lote `fli`, das candidatas de precisão, da
+  avaliação e dos alertas — "2027-01-29" não aparece em nenhuma linha do
+  log (a grade do radar grava por bloco, sem linha por data).
+- **Volta de 29/01/2027 (`b4f28800`, voo 31/01) também saiu — corretamente.**
+  O Elton já tinha comprado essa perna (confirmado por ele em 21/11/2026); ela
+  só seguia na fila porque o Gustavo a monitorava — em 20/11 aparecia
+  `[perna return 2027-01-29] R$ 383.00 (GIG, sunday, cache) teto R$ 400`, o
+  override dele. É a regra "sai quando nenhum usuário ATIVO monitora"
+  funcionando.
 
 ---
 
@@ -2011,6 +2055,58 @@ interceptava em memória toda escrita REST do Supabase (apagada depois).
   teto" → "9% acima", botão some; escrita interceptada só com `leg_id` +
   `price_ceiling: null`; banco real conferido depois, ainda 500. Console sem
   erros.
+
+---
+
+## 35. Observação fli/radar e atraso do GitHub, 19-21/11/2026 (só leitura)
+
+**O que é:** leitura dos logs de todos os runs do `daily.yml` com início a
+partir de 19/11/2026 00:00 UTC (6 runs, todos `schedule`). Nenhuma mudança
+de código, banco ou workflow. Cron: `0 23 * * *` (20h BRT) e `0 11 * * *`
+(08h BRT).
+
+| Run | Início (BRT) | Cron · atraso | `[radar] varredura concluída: …` (literal) | Interrompida? | `[live-check]` (literal) | Precisão: candidatas · ok · maior diff_pct |
+|---|---|---|---|---|---|---|
+| `44455317341` | 19/11 01h00 | 20h de 18/11 · +5h00 | `3/24 blocos consultados, 0 linhas gravadas, 3/3 blocos com histórico deram anomalia — BLOQUEADO` | Sim: `[radar] bloqueio detectado (100% dos 3 blocos com histórico vieram anômalos) após 3/24 blocos — varredura interrompida` | `5/20 pernas checadas, 0 com preço — BLOQUEADO` | 10 · 0 (10 `DIVERGÊNCIA VAZIA`) · — |
+| `44595964398` | 19/11 16h12 | 08h · +8h12 | `3/24 blocos consultados, 0 linhas gravadas, 3/3 blocos com histórico deram anomalia — BLOQUEADO` | Sim, mesma linha | pulado (execução extra) | 0 · — · — |
+| `44670794479` | 20/11 00h54 | 20h de 19/11 · +4h54 | `24/24 blocos consultados, 430 linhas gravadas, 13/20 blocos com histórico deram anomalia` | Não | `8/20 pernas checadas, 2 com preço — BLOQUEADO` | 10 · 0 (10 `DIVERGÊNCIA VAZIA`) · — |
+| `44796913560` | 20/11 15h52 | 08h · +7h52 | `24/24 blocos consultados, 1224 linhas gravadas, 0/20 blocos com histórico deram anomalia` | Não | pulado (execução extra) | 10 · 10 · +0.0% |
+| `44863145046` | 21/11 00h50 | 20h de 20/11 · +4h50 | `24/24 blocos consultados, 427 linhas gravadas, 13/20 blocos com histórico deram anomalia` | Não | `20/20 pernas checadas, 20 com preço` | 10 · 10 · +0.0% |
+| `44932055309` | 21/11 14h48 | 08h · +6h48 | `24/24 blocos consultados, 1102 linhas gravadas, 2/20 blocos com histórico deram anomalia` | Não | pulado (execução extra) | 10 · 7 · +13.7% |
+
+**Padrão:**
+- Desde 20/11 a anomalia acompanha o horário: madrugada 13/20 e 13/20;
+  tarde 0/20 e 2/20. Em 19/11 não — os dois runs (01h00 e 16h12) vieram
+  bloqueados igual (3/3, interrompida).
+- Horário e "primeira execução do dia" andam juntos: todo run de madrugada é
+  o completo (lote fli + cache Travelpayouts) e todo run de tarde é execução
+  extra, então o log não separa uma coisa da outra. Em todos o
+  `radar_check.py` roda antes do `main.py`.
+- Os blocos anômalos não se repetem entre as duas madrugadas de 13/20 —
+  só 7 coincidem (ex.: SDU→BSB 2026-11..2027-01 anômalo em 20/11, normal em
+  21/11 com 61 datas com preço).
+
+**Primeira divergência real radar × precisão** (run `44932055309`, 21/11
+14h48 BRT):
+- `[radar] DIVERGÊNCIA        GIG→BSB 2027-02-12  radar R$ 328.00 → precisão R$ 373.00 (+13.7%, tolerância 5.0%, via SDU)`
+- `[radar] DIVERGÊNCIA        BSB→GIG 2027-02-14  radar R$ 327.00 → precisão R$ 345.00 (+5.5%, tolerância 5.0%, via SDU)`
+- `[radar] DIVERGÊNCIA VAZIA  BSB→GIG 2027-04-04  radar R$ 277.00 → precisão sem resultado`
+
+As outras 7 candidatas do mesmo run vieram `precisão ok` (3 delas com +2.9%
+via SDU). Nos runs anteriores da série: só `precisão ok` com +0.0% ou
+`DIVERGÊNCIA VAZIA`.
+
+**Decisão do chat de planejamento (21/11/2026):** sem pausa do radar e sem
+investigação agora. Motivo: bloco anômalo não é gravado, a varredura da
+tarde vem limpa e a busca de voo do `fli` funcionou 100% (20/20) no mesmo
+run da madrugada. Reavaliar se a tarde também degradar ou se a precisão
+voltar a vir vazia.
+
+**Checkpoint do radar:** a divergência de +13,7% NÃO aciona o gatilho de
+antecipação (não está uma ordem de grandeza acima dos 5% de
+`PRECISION_DIVERGENCE_PCT`), mas é o maior diff_pct da série e vai para o
+checkpoint de 01/12/2026 (`PLANO-ATIVO.md`, "Checkpoint — radar como
+gatilho de alerta", nota de 21/11/2026).
 
 ---
 
