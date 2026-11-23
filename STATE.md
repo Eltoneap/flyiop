@@ -1,12 +1,16 @@
 # STATE.md — FlyIop
 
-> Atualizado em: 21/11/2026
-> Última sessão: Claude Code (21/11/2026, verificação de produção só-leitura
+> Atualizado em: 23/11/2026
+> Última sessão: Claude Code (23/11/2026) — alarme de robô parado
+> (Healthchecks.io, item 6 da fila) implementado como último step do
+> `daily.yml`, verificação pendente (`PLANO-ATIVO.md`); aba Compras só com
+> futuros e "Minhas compras" conferidos pelo Elton no site publicado.
+> Sessão anterior: Claude Code (21/11/2026, verificação de produção só-leitura
 > dos runs desde 19/11 + registro) — perna dispensada/Gustavo fora e corte
 > D+1 confirmados no run `44863145046`; `fli` normal; anomalia do radar só
 > na madrugada; primeira divergência real radar×precisão (+13,7%).
 > `HISTORICO.md` itens 31, 33 e 35.
-> Sessão anterior: Claude Code (19/11/2026, investigação só-leitura +
+> Sessão de 19/11/2026: Claude Code (investigação só-leitura +
 > documentação) — **incidente de 06-18/11/2026: workflows agendados
 > desativados pelo GitHub por 60 dias sem commit** (reativados manualmente
 > pelo usuário em 18/11; cron confirmado de volta por run agendado em 19/11;
@@ -334,7 +338,8 @@ segue como acompanhamento contínuo pelo Dashboard, sem item próprio._
    tarde (0-2/20) — em observação. Atraso do GitHub de 4h50 a 8h12 nos 6
    runs desde 19/11 — mais um motivo para o item 6. `HISTORICO.md` item 35.
 2. **Aba Compras mostrar só fins de semana futuros — ✅ IMPLEMENTADO
-   (19/11/2026), verificado no painel local, ainda não publicado.** Some no
+   (19/11/2026), verificado no painel local, ✅ conferido no site publicado
+   (23/11/2026).** Some no
    dia seguinte à última perna (fuso de SP, data real da volta), botão
    "Mostrar passados", só visual. Regra única em `docs/js/weekend-dates.js`,
    para o resumo do Dashboard (item 4) reaproveitar. `HISTORICO.md` item 30.
@@ -358,7 +363,7 @@ segue como acompanhamento contínuo pelo Dashboard, sem item próprio._
    Consultas ao snapshot de compra filtram `user_id` além da RLS.
    Complemento (20/11): só as 4 próximas à vista (`UPCOMING_VISIBLE` em
    `dashboard.js`), demais em "Mais N voos comprados" fechado.
-   `HISTORICO.md` item 32.
+   ✅ Conferido no site publicado (23/11/2026). `HISTORICO.md` item 32.
 5. **Gustavo deixa de participar — ✅ IMPLEMENTADO E APLICADO (20/11/2026),
    junto com "perna dispensada" ("Não preciso").** Migração
    `sql/perna_dispensada_usuario_ativo.sql` rodada e verificada pelo usuário
@@ -368,7 +373,11 @@ segue como acompanhamento contínuo pelo Dashboard, sem item próprio._
    `44863145046`)**. `HISTORICO.md` item 33.
 6. **Alarme de "robô parado" fora do GitHub, antes de 29/01/2027** (início da
    janela de compra) — o incidente de 06-18/11 passou 12 dias sem ninguém
-   perceber, porque o próprio GitHub era o que tinha parado.
+   perceber, porque o próprio GitHub era o que tinha parado. **✅
+   IMPLEMENTADO (23/11/2026), verificação pendente.** Healthchecks.io
+   (period 12h + grace 12h), alerta no Telegram pessoal + e-mail; último
+   step do `daily.yml`. Ver `PLANO-ATIVO.md`, "Alarme de robô parado —
+   Healthchecks.io".
 7. **Consulta de passagens sob demanda entre quaisquer cidades.** Substitui o
    item "inserção manual de rotas/datas-alvo" declarado em 05/09/2026
    (`PLANO-ATIVO.md`).

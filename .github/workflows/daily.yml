@@ -79,3 +79,35 @@ jobs:
             fi
           done
           [ "$ok" = 1 ]
+
+      # Sinal de vida (23/11/2026, PLANO-ATIVO "Alarme de robô parado"):
+      # dead man's switch no Healthchecks.io — se nenhum ping chegar em
+      # 24h (period 12h + grace 12h), o Healthchecks avisa no Telegram
+      # pessoal e por e-mail. Só a URL de ping sai daqui; nenhum token do
+      # FlyIop. A URL NUNCA é impressa (repositório público): nenhum echo
+      # usa a URL e o stderr do curl é descartado.
+      # job.status ignora step com continue-on-error que falhou (ex.:
+      # keepalive): só falha "de verdade" de step anterior vira /fail.
+      # Falha aqui não derruba o run; procure "[healthcheck]".
+      - name: Sinal de vida (Healthchecks)
+        if: always()
+        continue-on-error: true
+        env:
+          HC_URL: ${{ secrets.HEALTHCHECKS_PING_URL }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ -z "$HC_URL" ]; then
+            echo "[healthcheck] secret ausente — pulado"
+            exit 0
+          fi
+          if [ "$JOB_STATUS" = "success" ]; then
+            kind=success; url="$HC_URL"
+          else
+            kind=fail; url="$HC_URL/fail"
+          fi
+          if curl -fsS -m 10 --retry 3 -o /dev/null "$url" 2>/dev/null; then
+            echo "[healthcheck] ok: $kind"
+          else
+            echo "[healthcheck] FALHA ao enviar (não afeta o run)"
+          fi
+          exit 0

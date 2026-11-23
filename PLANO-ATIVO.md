@@ -2,7 +2,7 @@
 
 > **Incidente 06-18/11/2026:** workflows agendados desativados pelo GitHub por inatividade do repositório (60 dias sem commit); 24 disparos do robô perdidos e buraco em `weekend_radar_precision_log`. Detalhe e evidência em `HISTORICO.md`, item 28.
 
-_Atualizado em 21/11/2026 (antes: 19/11/2026). Contém só o que está em execução ou pendente de aprovação/implementação. Tudo que já foi entregue (com data e decisões tomadas) está em `HISTORICO.md` — referencie por lá em vez de reproduzir aqui._
+_Atualizado em 23/11/2026 (antes: 21/11/2026). Contém só o que está em execução ou pendente de aprovação/implementação. Tudo que já foi entregue (com data e decisões tomadas) está em `HISTORICO.md` — referencie por lá em vez de reproduzir aqui._
 
 **Regra de apresentação (24/07/2026):** ao apresentar um plano ou atualização no chat, mostrar só a seção nova/alterada, nunca o arquivo inteiro. Para contexto, referenciar a seção pelo nome (ex.: "ver Parte 8 no HISTORICO.md") em vez de reproduzir. O arquivo completo fica no disco; o chat recebe só o delta. (Ver também `PROTOCOLO-DE-TRABALHO.md`.)
 
@@ -2257,16 +2257,17 @@ conferidas: `HISTORICO.md`, item 29 (verificação incluída).
 
 **Limite:** o push zera o contador de 60 dias; o efeito do keepalive em
 evitar a desativação não é observável antes de 60 dias sem commit. A
-garantia real é o alarme de robô parado (item 6 da fila).
+garantia real é o alarme de robô parado (item 6 da fila) — implementado
+23/11/2026, ver "Alarme de robô parado — Healthchecks.io".
 
 ---
 
-## Aba Compras só com o que vem pela frente (implementado 19/11/2026)
+## Aba Compras só com o que vem pela frente (implementado 19/11/2026, ✅ conferido no site publicado (23/11/2026))
 
 Detalhe e verificação: `HISTORICO.md`, item 30. Regra única de "já passou"
 em `docs/js/weekend-dates.js` — o resumo de compras do Dashboard (item 4 da
-fila do `STATE.md`) deve importar dali. Falta só publicar (push aprovado
-pelo usuário) e conferir no site publicado.
+fila do `STATE.md`) deve importar dali. ✅ Publicado e conferido pelo Elton
+no site publicado (23/11/2026).
 
 ## Pendência nomeada — D+1: lote `fli` consultando perna já passada — ✅ CORRIGIDA (19/11/2026), ✅ verificada em produção (21/11/2026)
 
@@ -2279,12 +2280,52 @@ nos cortes de `get_active_legs`/`get_monitoring_weekends`; margem D+1 da
 lista ativa mantida. Detalhe, testes e o que conferir no próximo run:
 `HISTORICO.md`, item 31.
 
-## Resumo "Minhas compras" no Dashboard (implementado 20/11/2026)
+## Resumo "Minhas compras" no Dashboard (implementado 20/11/2026, ✅ conferido no site publicado (23/11/2026))
 
 Só `docs/`. Próximos voos comprados + "Voos anteriores" fechado com total
 gasto (já viajado / a viajar, parcial quando falta valor); localizador =
 texto de `notes` (não existe coluna própria, decisão do usuário). Datas por
 `weekend-dates.js`. Consultas a `weekend_leg_user_state` (Dashboard e
 Compras) com `.eq('user_id', …)` além da RLS. Detalhe e verificação:
-`HISTORICO.md`, item 32. Falta conferir no site publicado.
+`HISTORICO.md`, item 32. ✅ Conferido pelo Elton no site publicado
+(23/11/2026).
+
+---
+
+## Alarme de robô parado — Healthchecks.io (23/11/2026)
+
+Item 6 da fila do `STATE.md`. **Implementado, verificação pendente.**
+
+**Decisão (chat de planejamento, 21/11/2026):** dead man's switch no
+Healthchecks.io, check com period 12h + grace 12h. Se nenhum ping chegar em
+24h, o @HealthchecksBot avisa no chat pessoal do Elton no Telegram (+
+e-mail). Telegram do Healthchecks testado com sucesso pelo Elton; secret
+`HEALTHCHECKS_PING_URL` criado no GitHub em 23/11/2026. Nenhuma credencial
+do FlyIop (token do bot, chaves do Supabase) vai para o serviço externo —
+só a URL de ping sai do GitHub.
+
+**Desenho:** último step do `daily.yml`, "Sinal de vida (Healthchecks)",
+`if: always()` + `continue-on-error: true`. `job.status == success` → ping;
+qualquer outro status (falha real de step anterior, cancelado) → `/fail`;
+secret vazio → `[healthcheck] secret ausente — pulado`. Falha do `curl` só
+imprime `[healthcheck] FALHA ao enviar (não afeta o run)`. A URL nunca é
+impressa (repositório público). Step com `continue-on-error` que falha (ex.:
+keepalive) NÃO vira `/fail`: a *conclusion* dele é `success`, e é isso que
+`job.status` reflete.
+
+**Por que 24h:** o maior intervalo observado entre runs foi ~15h (19/11
+01h00 → 16h12, `HISTORICO.md` item 35); no pior caso, 12h de cron + ~8h de
+atraso do GitHub ≈ 20h. Com 18h haveria alarme falso.
+
+**Alternativas descartadas:** segundo workflow no GitHub (para junto com o
+GitHub, que foi justamente o que parou em 06-18/11); Supabase pg_cron ou
+Cloudflare Worker (levariam o token do bot para outro lugar).
+
+**Riscos aceitos:** URL vazada permitiria um "estou vivo" falso (trocar a
+URL — `RUNBOOK.md`); Healthchecks fora do ar junto com o GitHub = sem
+alarme.
+
+**Verificação pendente:** no primeiro run AGENDADO (não
+`workflow_dispatch`) depois do push, o log mostra `[healthcheck] ok:
+success` e o painel do Healthchecks mostra o check "up".
 

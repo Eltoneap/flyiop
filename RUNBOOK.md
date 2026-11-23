@@ -91,6 +91,25 @@ Nota: stage NÃO fica em `system_config` (só `suspicious_below_avg_pct`,
 `fast_flights_enabled`, `fast_flights_daily_batch_size`) — fica em
 `bot_state`, chave `weekend_scrape_stage`.
 
+## Alarme de robô parado (Healthchecks.io)
+
+Contexto e decisão: `PLANO-ATIVO.md`, "Alarme de robô parado —
+Healthchecks.io". Se nenhum run do `daily.yml` avisar em 24h, o
+@HealthchecksBot manda mensagem no Telegram pessoal (+ e-mail).
+
+- **Onde fica a URL de ping:** só no secret `HEALTHCHECKS_PING_URL`
+  (GitHub → Settings → Secrets and variables → Actions). Nunca colar em
+  arquivo, issue ou chat — o repositório é público.
+- **Log:** último step do run, "Sinal de vida (Healthchecks)"; procure
+  `[healthcheck]`.
+- **Pausar** (manutenção, kill-switch longo, robô parado de propósito):
+  painel do Healthchecks → check → **Pause**. O próximo ping reativa o
+  check sozinho.
+- **Trocar a URL se vazar:** no painel do Healthchecks, gerar URL nova para
+  o check (ou criar check novo, com o mesmo period/grace e as mesmas
+  integrações, e apagar o antigo); atualizar o secret no GitHub. Nenhuma
+  mudança de código.
+
 ## Ambiente local (nota, não produção)
 
 Em 02/08/2026 foi instalado `postgresql@16` via Homebrew na máquina do

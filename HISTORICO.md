@@ -1732,6 +1732,9 @@ servindo a pasta antiga (`~/Documents/FlyIop`, iCloud) mesmo com a sessão
 em `~/dev/flyiop`; a verificação usou um `http.server` iniciado direto em
 `~/dev/flyiop/docs`, mesma porta (5051).
 
+**Publicado e conferido pelo Elton no site (23/11/2026):** ✅ aba Compras
+só com fins de semana futuros.
+
 ---
 
 ## 31. Robô nunca consulta nem avalia perna com data já passada, 19/11/2026
@@ -1908,6 +1911,9 @@ Verificado no painel local com dados reais: hoje (20/11/2026) → 4 visíveis
 28/02); `?hoje=2027-02-20` → 3 futuras visíveis, sem toggle, "Voos
 anteriores (4)"; console sem erros.
 
+**Publicado e conferido pelo Elton no site (23/11/2026):** ✅ bloco "Minhas
+compras" no Dashboard.
+
 ---
 
 ## 33. "Quem ainda quer esta perna?" — perna dispensada e usuário fora do monitoramento, 20/11/2026
@@ -2017,6 +2023,8 @@ Só leitura de log.
   `[perna return 2027-01-29] R$ 383.00 (GIG, sunday, cache) teto R$ 400`, o
   override dele. É a regra "sai quando nenhum usuário ATIVO monitora"
   funcionando.
+- **Resumo semanal de segunda 23/11/2026:** veio só com a linha do Elton —
+  Gustavo fora, como esperado (conferido pelo Elton).
 
 ---
 
